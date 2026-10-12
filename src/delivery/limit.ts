@@ -12,6 +12,14 @@ export function createFailureLimiter(deps: {
 }) {
   const now = deps.now ?? Date.now
   const windowMs = deps.windowMs ?? 10 * 60_000
+  // A broken report sink must not break the loop it reports on.
+  const safeReport = (err: unknown) => {
+    try {
+      deps.report(err)
+    } catch (e) {
+      deps.log("error", "failure report not sent", { error: String(e) })
+    }
+  }
   const failing = new Map<string, { since: number; reportedAt: number; count: number }>()
   return {
     fail(source: string, err: unknown): void {
@@ -20,13 +28,13 @@ export function createFailureLimiter(deps: {
       const s = failing.get(source)
       if (!s) {
         failing.set(source, { since: t, reportedAt: t, count: 1 })
-        deps.report(err)
+        safeReport(err)
         return
       }
       s.count++
       if (t - s.reportedAt >= windowMs) {
         s.reportedAt = t
-        deps.report(err)
+        safeReport(err)
       }
     },
     ok(source: string): void {

@@ -15,6 +15,15 @@ export type PollerDeps = {
   report: (err: unknown, extra?: Record<string, unknown>) => void
   readHolds: (r: HoldsReq) => Promise<DevHolds>
   rules?: typeof rulesFor
+  /** Shared by startPoller so rule-failure reports are rate-limited across batches. */
+  limiter?: ReturnType<typeof createFailureLimiter>
+}
+
+/** postgres.js and Node network errors carry a string `code`; a rule's own bugs do not. */
+function isInfraError(err: unknown): boolean {
+  return (
+    typeof err === "object" && err !== null && typeof (err as { code?: unknown }).code === "string"
+  )
 }
 
 async function setCursor(sql: Sql, value: string): Promise<void> {
@@ -74,15 +83,22 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
   const events = await eventsAfter(sql, cursor)
   if (events.length === 0) return 0
   const rules = deps.rules ?? rulesFor
+  const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log })
   const cands: Candidate[] = []
+  let skipped = 0
   for (const ev of events) {
     try {
       cands.push(...(await rules(ev, { sql, prices: deps.prices, log })))
     } catch (err) {
+      // Database and connection errors fail the whole batch: the cursor stays and the loop retries.
+      // Anything else is a bad event; skip it so one poison event cannot stall every chat.
+      if (isInfraError(err)) throw err
+      skipped++
       log("error", "rule failed, event skipped", { id: ev.id, error: String(err) })
-      deps.report(err, { eventId: ev.id })
+      limiter.fail("rule", err)
     }
   }
+  if (skipped === 0) limiter.ok("rule")
   const deliveries = route(cands, await loadAudience(sql, [...new Set(cands.map((c) => c.token))]))
   const lastId = events.at(-1)!.id
   const dev = deliveries.filter((d) => d.alert === "devsell")
@@ -128,16 +144,21 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
 /** Polls every second, straight away again after a full batch. Returns a stop function. */
 export function startPoller(deps: PollerDeps): () => void {
   const limiter = createFailureLimiter({ report: deps.report, log: deps.log })
+  const shared = { ...deps, limiter }
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const loop = async () => {
     let wait = 1000
     try {
-      if ((await pollOnce(deps)) === 500) wait = 0
+      if ((await pollOnce(shared)) === 500) wait = 0
       limiter.ok("poller")
     } catch (err) {
-      limiter.fail("poller", err)
       wait = 5000
+      try {
+        limiter.fail("poller", err)
+      } catch {
+        // Reporting must never end the loop; the next pass retries.
+      }
     }
     if (!stopped) timer = setTimeout(loop, wait)
   }

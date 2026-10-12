@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { initCursor, type PollerDeps, pollOnce } from "../src/delivery/poller"
+import { initCursor, type PollerDeps, pollOnce, startPoller } from "../src/delivery/poller"
 import type { Prices } from "../src/prices"
 import type { DevHolds } from "../src/rpc"
 import { allOff, basicPreset } from "../src/settings"
@@ -263,4 +263,86 @@ it("runs as the bot role with only the production grants", async () => {
     await bot.end()
   }
   expect((await byChat())["901"]).toEqual(["bonding:pending", "new:pending"])
+})
+
+const pumpOnly = () => {
+  const s = basicPreset()
+  return { ...s, alerts: { ...s.alerts, bonding: { ...s.alerts.bonding, on: false } } }
+}
+const pumpTrade = () => trade({ soldBps: 2000, quoteAmount: eth(0.5), blockTimestamp: T0 + 60 })
+
+it("keeps one PUMPING and no BIG when a batch is re-run after a crash", async () => {
+  await addUser(sql, 1001, pumpOnly())
+  await insertEvents(sql, [L, pumpTrade()])
+  await pollOnce(deps())
+  await initCursor(sql, "0")
+  await pollOnce(deps())
+  expect((await byChat())["1001"]).toEqual(["new:pending", "pumping:pending"])
+})
+
+it("keeps one PUMPING and no BIG when a reorg re-inserts the trade", async () => {
+  await addUser(sql, 1002, pumpOnly())
+  const events = [L, pumpTrade()]
+  await insertEvents(sql, events)
+  await pollOnce(deps())
+  await sql`delete from indexer.events`
+  await insertEvents(sql, events)
+  await pollOnce(deps())
+  expect((await byChat())["1002"]).toEqual(["new:pending", "pumping:pending"])
+})
+
+it("fails the batch on a database error and leaves the cursor where it was", async () => {
+  await addUser(sql, 1101)
+  await insertEvents(sql, [L, trade({ soldBps: 8100 })])
+  const dbError = Object.assign(new Error("connection closed"), { code: "CONNECTION_CLOSED" })
+  await expect(pollOnce(deps({ rules: async () => Promise.reject(dbError) }))).rejects.toBe(dbError)
+  expect(await cursor()).toBe("0")
+  expect(await listDeliveries(sql)).toEqual([])
+})
+
+it("sends rule-failure reports through the limiter, one per source while failing", async () => {
+  await addUser(sql, 1201)
+  await insertEvents(sql, [L, trade({ soldBps: 8100 }), trade({ soldBps: 8200 })])
+  await pollOnce(deps({ rules: async () => Promise.reject(new Error("bad payload")) }))
+  expect(report).toHaveBeenCalledTimes(1)
+})
+
+it("startPoller reports a failing batch once, keeps the cursor, and keeps looping", async () => {
+  await addUser(sql, 1301)
+  await insertEvents(sql, [L, trade({ soldBps: 8100 })])
+  const real = (await import("../src/rules/index")).rulesFor
+  const dbError = Object.assign(new Error("connection closed"), { code: "CONNECTION_CLOSED" })
+  let calls = 0
+  const rules: typeof real = async (ev, ctx) => {
+    if (calls++ < 2) throw dbError
+    return real(ev, ctx)
+  }
+  report.mockImplementationOnce(() => {
+    throw new Error("report sink down")
+  })
+  const realTimeout = globalThis.setTimeout
+  const until = async (ok: () => boolean | Promise<boolean>) => {
+    for (let i = 0; i < 500 && !(await ok()); i++) await new Promise((r) => realTimeout(r, 10))
+    expect(await ok()).toBe(true)
+  }
+  await Promise.all([1, 2, 3, 4].map(() => sql`select pg_sleep(0.05)`)) // open the pool before faking timers
+  vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+  let stop = () => {}
+  try {
+    stop = startPoller(deps({ rules }))
+    await until(() => report.mock.calls.length === 1 && vi.getTimerCount() === 1)
+    expect(await cursor()).toBe("0")
+    await vi.advanceTimersByTimeAsync(5000)
+    await until(() => calls >= 2 && vi.getTimerCount() === 1)
+    expect(report).toHaveBeenCalledTimes(1) // second failure is inside the report window
+    expect(await cursor()).toBe("0")
+    await vi.advanceTimersByTimeAsync(5000)
+    await until(async () => (await listDeliveries(sql)).length > 0 && vi.getTimerCount() === 1)
+    expect(await cursor()).not.toBe("0")
+    stop()
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    stop()
+    vi.useRealTimers()
+  }
 })

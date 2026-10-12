@@ -29,8 +29,8 @@ export type Audience = {
   /** token → user ids */
   watch: Map<string, Set<string>>
   mute: Map<string, Set<string>>
-  /** `${chatId}:${token}` → event time of the last PUMPING sent there. */
-  lastPump: Map<string, number>
+  /** `${chatId}:${token}` → the PUMPING alerts queued there: event time and dedupe key. */
+  lastPump: Map<string, { ts: number; key: string }[]>
 }
 
 /** Watchers get BIG at the default 5% threshold, whatever their own setting. */
@@ -59,9 +59,12 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
   const byEvent = new Map<string, Candidate[]>()
   for (const c of cands) byEvent.set(c.eventId, [...(byEvent.get(c.eventId) ?? []), c])
   const out: Delivery[] = []
+  // A candidate's own earlier row (crash re-run, reorg re-insert) and later pumps never cool it.
   const cooling = (chatId: string, c: Candidate) =>
     c.alert === "pumping" &&
-    (aud.lastPump.get(`${chatId}:${c.token}`) ?? Number.NEGATIVE_INFINITY) > c.eventTs - 3600
+    (aud.lastPump.get(`${chatId}:${c.token}`) ?? []).some(
+      (p) => p.key !== c.dedupeKey && p.ts <= c.eventTs && p.ts > c.eventTs - 3600,
+    )
   const push = (
     c: Candidate,
     chatId: string,
@@ -69,7 +72,10 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
     threadId: number | null,
     s: Settings,
   ) => {
-    if (c.alert === "pumping") aud.lastPump.set(`${chatId}:${c.token}`, c.eventTs)
+    if (c.alert === "pumping") {
+      const k = `${chatId}:${c.token}`
+      aud.lastPump.set(k, [...(aud.lastPump.get(k) ?? []), { ts: c.eventTs, key: c.dedupeKey }])
+    }
     out.push({
       eventId: c.eventId,
       chatId,
@@ -134,10 +140,9 @@ export async function loadAudience(sql: Sql, tokens: string[]): Promise<Audience
         select user_id::text as "userId", kind, target from bot.subscriptions where target = any(${tokens})`
     : []
   const pumps = tokens.length
-    ? await sql<{ chatId: string; token: string; ts: number }[]>`
-        select chat_id::text as "chatId", token, max(extract(epoch from event_ts))::int as ts
-        from bot.deliveries where alert = 'pumping' and token = any(${tokens}) and status <> 'superseded'
-        group by 1, 2`
+    ? await sql<{ chatId: string; token: string; ts: number; key: string }[]>`
+        select chat_id::text as "chatId", token, extract(epoch from event_ts)::int as ts, dedupe_key as key
+        from bot.deliveries where alert = 'pumping' and token = any(${tokens}) and status <> 'superseded'`
     : []
   const watch = new Map<string, Set<string>>()
   const mute = new Map<string, Set<string>>()
@@ -146,11 +151,16 @@ export async function loadAudience(sql: Sql, tokens: string[]): Promise<Audience
     if (!m.has(s.target)) m.set(s.target, new Set())
     m.get(s.target)!.add(s.userId)
   }
+  const lastPump = new Map<string, { ts: number; key: string }[]>()
+  for (const p of pumps) {
+    const k = `${p.chatId}:${p.token}`
+    lastPump.set(k, [...(lastPump.get(k) ?? []), { ts: p.ts, key: p.key }])
+  }
   return {
     users: users.map((u) => ({ ...u, settings: readSettings(u.settings) })),
     chats: chats.map((c) => ({ ...c, settings: readSettings(c.settings) })),
     watch,
     mute,
-    lastPump: new Map(pumps.map((p) => [`${p.chatId}:${p.token}`, p.ts])),
+    lastPump,
   }
 }

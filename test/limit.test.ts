@@ -41,3 +41,13 @@ it("logs one recovery line, then reports a new failure straight away", () => {
   limiter.fail("poller", new Error("again"))
   expect(report).toHaveBeenCalledTimes(2)
 })
+
+it("does not throw when the report sink throws", () => {
+  const limiter = createFailureLimiter({
+    report: () => {
+      throw new Error("sink down")
+    },
+    log: () => {},
+  })
+  expect(() => limiter.fail("poller", new Error("a"))).not.toThrow()
+})

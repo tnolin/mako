@@ -1,0 +1,8 @@
+title = "mako gitleaks config"
+
+[extend]
+useDefault = true
+
+[allowlist]
+description = "Test fixtures hold public on-chain addresses and hashes, which the generic-api-key rule flags."
+paths = ['''test/fixtures/.*\.json''']

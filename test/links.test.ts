@@ -1,4 +1,4 @@
-import type { AddressInfo } from "node:net"
+import { type AddressInfo, connect } from "node:net"
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { createLinkServer, logTradeClick } from "../src/links"
@@ -64,6 +64,23 @@ describe("redirect server", () => {
     expect(clicks).toEqual([])
   })
 
+  it("answers 404 to a request target that is not a valid URL and keeps serving", async () => {
+    const { port } = server.address() as AddressInfo
+    const raw = await new Promise<string>((resolve, reject) => {
+      const sock = connect(port, "127.0.0.1", () =>
+        sock.write("GET // HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"),
+      )
+      let out = ""
+      sock.on("data", (b) => {
+        out += b
+      })
+      sock.on("close", () => resolve(out))
+      sock.on("error", reject)
+    })
+    expect(raw.startsWith("HTTP/1.1 404")).toBe(true)
+    expect((await get(`/t/${CA}`)).status).toBe(302)
+  })
+
   it("drops a d that is not a uuid", async () => {
     clicks.length = 0
     await get(`/t/${CA}?d=1%27%3Bdrop`)
@@ -103,7 +120,7 @@ describe("logTradeClick", () => {
         chat_id: null,
         action: "trade_click",
         token: CA,
-        params: { d: p!.id, kind: "new" },
+        params: { d: null, kind: "new" },
       },
       {
         chat_type: "private",

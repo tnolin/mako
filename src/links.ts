@@ -9,6 +9,15 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 export const BOT_UA =
   /bot|crawler|spider|preview|facebookexternalhit|telegrambot|twitterbot|discordbot|slackbot|whatsapp/i
 
+/** Request targets Node accepts (`//`, `//[`) can still be invalid URLs. Never throw on a public endpoint. */
+function parseTarget(target: string | undefined): URL | null {
+  try {
+    return new URL(target ?? "/", "http://localhost")
+  } catch {
+    return null
+  }
+}
+
 /**
  * GET /t/<CA>?d=<delivery uuid> → 302 to the launchpad with the referral code. The response never
  * waits on the database; the click is logged afterwards. IPs and user agents are never stored.
@@ -19,9 +28,9 @@ export function createLinkServer(deps: {
   log: Logger
 }): Server {
   return createServer((req, res) => {
-    const url = new URL(req.url ?? "/", "http://localhost")
-    const m = req.method === "GET" ? PATH.exec(url.pathname) : null
-    if (!m) {
+    const url = parseTarget(req.url)
+    const m = req.method === "GET" && url ? PATH.exec(url.pathname) : null
+    if (!url || !m) {
       res.writeHead(404, { "content-type": "text/plain" }).end("not found")
       return
     }
@@ -46,10 +55,12 @@ export async function logTradeClick(
         select alert, chat_type, chat_id::text from bot.deliveries where id = ${deliveryId}`
     : []
   await logAction(sql, {
+    // A missing delivery row defaults to private: the safe choice, since it stores no chat id.
     chatType: d?.chat_type ?? "private",
     chatId: d?.chat_id ?? null,
     action: "trade_click",
     token: ca,
-    params: { d: deliveryId, kind: d?.alert ?? null },
+    // The delivery id joins back to chat_id, so keep it only for group-like chats (never private).
+    params: { d: d && d.chat_type !== "private" ? deliveryId : null, kind: d?.alert ?? null },
   })
 }

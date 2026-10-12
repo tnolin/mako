@@ -9,6 +9,7 @@ const OUTAGE_MS = 30 * 60_000
 
 // shortcut: symbols of the 11 xStocks wrappers on 2026-10-12, used until InkyPump's list loads.
 // The bot can't read indexer.hooks and makes no RPC call for symbols. Unknown wrappers show "xStock".
+// Upgrade path: read wrapper symbols from the indexer or over RPC if the xStock set grows.
 const SEED_SYMBOLS: Record<string, string> = {
   "0x943bf64d566c32a2bcd41ac92fb63c111cc9de8f": "AAPLx",
   "0xd37a850b99a8b80126e025c2ecfcdf853a1eb77d": "ACNx",
@@ -97,7 +98,10 @@ export function createPrices(deps: {
 
   const refreshXstocks = async () => {
     try {
-      xs = { map: parseXstocks(await get(INKY)), at: now() }
+      const map = parseXstocks(await get(INKY))
+      // An empty parse means the response shape changed: keep the old map and let the outage clock run.
+      if (map.size === 0) throw new Error("no assets in response")
+      xs = { map, at: now() }
     } catch (err) {
       log("warn", "xStock prices fetch failed", { error: String(err) })
     }

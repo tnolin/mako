@@ -99,7 +99,11 @@ describe("createPrices", () => {
   it("keeps the last value on a failed fetch and reports once per 30-minute outage", async () => {
     const r = {
       kraken: { error: [], result: { XETHZUSD: { c: ["2500", "1"] } } } as unknown,
-      inky: { assets: [] } as unknown,
+      inky: {
+        assets: [
+          { wrapperAddress: NVDAX, symbol: "NVDAx", valuation: { wrapperPriceUsd: "229.75" } },
+        ],
+      } as unknown,
     }
     const { prices, report, advance } = setup(r)
     await prices.refresh()
@@ -114,5 +118,33 @@ describe("createPrices", () => {
     await prices.refresh()
     expect(report).toHaveBeenCalledTimes(1)
     expect(report.mock.calls[0]?.[0]).toMatch(/ETH\/USD price unavailable/)
+  })
+
+  it("treats a zero-asset xStock response as a failure: keeps the old map and reports the outage", async () => {
+    const r = {
+      kraken: { error: [], result: { XETHZUSD: { c: ["2500", "1"] } } } as unknown,
+      inky: {
+        assets: [
+          { wrapperAddress: NVDAX, symbol: "NVDAx", valuation: { wrapperPriceUsd: "229.75" } },
+        ],
+      } as unknown,
+    }
+    const { prices, report, advance } = setup(r)
+    await prices.refresh()
+    r.inky = { assets: [] }
+    advance(20 * 60_000)
+    await prices.refresh()
+    expect(prices.usd(NVDAX)).toBe(229.75) // previous map kept while still fresh
+    expect(prices.symbol(NVDAX)).toBe("NVDAx")
+    advance(11 * 60_000)
+    await prices.refresh() // stale from here: the outage clock starts
+    expect(prices.usd(NVDAX)).toBeNull()
+    advance(30 * 60_000)
+    await prices.refresh()
+    await prices.refresh()
+    const xsReports = report.mock.calls.filter((c) =>
+      /xStock\/USD price unavailable/.test(String(c[0])),
+    )
+    expect(xsReports).toHaveLength(1)
   })
 })

@@ -49,7 +49,7 @@ describe("synthetic events", () => {
       "launchpad.launch",
       "launchpad.trade",
     ])
-    expect(await maxEventId(sql)).toBe(ids[5])
+    expect(await maxEventId(sql)).toBe(ids[4])
   })
 
   it("reads a token's launch, trades up to an id, and bond", async () => {

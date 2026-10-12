@@ -12,10 +12,11 @@ export function eventsAfter(sql: Sql, cursor: string, limit = 500): Promise<Row<
     where confirmed and id > ${cursor} order by id limit ${limit}`
 }
 
+/** The newest confirmed event id. Unconfirmed rows are skipped, so they are read once they confirm. */
 export async function maxEventId(sql: Sql): Promise<string> {
   const [r] = await sql<
     { id: string }[]
-  >`select coalesce(max(id), 0)::text as id from indexer.events`
+  >`select coalesce(max(id), 0)::text as id from indexer.events where confirmed`
   return r!.id
 }
 

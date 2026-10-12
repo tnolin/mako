@@ -47,7 +47,9 @@ export function createSend(
           await api.sendPhoto(chat, p.card.imageUrl!, { ...base, caption: html, reply_markup })
           return { ok: true }
         } catch (err) {
-          if (classify(err).kind !== "media") throw err
+          // A chat may allow text but not media, so rights falls back too; the text send decides.
+          const kind = classify(err).kind
+          if (kind !== "media" && kind !== "rights") throw err
         }
       }
       await api.sendMessage(chat, html, {

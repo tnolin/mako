@@ -70,6 +70,27 @@ it("uses sendPhoto for other hosts and falls back to text on a media error", asy
   })
 })
 
+it("falls back to text when the chat allows text but not photos", async () => {
+  const a = api()
+  a.sendPhoto.mockRejectedValueOnce(
+    new GrammyError(
+      "x",
+      {
+        ok: false,
+        error_code: 400,
+        description: "Bad Request: not enough rights to send photos to the chat",
+      },
+      "sendPhoto",
+      {},
+    ),
+  )
+  const r = row({
+    card: { type: "card", card: { ...card, imageUrl: "https://ipfs.io/ipfs/x" }, image: true },
+  })
+  expect(await createSend(a, opts)(r)).toEqual({ ok: true })
+  expect(a.sendMessage).toHaveBeenCalledOnce()
+})
+
 it("disables previews when images are off", async () => {
   const a = api()
   await createSend(a, opts)(row({ card: { type: "card", card, image: false } }))

@@ -22,10 +22,16 @@ export type Failure = {
 /** Telegram's descriptions are the only signal for most failures; this table is the contract, tested case by case. */
 const TABLE: [RegExp, FailureKind][] = [
   [/message is not modified/i, "not_modified"],
-  [/bot was blocked by the user|user is deactivated/i, "blocked"],
-  [/bot was kicked|bot is not a member|chat not found|CHANNEL_PRIVATE/i, "removed"],
   [
-    /not enough rights|CHAT_WRITE_FORBIDDEN|CHAT_ADMIN_REQUIRED|need administrator rights|have no rights to send/i,
+    /bot was blocked by the user|user is deactivated|bot can't initiate conversation|bot can't send messages to bots/i,
+    "blocked",
+  ],
+  [
+    /bot was kicked|bot is not a member|chat not found|CHANNEL_PRIVATE|chat was deleted/i,
+    "removed",
+  ],
+  [
+    /not enough rights|CHAT_WRITE_FORBIDDEN|CHAT_SEND_\w+_FORBIDDEN|CHAT_RESTRICTED|CHAT_ADMIN_REQUIRED|need administrator rights|have no rights to send/i,
     "rights",
   ],
   [/TOPIC_CLOSED|TOPIC_DELETED|message thread not found/i, "topic"],

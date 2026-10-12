@@ -2,6 +2,9 @@ import type postgres from "postgres"
 import type { Sql } from "../db"
 import { basicPreset, readSettings, type Settings } from "../settings"
 
+/** Shown when a button is tapped by someone with no user row (for example after Delete my data). */
+export const NO_USER = "Send /start to use MAKO."
+
 export type User = { id: string; tg: number; settings: Settings }
 type Row = { id: string; tg: string; settings: unknown; created?: boolean }
 const toUser = (r: Row): User => ({

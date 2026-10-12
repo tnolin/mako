@@ -6,7 +6,7 @@ import { openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
 import { MENU_TEXT, menuKb } from "./main"
 import { sendTokenCard } from "./token"
-import { ensureUser, findUser, saveUserSettings } from "./users"
+import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
 import { watchToken } from "./watchlist"
 
 /** Analytics source for /start: a kind letter for our own links, a plain campaign tag, never free text or ids. */
@@ -18,8 +18,6 @@ export function startSource(payload: string): string {
   if (/^0x[0-9a-fA-F]{40}$/.test(payload) || /^-?\d+$/.test(payload)) return "other"
   return /^[A-Za-z0-9_-]{1,64}$/.test(payload) ? payload : "other"
 }
-
-const NO_USER = "Send /start to use MAKO."
 
 export function welcomeText(): string {
   const w = Math.max(...ALERTS.map((a) => ALERT_LABEL[a].length)) + 2

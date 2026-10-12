@@ -23,7 +23,11 @@ export const KNOWN_COMMANDS = [
 
 /** The grammY bot with every screen. Long polling; the caller starts it. */
 export function createBot(deps: BotDeps & { token: string; botInfo?: UserFromGetMe }): Bot {
-  const bot = new Bot(deps.token, deps.botInfo ? { botInfo: deps.botInfo } : undefined)
+  // grammY's default API timeout is 500 s; 60 s keeps one hung call from stalling the sender, and is above long polling's 30 s.
+  const bot = new Bot(deps.token, {
+    client: { timeoutSeconds: 60 },
+    ...(deps.botInfo ? { botInfo: deps.botInfo } : {}),
+  })
   bot.use(async (ctx, next) => {
     const cmd = ctx.msg?.text?.match(/^\/([a-z]+)/i)?.[1]?.toLowerCase()
     if (cmd && KNOWN_COMMANDS.includes(cmd)) {

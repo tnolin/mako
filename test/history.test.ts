@@ -88,3 +88,25 @@ describe("real fixtures", () => {
     expect(await bondOf(sql, token)).not.toBeNull()
   })
 })
+
+describe("id ordering", () => {
+  it("orders by numeric id, not by the id's text form", async () => {
+    // ids 1..120 cross 9 to 10 and 99 to 100, where text order differs from numeric order.
+    const own = await resetDb(inject("databaseUrl"))
+    try {
+      const T = addr(0xe1)
+      const ids = await insertEvents(
+        own,
+        Array.from({ length: 120 }, (_, i) =>
+          trade({ token: T, soldBps: 1000 + i, blockNumber: String(100 + i) }),
+        ),
+      )
+      const first = await eventsAfter(own, "0", 100)
+      expect(first.map((e) => e.id)).toEqual(ids.slice(0, 100))
+      expect((await tradesOf(own, T)).map((t) => t.id)).toEqual(ids)
+      expect((await tradesOf(own, T, ids[99]!)).map((t) => t.id)).toEqual(ids.slice(0, 100))
+    } finally {
+      await own.end()
+    }
+  })
+})

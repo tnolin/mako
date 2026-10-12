@@ -5,11 +5,12 @@ import type { Sql } from "./db"
 export type Row<T> = { id: string; p: T }
 
 // Every read of the indexer lives here. Production grants allow indexer.events and indexer.cursors only.
+// Selecting `id::text` makes a bare `order by id` sort the text, so these orders use `events.id`.
 
 export function eventsAfter(sql: Sql, cursor: string, limit = 500): Promise<Row<IndexerEvent>[]> {
   return sql<Row<IndexerEvent>[]>`
     select id::text, payload as p from indexer.events
-    where confirmed and id > ${cursor} order by id limit ${limit}`
+    where confirmed and id > ${cursor} order by events.id limit ${limit}`
 }
 
 /** The newest confirmed event id. Unconfirmed rows are skipped, so they are read once they confirm. */
@@ -23,7 +24,7 @@ export async function maxEventId(sql: Sql): Promise<string> {
 export async function launchOf(sql: Sql, token: string): Promise<Row<LaunchEvent> | null> {
   const [r] = await sql<Row<LaunchEvent>[]>`
     select id::text, payload as p from indexer.events
-    where entity = ${token} and type = 'launchpad.launch' order by id limit 1`
+    where entity = ${token} and type = 'launchpad.launch' order by events.id limit 1`
   return r ?? null
 }
 
@@ -32,16 +33,16 @@ export function tradesOf(sql: Sql, token: string, uptoId?: string): Promise<Row<
   return uptoId === undefined
     ? sql<Row<TradeEvent>[]>`
         select id::text, payload as p from indexer.events
-        where entity = ${token} and type = 'launchpad.trade' order by id`
+        where entity = ${token} and type = 'launchpad.trade' order by events.id`
     : sql<Row<TradeEvent>[]>`
         select id::text, payload as p from indexer.events
-        where entity = ${token} and type = 'launchpad.trade' and id <= ${uptoId} order by id`
+        where entity = ${token} and type = 'launchpad.trade' and id <= ${uptoId} order by events.id`
 }
 
 export async function bondOf(sql: Sql, token: string): Promise<Row<BondEvent> | null> {
   const [r] = await sql<Row<BondEvent>[]>`
     select id::text, payload as p from indexer.events
-    where entity = ${token} and type = 'launchpad.bond' order by id limit 1`
+    where entity = ${token} and type = 'launchpad.bond' order by events.id limit 1`
   return r ?? null
 }
 
@@ -105,5 +106,5 @@ export function nearBonding(sql: Sql): Promise<{ token: string; soldBps: number 
 export function justBonded(sql: Sql): Promise<Row<BondEvent>[]> {
   return sql<Row<BondEvent>[]>`
     select id::text, payload as p from indexer.events
-    where type = 'launchpad.bond' order by id desc limit 5`
+    where type = 'launchpad.bond' order by events.id desc limit 5`
 }

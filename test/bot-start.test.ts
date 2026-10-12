@@ -155,10 +155,12 @@ it("logs only a safe source for /start payloads, never free text or ids", async 
   await h.text("/start t_0xd1a5a3b3c0ffee00112233445566778899aabbcc", { from: 102 })
   await h.text("/start s_-100123456", { from: 103 })
   await h.text("/start promo_1", { from: 104 })
+  await h.text("/start 0xAbCdEf0123456789aBcDeF0123456789abcdef01", { from: 105 })
+  await h.text("/start -100987654", { from: 106 })
   await h.text("/start")
-  expect(await sources()).toEqual(["other", "w", "t", "s", "promo_1", "none"])
+  expect(await sources()).toEqual(["other", "w", "t", "s", "promo_1", "other", "other", "none"])
   const dump = JSON.stringify(await sql`select * from bot.user_actions`)
-  expect(dump).not.toMatch(/free|text|here|0xd1a5|100123456/)
+  expect(dump).not.toMatch(/free|text|here|0xd1a5|0xabcdef|100123456|100987654/i)
 })
 
 it("does not recreate a deleted user when an old onboarding button is tapped", async () => {

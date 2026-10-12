@@ -14,6 +14,8 @@ export function startSource(payload: string): string {
   if (!payload) return "none"
   const kind = /^([wts])_/.exec(payload)?.[1]
   if (kind) return kind
+  // A bare address or chat id is an identifier, not a campaign tag.
+  if (/^0x[0-9a-fA-F]{40}$/.test(payload) || /^-?\d+$/.test(payload)) return "other"
   return /^[A-Za-z0-9_-]{1,64}$/.test(payload) ? payload : "other"
 }
 

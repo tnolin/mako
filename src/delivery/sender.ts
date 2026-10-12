@@ -15,6 +15,8 @@ export type SenderDeps = {
   log: Logger
   report: (err: unknown) => void
   now?: () => number
+  /** Shared by startSender so settle and tick failures are rate-limited together. */
+  limiter?: ReturnType<typeof createFailureLimiter>
 }
 
 const MAX_IN_FLIGHT = 10
@@ -26,6 +28,7 @@ export function createSender(deps: SenderDeps) {
   const { sql, notify } = deps
   const now = deps.now ?? Date.now
   // shortcut: throttle state lives in memory, so a restart forgets pacing for a few seconds. Upgrade path: persist next-send times in bot.state.
+  const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log: deps.log })
   const nextAt = new Map<string, number>()
   const recent: number[] = []
 
@@ -119,6 +122,14 @@ export function createSender(deps: SenderDeps) {
           update bot.deliveries set attempts = ${attempts}, error = ${res.description},
             status = case when ${attempts}::int >= ${MAX_ATTEMPTS}::int then 'failed' else status end
           where id = ${r.id}`
+        if (attempts >= MAX_ATTEMPTS) {
+          deps.log("warn", "delivery failed after retries", {
+            chatId: r.chat_id,
+            alert: r.alert,
+            attempts,
+            error: res.description,
+          })
+        }
         nextAt.set(r.chat_id, now() + 5000)
         return
       }
@@ -140,14 +151,40 @@ export function createSender(deps: SenderDeps) {
         await topicBroken(r)
         return
       case "migrated":
-        await sql`update bot.chats set chat_id = ${res.migrateTo!} where chat_id = ${r.chat_id}`
-        await sql`update bot.deliveries set chat_id = ${res.migrateTo!} where chat_id = ${r.chat_id} and status = 'pending'`
+        if (res.migrateTo === undefined) {
+          await failOther(r, res, gap)
+          return
+        }
+        await migrate(r.chat_id, String(res.migrateTo))
         return
       default:
-        await sql`update bot.deliveries set status = 'failed', error = ${res.description} where id = ${r.id}`
-        deps.report(new Error(`send failed (${res.kind}): ${res.description}`))
-        nextAt.set(r.chat_id, now() + gap)
+        await failOther(r, res, gap)
     }
+  }
+
+  async function failOther(r: PendingRow, res: { kind: string; description: string }, gap: number) {
+    await sql`update bot.deliveries set status = 'failed', error = ${res.description} where id = ${r.id}`
+    deps.report(new Error(`send failed (${res.kind}): ${res.description}`))
+    nextAt.set(r.chat_id, now() + gap)
+  }
+
+  /** A group that became a supergroup gets a new chat id; its queue follows, in one transaction. */
+  async function migrate(from: string, to: string) {
+    await sql.begin(async (tx) => {
+      const [existing] = await tx`select 1 from bot.chats where chat_id = ${to}`
+      if (existing) {
+        await tx`update bot.chats set active = false, removed_at = now() where chat_id = ${from}`
+      } else {
+        await tx`update bot.chats set chat_id = ${to}, kind = 'supergroup' where chat_id = ${from}`
+      }
+      // Rows that already exist under the new id win; their old twins would collide on dedupe_key.
+      await tx`
+        delete from bot.deliveries d where d.chat_id = ${from} and d.status = 'pending'
+          and exists (select 1 from bot.deliveries n where n.chat_id = ${to} and n.dedupe_key = d.dedupe_key)`
+      await tx`
+        update bot.deliveries set chat_id = ${to}, chat_type = 'supergroup'
+        where chat_id = ${from} and status = 'pending'`
+    })
   }
 
   return {
@@ -167,20 +204,34 @@ export function createSender(deps: SenderDeps) {
         .filter((r) => (nextAt.get(r.chat_id) ?? 0) <= t)
         .sort((a, b) => a.priority - b.priority || a.created_at.getTime() - b.created_at.getTime())
         .slice(0, budget)
+      let settleFailed = false
       await Promise.all(
         ready.map(async (r) => {
           recent.push(now())
-          await settle(r, await deps.send(r))
+          const res = await deps.send(r)
+          try {
+            await settle(r, res)
+          } catch (err) {
+            // One chat's failed write must not stop the others, nor re-send this row on the next tick.
+            settleFailed = true
+            nextAt.set(r.chat_id, now() + 5000)
+            try {
+              limiter.fail("settle", err)
+            } catch {
+              // Reporting must never end the tick.
+            }
+          }
         }),
       )
+      if (ready.length > 0 && !settleFailed) limiter.ok("settle")
     },
   }
 }
 
 /** Ticks every 250 ms, one tick at a time. Returns a stop function. */
 export function startSender(deps: SenderDeps): () => void {
-  const sender = createSender(deps)
-  const limiter = createFailureLimiter({ report: deps.report, log: deps.log })
+  const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log: deps.log })
+  const sender = createSender({ ...deps, limiter })
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const loop = async () => {

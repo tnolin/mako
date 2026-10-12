@@ -166,13 +166,15 @@ it("asks for a throttled notice after 3 summaries in an hour, naming the top fee
 it("waits retry_after on 429, retries transient errors and fails after 5 attempts", async () => {
   await enqueue(7, "new", { chatType: "private" })
   respond = () => ({ ok: false, kind: "transient", description: "Bad Gateway" })
-  const s = sender()
+  const log = vi.fn()
+  const s = sender({ log })
   for (let i = 0; i < 5; i++) {
     await s.tick()
     t += 5000
   }
   expect(await statuses()).toEqual(["new:failed"])
   expect(sent).toHaveLength(5)
+  expect(log.mock.calls.filter((c) => c[0] === "warn")).toHaveLength(1)
 })
 
 it("marks a user blocked and drops their queue", async () => {
@@ -259,6 +261,71 @@ it("moves a migrated group's queue to its new chat id", async () => {
     chat_id: "-1005",
     status: "pending",
   })
+})
+
+it("moves a migrated group onto an already registered supergroup without duplicates", async () => {
+  await addChat(sql, -5, "group")
+  await addChat(sql, -1005, "supergroup")
+  await enqueue(-5, "new", { chatType: "group", key: "same" })
+  await enqueue(-5, "bonding", { chatType: "group", priority: 2, key: "only-old" })
+  await enqueue(-1005, "new", { key: "same" })
+  respond = (r) =>
+    r.chat_id === "-5"
+      ? { ok: false, kind: "migrated", migrateTo: -1005, description: "upgraded" }
+      : { ok: false, kind: "retry_after", retryAfter: 60, description: "429" }
+  await sender().tick()
+  const chats = await sql<{ chat_id: string; active: boolean; removed: boolean }[]>`
+    select chat_id::text, active, removed_at is not null as removed from bot.chats order by chat_id desc`
+  expect(chats.map((c) => [c.chat_id, c.active, c.removed])).toEqual([
+    ["-5", false, true],
+    ["-1005", true, false],
+  ])
+  const rows = await sql`
+    select chat_id::text, chat_type, dedupe_key, status from bot.deliveries order by dedupe_key, chat_id`
+  expect(rows.map((r) => [r.chat_id, r.chat_type, r.dedupe_key, r.status])).toEqual([
+    ["-1005", "supergroup", "only-old", "pending"],
+    ["-1005", "supergroup", "same", "pending"],
+  ])
+})
+
+it("renames a migrated group to a supergroup when the new id is free", async () => {
+  await addChat(sql, -5, "group")
+  await enqueue(-5, "new", { chatType: "group" })
+  respond = (r) =>
+    r.chat_id === "-5"
+      ? { ok: false, kind: "migrated", migrateTo: -1005, description: "upgraded" }
+      : { ok: true }
+  await sender().tick()
+  expect((await sql`select chat_id::text, kind from bot.chats`)[0]).toEqual({
+    chat_id: "-1005",
+    kind: "supergroup",
+  })
+  expect((await sql`select chat_type from bot.deliveries`)[0]?.chat_type).toBe("supergroup")
+})
+
+it("treats a migration without a new id as a failed send", async () => {
+  await enqueue(-5, "new", { chatType: "group" })
+  respond = () => ({ ok: false, kind: "migrated", description: "upgraded" })
+  await sender().tick()
+  expect(await statuses()).toEqual(["new:failed"])
+  expect(report).toHaveBeenCalledOnce()
+})
+
+it("isolates a chat whose settle write fails: no re-send, other chats still settle", async () => {
+  await enqueue(1, "new", { chatType: "private" })
+  await enqueue(2, "new", { chatType: "private" })
+  // The 'sent' update for chat 1 will violate this constraint; chat 2's is unaffected.
+  await sql`alter table bot.deliveries add constraint no_sent_for_1 check (chat_id <> 1 or status <> 'sent')`
+  const s = sender()
+  await s.tick()
+  await s.tick()
+  expect(sent.map((r) => r.chat_id).sort()).toEqual(["1", "2"])
+  const rows = await sql`select chat_id::text, status from bot.deliveries order by chat_id`
+  expect(rows.map((r) => [r.chat_id, r.status])).toEqual([
+    ["1", "pending"],
+    ["2", "sent"],
+  ])
+  expect(report).toHaveBeenCalledOnce()
 })
 
 it("fails unclassified errors and reports them", async () => {

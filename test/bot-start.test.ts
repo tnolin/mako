@@ -141,3 +141,54 @@ it("counts known commands per day and ignores unknown ones", async () => {
     { command: "start", count: 1 },
   ])
 })
+
+const sources = async () =>
+  (
+    await sql<
+      { params: { source?: string } }[]
+    >`select params from bot.user_actions where action = 'start' order by id`
+  ).map((r) => r.params.source)
+
+it("logs only a safe source for /start payloads, never free text or ids", async () => {
+  await h.text("/start free text here")
+  await h.text("/start w_0xd1a5a3b3c0ffee00112233445566778899aabbcc", { from: 101 })
+  await h.text("/start t_0xd1a5a3b3c0ffee00112233445566778899aabbcc", { from: 102 })
+  await h.text("/start s_-100123456", { from: 103 })
+  await h.text("/start promo_1", { from: 104 })
+  await h.text("/start")
+  expect(await sources()).toEqual(["other", "w", "t", "s", "promo_1", "none"])
+  const dump = JSON.stringify(await sql`select * from bot.user_actions`)
+  expect(dump).not.toMatch(/free|text|here|0xd1a5|100123456/)
+})
+
+it("does not recreate a deleted user when an old onboarding button is tapped", async () => {
+  await h.text("/start")
+  await h.text("/deletedata")
+  await h.tap("dd:yes")
+  await h.tap("ob:new")
+  await h.tap("ob:off")
+  expect(await sql`select 1 from bot.users`).toHaveLength(0)
+  expect(h.last("editMessageText")!.text).toContain("Send /start")
+})
+
+it("reports a failing command counter as a warning and still handles the command", async () => {
+  const log = vi.fn()
+  const bot = createBot({
+    token: "1:test",
+    botInfo: BOT_INFO,
+    sql,
+    prices,
+    log,
+    report,
+    linksBase: "x",
+  })
+  const h2 = harness(bot)
+  await sql`alter table bot.commands_daily rename to commands_daily_x`
+  try {
+    await h2.text("/help")
+  } finally {
+    await sql`alter table bot.commands_daily_x rename to commands_daily`
+  }
+  expect(log).toHaveBeenCalledWith("warn", "command counter failed", expect.any(Object))
+  expect(h2.last("sendMessage")!.text).toContain("Help")
+})

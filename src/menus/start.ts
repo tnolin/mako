@@ -6,8 +6,18 @@ import { openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
 import { MENU_TEXT, menuKb } from "./main"
 import { sendTokenCard } from "./token"
-import { ensureUser, saveUserSettings } from "./users"
+import { ensureUser, findUser, saveUserSettings } from "./users"
 import { watchToken } from "./watchlist"
+
+/** Analytics source for /start: a kind letter for our own links, a plain campaign tag, never free text or ids. */
+export function startSource(payload: string): string {
+  if (!payload) return "none"
+  const kind = /^([wts])_/.exec(payload)?.[1]
+  if (kind) return kind
+  return /^[A-Za-z0-9_-]{1,64}$/.test(payload) ? payload : "other"
+}
+
+const NO_USER = "Send /start to use MAKO."
 
 export function welcomeText(): string {
   const w = Math.max(...ALERTS.map((a) => ALERT_LABEL[a].length)) + 2
@@ -39,7 +49,7 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
     await logAction(deps.sql, {
       chatType: "private",
       action: "start",
-      params: { source: payload || "none" },
+      params: { source: startSource(payload) },
     })
     if (payload.startsWith("w_")) await watchToken(ctx, deps, payload.slice(2))
     else if (payload.startsWith("t_")) await sendTokenCard(ctx, deps, payload.slice(2))
@@ -54,14 +64,16 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
     }
   })
   pm.callbackQuery(/^ob:(new|bonding|pumping|bonded|devsell|big)$/, async (ctx) => {
-    const { user } = await ensureUser(deps.sql, ctx.from.id)
+    const user = await findUser(deps.sql, ctx.from.id)
+    if (!user) return show(ctx, NO_USER)
     const a = ctx.match[1] as AlertKind
     user.settings.alerts[a].on = !user.settings.alerts[a].on
     await saveUserSettings(deps.sql, user.id, user.settings)
     await show(ctx, welcomeText(), welcomeKb(user.settings))
   })
   pm.callbackQuery("ob:off", async (ctx) => {
-    const { user } = await ensureUser(deps.sql, ctx.from.id)
+    const user = await findUser(deps.sql, ctx.from.id)
+    if (!user) return show(ctx, NO_USER)
     const s = allOff(user.settings)
     await saveUserSettings(deps.sql, user.id, s)
     await logAction(deps.sql, {

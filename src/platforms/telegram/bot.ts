@@ -30,7 +30,8 @@ export function createBot(deps: BotDeps & { token: string; botInfo?: UserFromGet
       await deps.sql`
         insert into bot.commands_daily (day, command, count) values (current_date, ${cmd}, 1)
         on conflict (day, command) do update set count = bot.commands_daily.count + 1`.catch(
-        () => {},
+        // Best effort: a failed counter must not block the command.
+        (e) => deps.log("warn", "command counter failed", { error: String(e) }),
       )
     }
     await next()

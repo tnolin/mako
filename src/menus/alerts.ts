@@ -18,7 +18,7 @@ import {
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
 
-const NOT_ADMIN = "Only admins of that chat can change its settings."
+export const NOT_ADMIN = "Only admins of that chat can change its settings."
 type Scope =
   | { kind: "user"; id: "u"; settings: Settings; save(s: Settings): Promise<void>; muted: number }
   | {
@@ -83,6 +83,8 @@ async function scopeFor(
     settings: readSettings(c.settings),
     active: c.active,
     paused: c.paused_reason,
+    // shortcut: saves the whole settings JSON (read-modify-write), so a concurrent sender write to
+    // pausedRoutes can be overwritten; upgrade to a targeted jsonb_set update if that bites.
     save: async (s) => {
       await deps.sql`update bot.chats set settings = ${deps.sql.json(s as unknown as postgres.JSONValue)} where chat_id = ${id}`
     },

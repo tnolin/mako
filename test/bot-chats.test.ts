@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
+import { NOT_ADMIN } from "../src/menus/alerts"
 import { GUIDE, SETUP_LINE } from "../src/menus/chats"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
@@ -378,5 +379,40 @@ describe("chat settings details", () => {
     expect(await chat(-6)).toBeUndefined()
     expect(await chat(-1006)).toMatchObject({ active: true, kind: "supergroup" })
     expect((await chat(-1006))?.settings.thread).toBe(4)
+  })
+})
+
+describe("destructive chat buttons need a live admin check", () => {
+  const rows = () =>
+    sql`select chat_id::text, active, paused_reason, removed_at from bot.chats order by bot.chats.chat_id desc`
+  const unchanged = [{ chat_id: String(G.id), active: true, paused_reason: null, removed_at: null }]
+
+  it("refuses pause, resume and remove from a non-admin", async () => {
+    await addChat(sql, G.id, "supergroup")
+    nonAdmin()
+    for (const action of ["pause", "resume", "remove"]) {
+      await h.tap(`gc:${G.id}:${action}`)
+      expect(h.last("answerCallbackQuery")).toMatchObject({ text: NOT_ADMIN, show_alert: true })
+    }
+    expect(await rows()).toEqual(unchanged)
+    expect(h.calls.some((c) => c.method === "leaveChat")).toBe(false)
+  })
+
+  it("does not let an admin of one chat act on another", async () => {
+    const B = -1002
+    await addChat(sql, G.id, "supergroup")
+    await addChat(sql, B, "supergroup")
+    h.on("getChatMember", (p) => ({
+      status: p.chat_id === G.id ? "administrator" : "member",
+      user: { id: p.user_id, is_bot: false, first_name: "A" },
+    }))
+    await h.tap(`gc:${B}:remove`)
+    await h.tap(`gc:${B}:pause`)
+    expect(h.last("answerCallbackQuery")).toMatchObject({ text: NOT_ADMIN, show_alert: true })
+    expect(await rows()).toEqual([
+      { chat_id: String(G.id), active: true, paused_reason: null, removed_at: null },
+      { chat_id: String(B), active: true, paused_reason: null, removed_at: null },
+    ])
+    expect(h.calls.some((c) => c.method === "leaveChat")).toBe(false)
   })
 })

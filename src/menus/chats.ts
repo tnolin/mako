@@ -12,7 +12,7 @@ import {
   readSettings,
   type Settings,
 } from "../settings"
-import { openChatSettings } from "./alerts"
+import { NOT_ADMIN, openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER } from "./users"
 
@@ -221,6 +221,8 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
     if (on) s.routes[a] = thread
     else delete s.routes[a]
     s.pausedRoutes = (s.pausedRoutes ?? []).filter((x) => x !== a)
+    // shortcut: writes the whole settings JSON (read-modify-write); a concurrent sender write to
+    // pausedRoutes can be overwritten. Upgrade to a targeted jsonb_set update.
     await deps.sql`update bot.chats set settings = ${deps.sql.json(json(s))} where chat_id = ${ctx.chat.id}`
     await logAction(deps.sql, {
       chatType: ctx.chat.type,
@@ -303,7 +305,7 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
     const chatId = ctx.match[1]!
     if (!(await isAdmin(ctx.api, chatId, ctx.from.id))) {
       await ctx.answerCallbackQuery({
-        text: "Only admins of that chat can change its settings.",
+        text: NOT_ADMIN,
         show_alert: true,
       })
       return
@@ -326,6 +328,8 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
       }
       const s = readSettings(c.settings)
       s.pausedRoutes = []
+      // shortcut: writes the whole settings JSON (read-modify-write); a concurrent sender write to
+      // pausedRoutes can be overwritten. Upgrade to a targeted jsonb_set update.
       await deps.sql`
         update bot.chats set active = true, paused_reason = null, settings = ${deps.sql.json(json(s))} where chat_id = ${chatId}`
     } else {

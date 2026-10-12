@@ -55,7 +55,7 @@ describe("renderCard", () => {
     expect(html).toContain("<code>dev holds 6.8% of supply</code>")
   })
 
-  it("keeps creator text inert and drops unsafe links", () => {
+  it("escapes markup in name and ticker and keeps a quote-breakout URL inside one escaped link", () => {
     const html = renderCard({
       ...card,
       name: `<a href="https://evil">x</a> & co`,

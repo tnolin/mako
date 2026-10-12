@@ -10,7 +10,7 @@ export function renderRows(rows: Card["rows"]): string[] {
   return rows.map(([l, v]) => `<code>${escapeHtml(l.padEnd(width))}${escapeHtml(v)}</code>`)
 }
 
-/** Alert HTML per design/alert-formats.md. Every creator-written string is escaped here. */
+/** Alert HTML: header, name line, one <code> row per line, CA, links. Every creator-written string is escaped here. */
 export function renderCard(card: Card): string {
   const rows = renderRows(card.rows)
   const lines = [

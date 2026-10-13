@@ -73,12 +73,12 @@ describe("renderCard", () => {
     const html = renderCard({
       ...card,
       rows: [
-        ["sold", "12.4M KELP"],
-        ["dev holds", "6.8% of supply"],
+        ["sold", "12.4M (1.2%)"],
+        ["dev holds", "6.8%"],
       ],
     })
-    expect(html).toContain("<code>sold      12.4M KELP</code>")
-    expect(html).toContain("<code>dev holds 6.8% of supply</code>")
+    expect(html).toContain("<code>sold      12.4M (1.2%)</code>")
+    expect(html).toContain("<code>dev holds 6.8%</code>")
   })
 
   it("escapes markup in name and ticker and keeps a quote-breakout URL inside one escaped link", () => {

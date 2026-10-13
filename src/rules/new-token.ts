@@ -27,10 +27,7 @@ export function newToken(
     const quote = devBuys.reduce((s, t) => s + BigInt(t.p.quoteAmount), 0n)
     const tokens = devBuys.reduce((s, t) => s + BigInt(t.p.tokenAmount), 0n)
     const share = Number((tokens * 1_000_000n) / BigInt(l.totalSupply)) / 10_000
-    rows.push([
-      "dev buy",
-      `${quoteText(quote, l.quoteAsset, prices, false)} (${pct1(share)} of supply)`,
-    ])
+    rows.push(["dev buy", `${quoteText(quote, l.quoteAsset, prices, false)} (${pct1(share)})`])
   }
   rows.push([
     "dev",

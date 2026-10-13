@@ -121,6 +121,11 @@ it("tells the truth about storage in the privacy help", async () => {
   expect(text).toContain("Telegram user id")
 })
 
+it("says in /help that alert percentages are shares of total supply", async () => {
+  await h.text("/help")
+  expect(h.last("sendMessage")!.text).toContain("Percentages in alerts are shares of total supply.")
+})
+
 it("offers the Menu button in a DM's help but not in a group's", async () => {
   const group = { id: -1001, type: "supergroup" as const, title: "Alpha" }
   await h.text("/help")

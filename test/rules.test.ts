@@ -63,7 +63,7 @@ describe("NEW TOKEN", () => {
     expect(c!.card.rows).toEqual([
       ["pair", "GOBLO/ETH"],
       ["bonds at", "3.00 ETH ($7.5K)"],
-      ["dev buy", "0.25 ETH (4.1% of supply)"],
+      ["dev buy", "0.25 ETH (4.1%)"],
       ["dev", "2 launches | 1 bonded"],
     ])
     expect(c!.card.links).toEqual([{ label: "X", url: "https://x.com/goblo" }])
@@ -173,7 +173,7 @@ describe("trade rules", () => {
     const d = pick(cs, "devsell")!
     expect(pick(cs, "big")).toBeUndefined()
     expect(d.card.rows).toEqual([
-      ["sold", "50.0M GOBLO (5.0% of supply)"],
+      ["sold", "50.0M (5.0%)"],
       ["dev pnl", "+1.50 ETH (+300%)"], // 0.5 ETH cost basis of the half sold, 2 ETH proceeds
       ["dev", "1 buy | 1 sell"],
       ["curve", "■■■■■■□□□□ 61%"],
@@ -181,7 +181,8 @@ describe("trade rules", () => {
     ])
     expect(d.holds).toMatchObject({ token: L.token, holder: C, totalSupply: L.totalSupply })
     const filled = withDevHolds(d.card, { pct: 6.8, now: true })
-    expect(filled.rows[3]).toEqual(["dev holds", "6.8% of supply (now)"])
+    expect(filled.rows[3]).toEqual(["dev holds", "6.8% (now)"])
+    expect(withDevHolds(d.card, { pct: 6.8, now: false }).rows[3]).toEqual(["dev holds", "6.8%"])
     expect(withDevHolds(d.card, null)).toBe(d.card)
   })
 })

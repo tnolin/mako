@@ -16,7 +16,7 @@ export function devSell(t: TradeCtx): Candidate[] {
   const share = Number((BigInt(p.tokenAmount) * 1_000_000n) / BigInt(l.totalSupply)) / 10_000
   const card = makeCard("devsell", "DEV SELL", l, [])
   card.rows = [
-    ["sold", `${compact(units(p.tokenAmount))} ${card.ticker} (${pct1(share)} of supply)`],
+    ["sold", `${compact(units(p.tokenAmount))} (${pct1(share)})`],
     ["dev pnl", pnlText(pnl.realized, pnl.basis, p.quoteAsset, t.prices)],
     ["dev", buysSells(dev.buys, dev.sells)],
     ["curve", bar(p.soldBps)],
@@ -46,6 +46,6 @@ export function withDevHolds(card: Card, h: DevHolds): Card {
   if (!h) return card
   const rows = [...card.rows]
   const i = rows.findIndex(([k]) => k === "dev")
-  rows.splice(i + 1, 0, ["dev holds", `${pct1(h.pct)} of supply${h.now ? " (now)" : ""}`])
+  rows.splice(i + 1, 0, ["dev holds", `${pct1(h.pct)}${h.now ? " (now)" : ""}`])
   return { ...card, rows }
 }

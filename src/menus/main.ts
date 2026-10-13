@@ -22,7 +22,7 @@ export function menuKb(): Kb {
 
 export const HELP = {
   index:
-    "<b>Help</b>\nMAKO posts alerts for Ink memecoins in your DM, your groups and your channels.",
+    "<b>Help</b>\nMAKO posts alerts for Ink memecoins in your DM, your groups and your channels.\nPercentages in alerts are shares of total supply.",
   alerts: [
     "<b>Alerts</b>",
     ...ALERTS.map((a) => `<b>${ALERT_LABEL[a]}</b>: ${ALERT_HELP[a]}`),

@@ -204,6 +204,32 @@ describe("token card", () => {
     expect(h.last("editMessageCaption")).toBeUndefined()
   })
 
+  it("answers a tapped list token before the image is fetched and uploaded", async () => {
+    await h.tap(`t:${A}`)
+    const order = h.calls.map((c) => c.method)
+    expect(order.indexOf("answerCallbackQuery")).toBeGreaterThanOrEqual(0)
+    expect(order.indexOf("answerCallbackQuery")).toBeLessThan(order.indexOf("sendPhoto"))
+  })
+
+  it("sends the refreshed card as a new text message when its caption outgrew the photo's limit", async () => {
+    const site = `https://example.com/${"a".repeat(1100)}`
+    await sql`update indexer.events set payload = jsonb_set(payload, '{links,website}', to_jsonb(${site}::text)) where type = 'launchpad.launch'`
+    await h.tap(`tr:${A}`, { photo: true })
+    expect(h.last("editMessageCaption")).toBeUndefined()
+    expect(h.last("sendPhoto")).toBeUndefined()
+    expect(h.last("sendMessage")!.text).toContain("<b>$GOBLO · Goblo</b>")
+    expect(h.last("sendMessage")!.link_preview_options).toEqual({ is_disabled: true })
+    expect(h.last("answerCallbackQuery")).toBeDefined()
+    expect(report).not.toHaveBeenCalled()
+  })
+
+  it("answers Refresh on a photo card of an unknown token without editing it", async () => {
+    await h.tap(`tr:${addr(0xbad)}`, { photo: true })
+    expect(h.last("editMessageText")).toBeUndefined()
+    expect(h.last("editMessageCaption")).toBeUndefined()
+    expect(h.last("answerCallbackQuery")).toMatchObject({ text: unknownTokenText() })
+  })
+
   it("survives Refresh producing an identical caption or text", async () => {
     h.on("editMessageText", () => ({ error: "Bad Request: message is not modified" }))
     h.on("editMessageCaption", () => ({ error: "Bad Request: message is not modified" }))

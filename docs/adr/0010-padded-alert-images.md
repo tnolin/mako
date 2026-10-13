@@ -13,7 +13,8 @@ ADR 0007 showed token images as a link preview. Telegram sizes the whole message
 
 - Token images go out as a photo with the alert as its caption. The bot fetches a 640×640 JPEG that wsrv.nl pads onto the brand background, uploads it with `sendPhoto`, and stores the returned `file_id` per token in `bot.token_images`. Later alerts and token cards for the token send the stored `file_id`.
 - The bot never fetches the creator's image URL. It fetches only the wsrv.nl URL, with a 5 second timeout, a `200` status, an `image/*` content type and a 5 MB cap.
-- When the fetch fails, the token is remembered in memory for one hour and its alerts go as text with the link preview disabled. When Telegram rejects a stored `file_id`, the row is deleted, the alert goes as text, and the next alert uploads again.
+- Concurrent first alerts for a token share one fetch and one upload.
+- When the fetch fails or Telegram rejects the uploaded image, the token is remembered in memory for one hour and its alerts go as text with the link preview disabled. When Telegram rejects a stored `file_id`, the row is deleted, the alert goes as text, and the next alert uploads again.
 - Captions over 1,024 characters go as text. The per-alert image setting stays.
 - Token cards (`/t`, pasted addresses, `t_` links, list taps) use the same photo. Refresh edits the caption of a photo card.
 - A bold line led by one colour square names the alert type (🟩 new, 🟨 bonding, 🟧 pumping, 🟦 bonded, 🟥 dev sell, 🟪 big), and the bold `$TICKER` follows on its own line.

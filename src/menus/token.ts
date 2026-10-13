@@ -4,6 +4,7 @@ import { age, bar, buysSells, clean, count, escapeHtml } from "../format"
 import { bondOf, launchOf, tradesOf } from "../history"
 import { launchpadOf, unknownTokenText } from "../launchpads"
 import { classify } from "../platforms/telegram/errors"
+import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
 import { btn, findAddress, type Kb, link, show, threadOf } from "../platforms/telegram/ui"
 import { creatorLinks, makeCard } from "../rules/card"
@@ -63,8 +64,13 @@ async function isWatching(deps: BotDeps, tg: number, ca: string): Promise<boolea
   return r.length > 0
 }
 
-/** The card for a token, or null after telling the user it is not one. Buttons depend on the chat. */
-async function loadCard(ctx: Context, deps: BotDeps, raw: string) {
+/** The card for a token, or null after `missing` told the user it is not one. Buttons depend on the chat. */
+async function loadCard(
+  ctx: Context,
+  deps: BotDeps,
+  raw: string,
+  missing: (text: string) => Promise<void> = (text) => show(ctx, escapeHtml(text)),
+) {
   const ca = findAddress(raw)
   if (!ca) {
     await show(ctx, "Send a token address (0x…).")
@@ -72,7 +78,7 @@ async function loadCard(ctx: Context, deps: BotDeps, raw: string) {
   }
   const card = await tokenCard(deps, ca)
   if (!card) {
-    await show(ctx, escapeHtml(unknownTokenText()))
+    await missing(unknownTokenText())
     return null
   }
   const dm = ctx.chat?.type === "private"
@@ -93,6 +99,8 @@ async function loadCard(ctx: Context, deps: BotDeps, raw: string) {
 export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
   const card = await loadCard(ctx, deps, raw)
   if (!card) return
+  // Fetching and uploading the image can take seconds; the tap is answered first.
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
   await deps.images.send(ctx.api, {
     chat: ctx.chat!.id,
     thread: threadOf(ctx),
@@ -101,17 +109,38 @@ export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): P
     html: card.html,
     reply_markup: { inline_keyboard: card.kb },
   })
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
 }
 
 /** Refresh edits the tapped card in place: the caption of a photo, the text of a text card. */
 async function refreshTokenCard(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
-  const card = await loadCard(ctx, deps, raw)
+  const tapped = ctx.callbackQuery?.message
+  const isPhoto = !!tapped && "photo" in tapped && !!tapped.photo
+  // A photo cannot be edited into the "not a token" text, so that case is answered in place.
+  const card = await loadCard(
+    ctx,
+    deps,
+    raw,
+    isPhoto
+      ? (text) => ctx.answerCallbackQuery({ text }).then(() => {})
+      : (text) => show(ctx, escapeHtml(text)),
+  )
   if (!card) return
   const reply_markup = { inline_keyboard: card.kb }
-  const tapped = ctx.callbackQuery?.message
+  if (isPhoto && card.html.length > CAPTION_MAX) {
+    // The card grew past what a caption holds: a new text message replaces the photo card.
+    await deps.images.send(ctx.api, {
+      chat: ctx.chat!.id,
+      thread: threadOf(ctx),
+      token: card.ca,
+      imageUrl: null,
+      html: card.html,
+      reply_markup,
+    })
+    await ctx.answerCallbackQuery().catch(() => {})
+    return
+  }
   try {
-    if (tapped && "photo" in tapped && tapped.photo) {
+    if (isPhoto) {
       await ctx.editMessageCaption({ caption: card.html, parse_mode: "HTML", reply_markup })
     } else {
       await ctx.editMessageText(card.html, {

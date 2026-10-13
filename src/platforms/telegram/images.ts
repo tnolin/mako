@@ -5,7 +5,7 @@ import type { Logger } from "../../log"
 import { classify } from "./errors"
 
 /** Telegram's caption limit; longer cards go as text. */
-const CAPTION_MAX = 1024
+export const CAPTION_MAX = 1024
 const FETCH_TIMEOUT_MS = 5000
 const MAX_BYTES = 5 * 1024 * 1024
 const FAILURE_MEMORY_MS = 60 * 60 * 1000
@@ -76,17 +76,31 @@ export function createImages(deps: ImagesDeps): Images {
     return false
   }
 
-  /** Only the wsrv.nl URL is fetched: the creator's URL is attacker-controlled. Null on any failure. */
-  async function fetchPadded(imageUrl: string): Promise<Uint8Array | null> {
+  const warnFailed = (token: string, reason: string) =>
+    deps.log("warn", "image fetch failed", { token, reason })
+
+  /** Only the wsrv.nl URL is fetched: the creator's URL is attacker-controlled. Null on any failure, logged without the URL. */
+  async function fetchPadded(token: string, imageUrl: string): Promise<Uint8Array | null> {
+    const fail = (reason: string) => {
+      warnFailed(token, reason)
+      return null
+    }
     try {
       const res = await deps.fetch(paddedUrl(imageUrl), {
         signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         redirect: "manual",
       })
-      if (res.status !== 200 || !res.headers.get("content-type")?.startsWith("image/")) return null
-      if (Number(res.headers.get("content-length")) > MAX_BYTES) return null
+      const type = res.headers.get("content-type")
+      const reject = (reason: string) => {
+        void res.body?.cancel().catch(() => {})
+        return fail(reason)
+      }
+      if (res.status !== 200) return reject(`status ${res.status}`)
+      if (!type?.startsWith("image/"))
+        return reject(`content-type ${(type ?? "none").slice(0, 40)}`)
+      if (Number(res.headers.get("content-length")) > MAX_BYTES) return reject("too large")
       const reader = res.body?.getReader()
-      if (!reader) return null
+      if (!reader) return fail("no body")
       const chunks: Uint8Array[] = []
       let size = 0
       for (;;) {
@@ -95,13 +109,13 @@ export function createImages(deps: ImagesDeps): Images {
         size += value.length
         if (size > MAX_BYTES) {
           await reader.cancel()
-          return null
+          return fail("too large")
         }
         chunks.push(value)
       }
-      return size > 0 ? Buffer.concat(chunks) : null
-    } catch {
-      return null
+      return size > 0 ? Buffer.concat(chunks) : fail("empty body")
+    } catch (err) {
+      return fail(err instanceof Error ? err.name : "error")
     }
   }
 
@@ -118,45 +132,96 @@ export function createImages(deps: ImagesDeps): Images {
       .catch((err) => deps.log("warn", "image cache write failed", { error: String(err) }))
   }
 
-  /** True when the photo went out. A media or rights failure returns false so the caller sends text. */
-  async function sendPhoto(api: Pick<Api, "sendPhoto">, m: CardMessage): Promise<boolean> {
-    const opts = {
-      parse_mode: "HTML" as const,
-      message_thread_id: m.thread,
-      caption: m.html,
-      reply_markup: m.reply_markup,
-    }
-    const cached = await deps.cache.get(m.token)
-    if (cached) {
-      try {
-        await api.sendPhoto(m.chat, cached, opts)
-        return true
-      } catch (err) {
-        const kind = classify(err).kind
-        if (kind === "media") {
-          // The stored id no longer works; the next alert uploads a fresh one.
-          await deps.cache
-            .forget(m.token)
-            .catch((e) => deps.log("warn", "image cache delete failed", { error: String(e) }))
-        } else if (kind !== "rights") throw err
-        return false
-      }
-    }
-    if (recentlyFailed(m.token)) return false
-    const bytes = await fetchPadded(m.imageUrl!)
-    if (!bytes) {
-      failedUntil.set(m.token, now() + FAILURE_MEMORY_MS)
+  const photoOpts = (m: CardMessage) => ({
+    parse_mode: "HTML" as const,
+    message_thread_id: m.thread,
+    caption: m.html,
+    reply_markup: m.reply_markup,
+  })
+
+  /** Sends a stored file_id. A stale id is forgotten; media and rights failures return false (text). */
+  async function sendCached(
+    api: Pick<Api, "sendPhoto">,
+    m: CardMessage,
+    fileId: string,
+  ): Promise<boolean> {
+    try {
+      await api.sendPhoto(m.chat, fileId, photoOpts(m))
+      return true
+    } catch (err) {
+      const kind = classify(err).kind
+      if (kind === "media") {
+        // The stored id no longer works; the next alert uploads a fresh one.
+        await deps.cache
+          .forget(m.token)
+          .catch((e) => deps.log("warn", "image cache delete failed", { error: String(e) }))
+      } else if (kind !== "rights") throw err
       return false
     }
+  }
+
+  /** Uploads fetched bytes and stores the file_id. A media rejection is remembered like a failed fetch. */
+  async function upload(
+    api: Pick<Api, "sendPhoto">,
+    m: CardMessage,
+    bytes: Uint8Array,
+  ): Promise<boolean> {
     try {
-      const sent = await api.sendPhoto(m.chat, new InputFile(bytes, "image.jpg"), opts)
+      const sent = await api.sendPhoto(m.chat, new InputFile(bytes, "image.jpg"), photoOpts(m))
       await remember(m.token, sent.photo)
       return true
     } catch (err) {
       // A chat may allow text but not media, so rights falls back too; the text send decides.
       const kind = classify(err).kind
-      if (kind !== "media" && kind !== "rights") throw err
+      if (kind === "media") failedUntil.set(m.token, now() + FAILURE_MEMORY_MS)
+      else if (kind !== "rights") throw err
       return false
+    }
+  }
+
+  async function cachedId(token: string): Promise<string | null> {
+    // A cache that cannot be read is a miss: the alert still goes out.
+    return deps.cache.get(token).catch((err) => {
+      deps.log("warn", "image cache read failed", { error: String(err) })
+      return null
+    })
+  }
+
+  // The sender delivers to several chats at once, so a token's first alert fans out. One fetch+upload per
+  // token is in flight; the other sends wait for it, then use the stored file_id (or the bytes).
+  const inFlight = new Map<string, Promise<Uint8Array | null>>()
+
+  /** True when the photo went out. A media or rights failure returns false so the caller sends text. */
+  async function sendPhoto(api: Pick<Api, "sendPhoto">, m: CardMessage): Promise<boolean> {
+    const cached = await cachedId(m.token)
+    if (cached) return sendCached(api, m, cached)
+    const pending = inFlight.get(m.token)
+    if (pending) {
+      const bytes = await pending
+      const stored = await cachedId(m.token)
+      if (stored) return sendCached(api, m, stored)
+      if (!bytes || recentlyFailed(m.token)) return false
+      return upload(api, m, bytes)
+    }
+    if (recentlyFailed(m.token)) return false
+    let fetched: Uint8Array | null = null
+    let settle!: (b: Uint8Array | null) => void
+    inFlight.set(
+      m.token,
+      new Promise((r) => {
+        settle = r
+      }),
+    )
+    try {
+      fetched = await fetchPadded(m.token, m.imageUrl!)
+      if (!fetched) {
+        failedUntil.set(m.token, now() + FAILURE_MEMORY_MS)
+        return false
+      }
+      return await upload(api, m, fetched)
+    } finally {
+      inFlight.delete(m.token)
+      settle(fetched)
     }
   }
 

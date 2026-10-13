@@ -7,7 +7,7 @@ Later phases may change based on how people use v0.
 - Button-driven onboarding with alert presets
 - Curve progress, velocity and bond / graduation alerts across Ink launchpads
 - Creator sell alerts
-- New launch, big buy / sell, market cap target and price move alerts
+- New launch and big buy / sell alerts
 - Universal address lookup (paste an address or `/t`)
 - Personal watchlist
 - NFT sales, cheap listing and floor move alerts for Ink collections
@@ -17,6 +17,7 @@ Later phases may change based on how people use v0.
 
 ## v1
 
+- Market cap target and price move alerts, once post-bond trading is indexed
 - Discord parity
 - Deployer history (`/dev`) and serial deployer alerts
 - Stock-paired launch filter (xStocks pairs)

@@ -59,8 +59,8 @@ Users choose alerts through a button setup flow on first start.
 | Creator sell | The launch's creator wallet sells its token | v0 |
 | Big buy / sell | A single trade above a size threshold | v0 |
 | New launch | A new token is created, filterable by launchpad and quote asset | v0 |
-| Market cap target | A watched token reaches a user-set market cap | v0 |
-| Price move | A bonded token moves by a set percent inside a window | v0 |
+| Market cap target | A watched token reaches a user-set market cap | v1 |
+| Price move | A bonded token moves by a set percent inside a window | v1 |
 | Serial deployer launch | A wallet with past launches deploys a new token | v1 |
 | Whale buy | A wallet already holding a large share buys more | v1 |
 | Top holder exit | A top 10 holder sells most of their position | v1 |

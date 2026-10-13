@@ -7,7 +7,7 @@ Extends ADR 0004.
 
 ## Context
 
-The bot talks to Telegram's Bot API and to Ink RPC endpoints, which are served from Europe. A host in EU-central keeps those round trips short.
+The bot talks to Telegram's Bot API and to Ink RPC endpoints, which are served from Europe. The host is placed in EU-central, in the same region.
 
 ## Decision
 

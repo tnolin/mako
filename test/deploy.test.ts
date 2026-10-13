@@ -23,6 +23,11 @@ it.each([
   expect(u).not.toMatch(/^User=root/m)
 })
 
+it("deploy guide grants CREATE on the database for the migrations", () => {
+  const guide = readFileSync(new URL("../docs/deploy.md", import.meta.url), "utf8")
+  expect(guide).toContain("grant create on database ink to indexer, mako")
+})
+
 it("keeps logs and backups for 14 days, and Caddy writes no access log", () => {
   expect(read("journald-retention.conf")).toContain("MaxRetentionSec=14day")
   expect(read("backup.sh")).toContain("-mtime +13 -delete")

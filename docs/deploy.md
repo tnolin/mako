@@ -34,7 +34,7 @@ install -d -o ink-indexer -g ink /opt/ink-indexer && install -d -o mako -g ink /
 sudo -u ink-indexer git clone https://github.com/tnolin/ink-indexer.git /opt/ink-indexer
 sudo -u mako git clone https://github.com/tnolin/mako.git /opt/mako
 install -D -m 0644 /opt/mako/scripts/deploy/journald-retention.conf /etc/systemd/journald.conf.d/retention.conf
-systemctl restart systemd-journald && journalctl --header | grep -i retention
+systemctl restart systemd-journald && systemd-analyze cat-config systemd/journald.conf | grep -i MaxRetentionSec
 ```
 
 ## 5. Postgres
@@ -43,7 +43,10 @@ systemctl restart systemd-journald && journalctl --header | grep -i retention
 sudo -u postgres psql -c "create database ink"
 sudo -u postgres psql -c "create role indexer login" -c "create role mako login"
 sudo -u postgres psql ink -c "create schema indexer authorization indexer" -c "create schema bot authorization mako"
+sudo -u postgres psql -c "grant create on database ink to indexer, mako"
 ```
+
+The `grant create` is needed because each service's migration runs `create schema if not exists`, which checks CREATE on the database even when the schema already exists.
 
 Peer auth, no passwords. Add to `pg_ident.conf`:
 

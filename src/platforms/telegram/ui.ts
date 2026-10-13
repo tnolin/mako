@@ -17,26 +17,22 @@ export function findAddress(text: string | undefined): string | null {
   return m ? m[0].toLowerCase() : null
 }
 
+/** The forum topic of the message being answered (the tapped message for a button), if any. */
+export function threadOf(ctx: Context): number | undefined {
+  const m = ctx.callbackQuery?.message ?? ctx.msg
+  return m && "is_topic_message" in m && m.is_topic_message ? m.message_thread_id : undefined
+}
+
 /** Shows a screen: edits the tapped message, or replies in the same topic. Identical edits count as success. */
-export async function show(
-  ctx: Context,
-  html: string,
-  kb: Kb = [],
-  preview: string | null = null,
-): Promise<void> {
+export async function show(ctx: Context, html: string, kb: Kb = []): Promise<void> {
   const opts = {
     parse_mode: "HTML" as const,
     reply_markup: { inline_keyboard: kb },
-    link_preview_options: preview ? { url: preview, show_above_text: true } : { is_disabled: true },
+    link_preview_options: { is_disabled: true },
   }
   try {
     if (ctx.callbackQuery?.message) await ctx.editMessageText(html, opts)
-    else {
-      await ctx.reply(html, {
-        ...opts,
-        message_thread_id: ctx.msg?.is_topic_message ? ctx.msg.message_thread_id : undefined,
-      })
-    }
+    else await ctx.reply(html, { ...opts, message_thread_id: threadOf(ctx) })
   } catch (err) {
     if (classify(err).kind !== "not_modified") throw err
   }

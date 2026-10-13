@@ -7,6 +7,7 @@ import type { Prices } from "../src/prices"
 import { basicPreset, type Settings } from "../src/settings"
 import { addChat, addUser } from "./helpers/bot"
 import { resetDb } from "./helpers/db"
+import { testImages } from "./helpers/images"
 import { BOT_INFO, harness } from "./helpers/tg"
 
 const prices: Prices = { usd: () => 2500, symbol: () => "ETH" }
@@ -26,6 +27,7 @@ beforeEach(async () => {
       log: () => {},
       report: vi.fn(),
       linksBase: "https://go.makobot.xyz",
+      images: testImages().images,
       channelRetryMs: 1,
     }),
   )

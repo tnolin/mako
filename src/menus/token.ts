@@ -2,9 +2,10 @@ import type { Bot, Context } from "grammy"
 import { valueText } from "../cards/money"
 import { age, bar, buysSells, clean, count, escapeHtml } from "../format"
 import { bondOf, launchOf, tradesOf } from "../history"
-import { isPreviewHost, launchpadOf, unknownTokenText } from "../launchpads"
+import { launchpadOf, unknownTokenText } from "../launchpads"
+import { classify } from "../platforms/telegram/errors"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
-import { btn, findAddress, type Kb, link, show } from "../platforms/telegram/ui"
+import { btn, findAddress, type Kb, link, show, threadOf } from "../platforms/telegram/ui"
 import { creatorLinks, makeCard } from "../rules/card"
 import { devCounts, windowStats } from "../rules/stats"
 import type { BotDeps } from "./deps"
@@ -15,7 +16,7 @@ export const LOOKUP_PROMPT = "Send a token address."
 export async function tokenCard(
   deps: BotDeps,
   ca: string,
-): Promise<{ html: string; preview: string | null } | null> {
+): Promise<{ html: string; imageUrl: string | null } | null> {
   const { sql, prices } = deps
   const l = await launchOf(sql, ca)
   if (!l) return null
@@ -52,9 +53,7 @@ export async function tokenCard(
   if (card.links.length > 0) {
     lines.push(card.links.map((x) => `<a href="${escapeHtml(x.url)}">${x.label}</a>`).join(" · "))
   }
-  const preview =
-    card.imageUrl && isPreviewHost(card.launchpadKey, card.imageUrl) ? card.imageUrl : null
-  return { html: lines.join("\n"), preview }
+  return { html: lines.join("\n"), imageUrl: card.imageUrl }
 }
 
 async function isWatching(deps: BotDeps, tg: number, ca: string): Promise<boolean> {
@@ -64,16 +63,17 @@ async function isWatching(deps: BotDeps, tg: number, ca: string): Promise<boolea
   return r.length > 0
 }
 
-export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
+/** The card for a token, or null after telling the user it is not one. Buttons depend on the chat. */
+async function loadCard(ctx: Context, deps: BotDeps, raw: string) {
   const ca = findAddress(raw)
   if (!ca) {
     await show(ctx, "Send a token address (0x…).")
-    return
+    return null
   }
   const card = await tokenCard(deps, ca)
   if (!card) {
     await show(ctx, escapeHtml(unknownTokenText()))
-    return
+    return null
   }
   const dm = ctx.chat?.type === "private"
   const watching = dm && ctx.from ? await isWatching(deps, ctx.from.id, ca) : false
@@ -86,12 +86,50 @@ export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): P
     ],
     [btn("Refresh", `tr:${ca}`), link("Explorer", `https://explorer.inkonchain.com/token/${ca}`)],
   ]
-  await show(ctx, card.html, kb, card.preview)
+  return { ca, ...card, kb }
+}
+
+/** Sends the card as a new message: a padded photo with the card as caption, or text. */
+export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
+  const card = await loadCard(ctx, deps, raw)
+  if (!card) return
+  await deps.images.send(ctx.api, {
+    chat: ctx.chat!.id,
+    thread: threadOf(ctx),
+    token: card.ca,
+    imageUrl: card.imageUrl,
+    html: card.html,
+    reply_markup: { inline_keyboard: card.kb },
+  })
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+}
+
+/** Refresh edits the tapped card in place: the caption of a photo, the text of a text card. */
+async function refreshTokenCard(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
+  const card = await loadCard(ctx, deps, raw)
+  if (!card) return
+  const reply_markup = { inline_keyboard: card.kb }
+  const tapped = ctx.callbackQuery?.message
+  try {
+    if (tapped && "photo" in tapped && tapped.photo) {
+      await ctx.editMessageCaption({ caption: card.html, parse_mode: "HTML", reply_markup })
+    } else {
+      await ctx.editMessageText(card.html, {
+        parse_mode: "HTML",
+        reply_markup,
+        link_preview_options: { is_disabled: true },
+      })
+    }
+  } catch (err) {
+    if (classify(err).kind !== "not_modified") throw err
+  }
+  await ctx.answerCallbackQuery().catch(() => {})
 }
 
 export function registerToken(bot: Bot, deps: BotDeps): void {
   bot.command("t", (ctx) => sendTokenCard(ctx, deps, ctx.match))
-  bot.callbackQuery(/^(?:t|tr):(0x[0-9a-f]{40})$/, (ctx) => sendTokenCard(ctx, deps, ctx.match[1]!))
+  bot.callbackQuery(/^t:(0x[0-9a-f]{40})$/, (ctx) => sendTokenCard(ctx, deps, ctx.match[1]!))
+  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})$/, (ctx) => refreshTokenCard(ctx, deps, ctx.match[1]!))
   const pm = bot.chatType("private")
   pm.callbackQuery("look", async (ctx) => {
     await ctx.answerCallbackQuery()

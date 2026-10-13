@@ -2,7 +2,6 @@ import type { InlineKeyboardButton, InlineKeyboardMarkup } from "grammy/types"
 import type { Button, Card } from "../../cards/card"
 import type { ChatType } from "../../delivery/recipients"
 import { escapeHtml, safeUrl } from "../../format"
-import { isPreviewHost } from "../../launchpads"
 import { ALERT_SQUARE } from "../../settings"
 
 /** Data rows: one <code> per line, labels padded to max(9, longest + 1) so values align. */
@@ -61,11 +60,6 @@ export function alertKeyboard(
       ],
     ],
   }
-}
-
-export function imagePlan(card: Card, image: boolean): "none" | "preview" | "photo" {
-  if (!image || !card.imageUrl?.startsWith("https://")) return "none"
-  return isPreviewHost(card.launchpadKey, card.imageUrl) ? "preview" : "photo"
 }
 
 export function toKeyboard(buttons: Button[][]): InlineKeyboardMarkup {

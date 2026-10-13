@@ -1,3 +1,4 @@
+import { InputFile } from "grammy"
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { escapeHtml } from "../src/format"
@@ -10,6 +11,7 @@ import type { Prices } from "../src/prices"
 import { addUser, subscribe } from "./helpers/bot"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, ETH, launch, trade } from "./helpers/events"
+import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
 const prices: Prices = { usd: () => 2500, symbol: () => "ETH" }
@@ -18,8 +20,10 @@ const A = addr(0xa1)
 const CHECKSUMMED = "0x00000000000000000000000000000000000000A1"
 let sql: Sql
 let h: ReturnType<typeof harness>
+let img: ReturnType<typeof testImages>
 
 beforeEach(async () => {
+  img = testImages()
   await sql?.end()
   sql = await resetDb(inject("databaseUrl"))
   report.mockClear()
@@ -32,6 +36,7 @@ beforeEach(async () => {
       log: () => {},
       report,
       linksBase: "https://go.makobot.xyz",
+      images: img.images,
     }),
   )
   await insertEvents(sql, [
@@ -57,22 +62,22 @@ const kbOf = (p: Payload | undefined) =>
 const userCount = async () => (await sql`select 1 from bot.users`).length
 
 describe("token card", () => {
-  it("opens from /t with a checksummed address", async () => {
+  it("opens from /t with a checksummed address as a padded photo with the card as caption", async () => {
     await h.text(`/t ${CHECKSUMMED}`)
-    const m = h.last("sendMessage")!
-    expect(m.text.split("\n").slice(0, 3)).toEqual([
+    expect(h.last("sendMessage")).toBeUndefined()
+    const m = h.last("sendPhoto")!
+    expect(m.photo).toBeInstanceOf(InputFile)
+    expect(m.parse_mode).toBe("HTML")
+    expect(m.caption.split("\n").slice(0, 3)).toEqual([
       "<b>$GOBLO · Goblo</b>",
       "InkyPump · curve",
       "<code>curve    ■■■■■■■■□□ 80%</code>",
     ])
-    expect(m.text).not.toContain("Not a token")
-    expect(m.text).toContain("<code>mcap     $213K</code>")
-    expect(m.text).toContain("A &lt;b&gt;goblin&lt;/b&gt;")
-    expect(m.text).toContain(`CA   <code>${A}</code>`)
-    expect(m.link_preview_options).toEqual({
-      url: "https://images.inkypump.com/original/abc.jpg",
-      show_above_text: true,
-    })
+    expect(m.caption).not.toContain("Not a token")
+    expect(m.caption).toContain("<code>mcap     $213K</code>")
+    expect(m.caption).toContain("A &lt;b&gt;goblin&lt;/b&gt;")
+    expect(m.caption).toContain(`CA   <code>${A}</code>`)
+    expect(m.link_preview_options).toBeUndefined()
     expect(kbOf(m)).toEqual([
       [
         { text: "Trade", url: `https://go.makobot.xyz/t/${A}` },
@@ -83,20 +88,63 @@ describe("token card", () => {
         { text: "Explorer", url: `https://explorer.inkonchain.com/token/${A}` },
       ],
     ])
+    expect(img.fetchFn).toHaveBeenCalledOnce()
+    expect((img.fetchFn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toContain(
+      encodeURIComponent("https://images.inkypump.com/original/abc.jpg"),
+    )
+    // The uploaded photo's file_id is reused by the next card for the token.
+    h.clear()
+    await h.text(`/t ${A}`)
+    expect(h.last("sendPhoto")!.photo).toBe("UPLOADED")
+    expect(img.fetchFn).toHaveBeenCalledOnce()
+  })
+
+  it("sends the card as text, with no link preview, when the token has no usable image", async () => {
+    await sql`update indexer.events set payload = jsonb_set(payload, '{imageUrl}', '"http://x.io/a.png"') where type = 'launchpad.launch'`
+    await h.text(`/t ${A}`)
+    expect(h.last("sendPhoto")).toBeUndefined()
+    const m = h.last("sendMessage")!
+    expect(m.text).toContain("<b>$GOBLO · Goblo</b>")
+    expect(m.link_preview_options).toEqual({ is_disabled: true })
+    expect(img.fetchFn).not.toHaveBeenCalled()
+  })
+
+  it("sends the card as text when the padded image cannot be fetched", async () => {
+    const t = testImages((async () => imageResponse({ status: 500 })) as unknown as typeof fetch)
+    h = harness(
+      createBot({
+        token: "1:test",
+        botInfo: BOT_INFO,
+        sql,
+        prices,
+        log: () => {},
+        report,
+        linksBase: "https://go.makobot.xyz",
+        images: t.images,
+      }),
+    )
+    await h.text(`/t ${A}`)
+    expect(h.last("sendPhoto")).toBeUndefined()
+    expect(h.last("sendMessage")!.link_preview_options).toEqual({ is_disabled: true })
+  })
+
+  it("replies in the topic where a group member asked", async () => {
+    await h.text(`/t ${A}`, { chat: { id: -1001, type: "supergroup", title: "G" }, thread: 4 })
+    expect(h.last("sendPhoto")).toMatchObject({ chat_id: -1001, message_thread_id: 4 })
   })
 
   it("opens from a t_ deep link", async () => {
     await h.text(`/start t_${A}`)
     expect(
       h.calls
-        .filter((c) => c.method === "sendMessage")
-        .some((c) => String(c.payload.text).startsWith("<b>$GOBLO · Goblo</b>")),
+        .filter((c) => c.method === "sendPhoto")
+        .some((c) => String(c.payload.caption).startsWith("<b>$GOBLO · Goblo</b>")),
     ).toBe(true)
   })
 
   it("opens from a pasted address and from the Look up prompt", async () => {
     await h.text(`check this ${CHECKSUMMED} pls`)
-    expect(h.last("sendMessage")!.text).toContain("$GOBLO")
+    expect(h.last("sendPhoto")!.caption).toContain("$GOBLO")
     await h.tap("look")
     expect(h.last("sendMessage")).toMatchObject({
       text: LOOKUP_PROMPT,
@@ -104,7 +152,7 @@ describe("token card", () => {
     })
     h.clear()
     await h.text(A, { replyTo: LOOKUP_PROMPT })
-    expect(h.last("sendMessage")!.text).toContain("$GOBLO")
+    expect(h.last("sendPhoto")!.caption).toContain("$GOBLO")
   })
 
   it("names launchpads from config for an unknown token", async () => {
@@ -112,24 +160,63 @@ describe("token card", () => {
     expect(h.last("sendMessage")!.text).toBe(escapeHtml(unknownTokenText()))
   })
 
-  it("shows bonded tokens with mcap at bond", async () => {
+  it("sends a tapped list token as a new message and leaves the list untouched", async () => {
     await insertEvents(sql, [bond({ token: A, blockNumber: "1002" })])
     await h.tap(`t:${A}`)
-    const text = h.last("editMessageText")!.text as string
-    expect(text).toContain("InkyPump · bonded")
-    expect(text).toContain("<code>mcap at bond $213K</code>")
+    expect(h.last("editMessageText")).toBeUndefined()
+    expect(h.last("editMessageCaption")).toBeUndefined()
+    const m = h.last("sendPhoto")!
+    expect(m.caption).toContain("InkyPump · bonded")
+    expect(m.caption).toContain("<code>mcap at bond $213K</code>")
+    expect(h.last("answerCallbackQuery")).toBeDefined()
   })
 
-  it("survives Refresh producing identical text", async () => {
+  it("sends a tapped list token as a new text message when it has no image", async () => {
+    await sql`update indexer.events set payload = jsonb_set(payload, '{imageUrl}', 'null') where type = 'launchpad.launch'`
+    await h.tap(`t:${A}`)
+    expect(h.last("editMessageText")).toBeUndefined()
+    expect(h.last("sendMessage")!.text).toContain("<b>$GOBLO · Goblo</b>")
+  })
+
+  it("never creates a user from a token tap", async () => {
+    await h.tap(`t:${A}`)
+    await h.tap(`tr:${A}`)
+    expect(await userCount()).toBe(0)
+  })
+
+  it("refreshes a photo card by editing its caption and keyboard", async () => {
+    await h.tap(`tr:${A}`, { photo: true })
+    expect(h.last("editMessageText")).toBeUndefined()
+    expect(h.last("sendPhoto")).toBeUndefined()
+    const m = h.last("editMessageCaption")!
+    expect(m.caption).toContain("<b>$GOBLO · Goblo</b>")
+    expect(m.parse_mode).toBe("HTML")
+    expect(kbOf(m)[1]![0]).toEqual({ text: "Refresh", callback_data: `tr:${A}` })
+    expect(img.fetchFn).not.toHaveBeenCalled()
+    expect(h.last("answerCallbackQuery")).toBeDefined()
+  })
+
+  it("refreshes a text card by editing its text with the preview disabled", async () => {
+    await h.tap(`tr:${A}`)
+    const m = h.last("editMessageText")!
+    expect(m.text).toContain("<b>$GOBLO · Goblo</b>")
+    expect(m.link_preview_options).toEqual({ is_disabled: true })
+    expect(h.last("editMessageCaption")).toBeUndefined()
+  })
+
+  it("survives Refresh producing an identical caption or text", async () => {
     h.on("editMessageText", () => ({ error: "Bad Request: message is not modified" }))
+    h.on("editMessageCaption", () => ({ error: "Bad Request: message is not modified" }))
     await h.tap(`tr:${A}`)
-    await h.tap(`tr:${A}`)
+    await h.tap(`tr:${A}`, { photo: true })
+    await h.tap(`tr:${A}`, { photo: true })
     expect(report).not.toHaveBeenCalled()
+    expect(h.calls.filter((c) => c.method === "answerCallbackQuery")).toHaveLength(3)
   })
 
   it("uses a deep link for Watch in groups", async () => {
     await h.text(`/t ${A}`, { chat: { id: -1001, type: "supergroup", title: "G" }, thread: 4 })
-    const m = h.last("sendMessage")!
+    const m = h.last("sendPhoto")!
     expect(m.message_thread_id).toBe(4)
     expect(kbOf(m)[0]![1]).toEqual({
       text: "Watch",

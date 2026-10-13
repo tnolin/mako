@@ -1,6 +1,5 @@
 import { expect, it } from "vitest"
 import {
-  isPreviewHost,
   LAUNCHPADS,
   type Launchpad,
   launchpadNames,
@@ -29,7 +28,6 @@ it("names launchpads from config only", () => {
       tradeUrl: (ca) => `https://tsunami.example/${ca}`,
       refParam: "r",
       refEnv: "TSUNAMI_REF_CODE",
-      previewHosts: [],
     },
   }
   expect(unknownTokenText()).toBe("Not a token on InkyPump. MAKO covers InkyPump launches for now.")
@@ -37,10 +35,4 @@ it("names launchpads from config only", () => {
   expect(unknownTokenText(two)).toBe(
     "Not a token on InkyPump or Tsunami. MAKO covers InkyPump or Tsunami launches for now.",
   )
-})
-
-it("recognises preview hosts", () => {
-  expect(isPreviewHost("inkypump", "https://storage.inkypump.com/x.webp")).toBe(true)
-  expect(isPreviewHost("inkypump", "https://ipfs.io/ipfs/x")).toBe(false)
-  expect(isPreviewHost("inkypump", "not a url")).toBe(false)
 })

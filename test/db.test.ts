@@ -22,9 +22,19 @@ it("creates the bot schema once", async () => {
     "notices",
     "state",
     "subscriptions",
+    "token_images",
     "user_actions",
     "users",
   ])
+})
+
+it("stores one file_id per token and ignores a second insert", async () => {
+  await sql`insert into bot.token_images (token, file_id) values ('0xaa', 'f1')`
+  await sql`insert into bot.token_images (token, file_id) values ('0xaa', 'f2') on conflict do nothing`
+  expect(await sql`select token, file_id from bot.token_images`).toEqual([
+    { token: "0xaa", file_id: "f1" },
+  ])
+  await sql`delete from bot.token_images`
 })
 
 it("gives deliveries random uuid ids", async () => {

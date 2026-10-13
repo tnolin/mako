@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Card } from "../src/cards/card"
-import { alertKeyboard, imagePlan, renderCard, toKeyboard } from "../src/platforms/telegram/render"
+import { alertKeyboard, renderCard, toKeyboard } from "../src/platforms/telegram/render"
 import { ALERTS } from "../src/settings"
 
 const CA = "0x3c19e7a4b2d0f8c61e95a3b7d4c2e0f19a8b9ab0"
@@ -171,16 +171,5 @@ describe("toKeyboard", () => {
         ],
       ],
     })
-  })
-})
-
-describe("imagePlan", () => {
-  it("previews launchpad hosts, uses sendPhoto elsewhere, and nothing when off or missing", () => {
-    expect(imagePlan(card, true)).toBe("preview")
-    expect(imagePlan({ ...card, imageUrl: "https://gateway.pinata.cloud/ipfs/x" }, true)).toBe(
-      "photo",
-    )
-    expect(imagePlan(card, false)).toBe("none")
-    expect(imagePlan({ ...card, imageUrl: null }, true)).toBe("none")
   })
 })

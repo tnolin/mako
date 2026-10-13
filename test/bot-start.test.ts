@@ -5,6 +5,7 @@ import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { addChat, addUser, subscribe } from "./helpers/bot"
 import { resetDb } from "./helpers/db"
+import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
 const prices: Prices = { usd: () => 2500, symbol: () => "ETH" }
@@ -24,6 +25,7 @@ beforeEach(async () => {
     log: () => {},
     report,
     linksBase: "https://go.makobot.xyz",
+    images: testImages().images,
   })
   h = harness(bot)
 })
@@ -162,6 +164,7 @@ it("logs every handler failure but reports to Sentry once per window", async () 
     log,
     report,
     linksBase: "https://go.makobot.xyz",
+    images: testImages().images,
   })
   const h2 = harness(bot)
   h2.on("sendMessage", () => ({ error: "Bad Request: something odd" }))
@@ -229,6 +232,7 @@ it("reports a failing command counter as a warning and still handles the command
     log,
     report,
     linksBase: "x",
+    images: testImages().images,
   })
   const h2 = harness(bot)
   await sql`alter table bot.commands_daily rename to commands_daily_x`

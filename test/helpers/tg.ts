@@ -21,6 +21,17 @@ export type Call = { method: string; payload: Payload }
 type Responder = (payload: Payload) => unknown
 
 function defaults(method: string, p: Payload): unknown {
+  if (method === "sendPhoto") {
+    return {
+      message_id: 77,
+      date: 0,
+      chat: { id: p.chat_id, type: "private" },
+      photo: [
+        { file_id: "UPLOADED_SMALL", width: 90, height: 90 },
+        { file_id: "UPLOADED", width: 640, height: 640 },
+      ],
+    }
+  }
   if (method.startsWith("send") || method === "editMessageText") {
     return { message_id: 77, date: 0, chat: { id: p.chat_id, type: "private" }, text: p.text ?? "" }
   }
@@ -101,6 +112,8 @@ export function harness(bot: Bot) {
         chat?: Chat
         thread?: number
         keyboard?: { text: string; callback_data?: string; url?: string }[][]
+        /** The tapped message is a photo with a caption, as a token card with an image is. */
+        photo?: boolean
       } = {},
     ) {
       const from = user(o.from ?? 100)
@@ -116,7 +129,9 @@ export function harness(bot: Bot) {
             message_id: 50,
             date: 0,
             chat,
-            text: "screen",
+            ...(o.photo
+              ? { photo: [{ file_id: "P", width: 640, height: 640 }], caption: "screen" }
+              : { text: "screen" }),
             ...(o.thread ? { message_thread_id: o.thread, is_topic_message: true } : {}),
             ...(o.keyboard ? { reply_markup: { inline_keyboard: o.keyboard } } : {}),
           },

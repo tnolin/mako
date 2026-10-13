@@ -52,14 +52,23 @@ export function createSend(
           if (kind !== "media" && kind !== "rights") throw err
         }
       }
-      await api.sendMessage(chat, html, {
-        ...base,
-        reply_markup,
-        link_preview_options:
-          plan === "preview"
-            ? { url: p.card.imageUrl!, show_above_text: true }
-            : { is_disabled: true },
-      })
+      const noPreview = { is_disabled: true }
+      try {
+        await api.sendMessage(chat, html, {
+          ...base,
+          reply_markup,
+          link_preview_options:
+            plan === "preview" ? { url: p.card.imageUrl!, show_above_text: true } : noPreview,
+        })
+      } catch (err) {
+        // A bad preview URL fails the whole message; the alert is worth more than its image.
+        if (plan !== "preview" || classify(err).kind !== "media") throw err
+        await api.sendMessage(chat, html, {
+          ...base,
+          reply_markup,
+          link_preview_options: noPreview,
+        })
+      }
       return { ok: true }
     } catch (err) {
       return { ok: false, ...classify(err) }

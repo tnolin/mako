@@ -91,6 +91,49 @@ it("falls back to text when the chat allows text but not photos", async () => {
   expect(a.sendMessage).toHaveBeenCalledOnce()
 })
 
+it("retries once without the preview when the preview image is rejected", async () => {
+  const a = api()
+  a.sendMessage.mockRejectedValueOnce(
+    new GrammyError(
+      "x",
+      {
+        ok: false,
+        error_code: 400,
+        description: "Bad Request: wrong type of the web page content",
+      },
+      "sendMessage",
+      {},
+    ),
+  )
+  expect(await createSend(a, opts)(row())).toEqual({ ok: true })
+  expect(a.sendMessage).toHaveBeenCalledTimes(2)
+  const calls = a.sendMessage.mock.calls as unknown as [number, string, Record<string, unknown>][]
+  expect(calls[0]![2].link_preview_options).toMatchObject({ url: card.imageUrl })
+  expect(calls[1]![2]).toMatchObject({
+    message_thread_id: 7,
+    link_preview_options: { is_disabled: true },
+  })
+  expect(calls[1]![1]).toBe(calls[0]![1])
+})
+
+it("does not retry a preview send for other errors, and reports a failed retry", async () => {
+  const a = api()
+  a.sendMessage.mockRejectedValueOnce(
+    new GrammyError(
+      "x",
+      { ok: false, error_code: 400, description: "Forbidden: bot was kicked from the group chat" },
+      "sendMessage",
+      {},
+    ),
+  )
+  expect(await createSend(a, opts)(row())).toMatchObject({ ok: false, kind: "removed" })
+  expect(a.sendMessage).toHaveBeenCalledOnce()
+  const b = api()
+  b.sendMessage.mockRejectedValue(media)
+  expect(await createSend(b, opts)(row())).toMatchObject({ ok: false, kind: "media" })
+  expect(b.sendMessage).toHaveBeenCalledTimes(2)
+})
+
 it("disables previews when images are off", async () => {
   const a = api()
   await createSend(a, opts)(row({ card: { type: "card", card, image: false } }))

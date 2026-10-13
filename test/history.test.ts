@@ -41,6 +41,11 @@ describe("synthetic events", () => {
     await setCursorBlock(sql, 105)
   })
 
+  it("stops at maxId when given", async () => {
+    const evs = await eventsAfter(sql, ids[0]!, 500, ids[2]!)
+    expect(evs.map((e) => e.id)).toEqual([ids[1], ids[2]])
+  })
+
   it("reads confirmed events after a cursor, in id order", async () => {
     const evs = await eventsAfter(sql, ids[0]!)
     expect(evs.map((e) => e.p.type)).toEqual([

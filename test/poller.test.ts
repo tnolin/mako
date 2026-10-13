@@ -53,6 +53,17 @@ it("starts at the newest event on first run, without replaying history", async (
   expect(await listDeliveries(sql)).toEqual([])
 })
 
+it("reads no event past maxId and leaves the cursor at the last one it read", async () => {
+  await addUser(sql, 101)
+  const ids = await insertEvents(sql, [L, trade({ soldBps: 8100, quoteAmount: eth(0.5) })])
+  expect(await pollOnce(deps({ maxId: ids[0] }))).toBe(1)
+  expect(await byChat()).toEqual({ "101": ["new:pending"] })
+  expect(await cursor()).toBe(ids[0])
+  expect(await pollOnce(deps({ maxId: ids[0] }))).toBe(0)
+  expect(await pollOnce(deps())).toBe(1)
+  expect(await byChat()).toEqual({ "101": ["new:pending", "bonding:pending"] })
+})
+
 it("routes to feeds, DM watchers, groups with topics and channels, minus mutes", async () => {
   await addUser(sql, 101)
   const watcher = await addUser(sql, 102, allOff(basicPreset()))

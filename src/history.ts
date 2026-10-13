@@ -7,10 +7,17 @@ export type Row<T> = { id: string; p: T }
 // Every read of the indexer lives here. Production grants allow indexer.events and indexer.cursors only.
 // Selecting `id::text` makes a bare `order by id` sort the text, so these orders use `events.id`.
 
-export function eventsAfter(sql: Sql, cursor: string, limit = 500): Promise<Row<IndexerEvent>[]> {
+/** Confirmed events after `cursor`, up to and including `maxId` when given (replay tooling only). */
+export function eventsAfter(
+  sql: Sql,
+  cursor: string,
+  limit = 500,
+  maxId?: string,
+): Promise<Row<IndexerEvent>[]> {
   return sql<Row<IndexerEvent>[]>`
     select id::text, payload as p from indexer.events
-    where confirmed and id > ${cursor} order by events.id limit ${limit}`
+    where confirmed and id > ${cursor} ${maxId === undefined ? sql`` : sql`and id <= ${maxId}`}
+    order by events.id limit ${limit}`
 }
 
 /** The newest confirmed event id. Unconfirmed rows are skipped, so they are read once they confirm. */

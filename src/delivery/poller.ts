@@ -17,6 +17,8 @@ export type PollerDeps = {
   rules?: typeof rulesFor
   /** Shared by startPoller so rule-failure reports are rate-limited across batches. */
   limiter?: ReturnType<typeof createFailureLimiter>
+  /** Upper bound (inclusive) on the event ids read. Set only by the replay script; unset in production. */
+  maxId?: string
 }
 
 /** postgres.js and Node network errors carry a string `code`; a rule's own bugs do not. */
@@ -80,7 +82,7 @@ async function write(sql: Sql, rows: Delivery[], cursor: string): Promise<void> 
 export async function pollOnce(deps: PollerDeps): Promise<number> {
   const { sql, log } = deps
   const cursor = await initCursor(sql)
-  const events = await eventsAfter(sql, cursor)
+  const events = await eventsAfter(sql, cursor, 500, deps.maxId)
   if (events.length === 0) return 0
   const rules = deps.rules ?? rulesFor
   const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log })

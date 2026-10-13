@@ -1,13 +1,14 @@
 import type { Bot } from "grammy"
 import { logAction } from "../actions"
-import { btn, type Kb, show } from "../platforms/telegram/ui"
-import { ALERT_HELP, ALERT_LABEL, ALERTS, type AlertKind, allOff, type Settings } from "../settings"
+import { show } from "../platforms/telegram/ui"
+import { type AlertKind, allOff } from "../settings"
 import { openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
 import { MENU_TEXT, menuKb } from "./main"
 import { sendTokenCard } from "./token"
 import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
 import { watchToken } from "./watchlist"
+import { sendWelcome, welcomeKb, welcomeText } from "./welcome"
 
 /** Analytics source for /start: a kind letter for our own links, a plain campaign tag, never free text or ids. */
 export function startSource(payload: string): string {
@@ -17,28 +18,6 @@ export function startSource(payload: string): string {
   // A bare address or chat id is an identifier, not a campaign tag.
   if (/^0x[0-9a-fA-F]{40}$/.test(payload) || /^-?\d+$/.test(payload)) return "other"
   return /^[A-Za-z0-9_-]{1,64}$/.test(payload) ? payload : "other"
-}
-
-export function welcomeText(): string {
-  const w = Math.max(...ALERTS.map((a) => ALERT_LABEL[a].length)) + 2
-  return [
-    "<b>MAKO</b> · real-time alerts for Ink memecoins",
-    "",
-    "Your alerts:",
-    ...ALERTS.map((a) => `<code>${ALERT_LABEL[a].padEnd(w)}${ALERT_HELP[a]}</code>`),
-    "",
-    "Tap an alert to turn it on or off. Thresholds and images are in My alerts.",
-  ].join("\n")
-}
-
-export function welcomeKb(s: Settings): Kb {
-  const toggles = ALERTS.map((a) =>
-    btn(`${s.alerts[a].on ? "✓" : "·"} ${ALERT_LABEL[a]}`, `ob:${a}`),
-  )
-  const rows: Kb = []
-  for (let i = 0; i < toggles.length; i += 2) rows.push(toggles.slice(i, i + 2))
-  rows.push([btn("Turn all off", "ob:off"), btn("Done → menu", "ob:done")])
-  return rows
 }
 
 export function registerStart(bot: Bot, deps: BotDeps): void {
@@ -55,10 +34,7 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
     else if (payload.startsWith("t_")) await sendTokenCard(ctx, deps, payload.slice(2))
     else if (payload.startsWith("s_")) await openChatSettings(ctx, deps, payload.slice(2))
     if (created) {
-      await ctx.reply(welcomeText(), {
-        parse_mode: "HTML",
-        reply_markup: { inline_keyboard: welcomeKb(user.settings) },
-      })
+      await sendWelcome(ctx, user.settings)
     } else if (!/^[wts]_/.test(payload)) {
       await show(ctx, MENU_TEXT, menuKb())
     }

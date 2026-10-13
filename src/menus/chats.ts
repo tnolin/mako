@@ -16,6 +16,7 @@ import {
 import { NOT_ADMIN, openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER } from "./users"
+import { sendWelcome } from "./welcome"
 
 export const SETUP_LINE = "Run /setup in the topic where MAKO should post alerts."
 export const GUIDE = [
@@ -98,7 +99,7 @@ async function linkChannel(
     })
     return
   }
-  const { user } = await ensureUser(deps.sql, ctx.from!.id)
+  const { user, created } = await ensureUser(deps.sql, ctx.from!.id)
   await deps.sql`
     insert into bot.chats (chat_id, kind, setup_by, settings, active)
     values (${chatId}, 'channel', ${user.id}, ${deps.sql.json(json(basicPreset()))}, true)
@@ -110,6 +111,8 @@ async function linkChannel(
     parse_mode: "HTML",
     reply_markup: { remove_keyboard: true },
   })
+  // Action first, then the welcome card, as /start does for deep links.
+  if (created) await sendWelcome(ctx, user.settings)
 }
 
 function routeKb(s: Settings, thread: number): Kb {

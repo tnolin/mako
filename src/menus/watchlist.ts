@@ -7,6 +7,7 @@ import { classify } from "../platforms/telegram/errors"
 import { btn, findAddress, type Kb, show } from "../platforms/telegram/ui"
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER, type User } from "./users"
+import { sendWelcome } from "./welcome"
 
 export const WATCH_PROMPT = "Send a token address to watch."
 export const WATCH_CAP = 50
@@ -24,7 +25,7 @@ export async function watchToken(ctx: Context, deps: BotDeps, raw: string): Prom
     return
   }
   // A typed command or message is a fresh user action, so it may create the user.
-  const { user } = await ensureUser(deps.sql, ctx.from.id)
+  const { user, created } = await ensureUser(deps.sql, ctx.from.id)
   const [n] = await deps.sql<{ n: number }[]>`
     select count(*)::int as n from bot.subscriptions where user_id = ${user.id} and kind = 'watch'`
   if ((n?.n ?? 0) >= WATCH_CAP) {
@@ -40,6 +41,8 @@ export async function watchToken(ctx: Context, deps: BotDeps, raw: string): Prom
     `Watching $${escapeHtml(clean(l.p.ticker, 32))}. Its alerts come here, even for feeds you turned off.`,
     { parse_mode: "HTML" },
   )
+  // Action first, then the welcome card, as /start does for deep links.
+  if (created) await sendWelcome(ctx, user.settings)
 }
 
 /** Adds or removes a subscription. Returns true when it is now on. */

@@ -189,9 +189,25 @@ describe("watchlist and mutes", () => {
   })
 
   it("watches a checksummed address from /watch", async () => {
+    await addUser(sql, 100)
     await h.text(`/watch ${CHECKSUMMED}`)
     expect(h.last("sendMessage")!.text).toContain("Watching $GOBLO")
     expect(await sql`select target from bot.subscriptions`).toEqual([{ target: A }])
+  })
+
+  it("confirms the watch, then shows the welcome card, when /watch recreates a deleted user", async () => {
+    await h.text("/start")
+    await h.tap("dd:yes")
+    h.clear()
+    await h.text(`/watch ${A}`)
+    const texts = h.calls.filter((c) => c.method === "sendMessage").map((c) => c.payload.text)
+    expect(texts).toHaveLength(2)
+    expect(texts[0]).toContain("Watching $GOBLO")
+    expect(texts[1]).toContain("<b>MAKO</b> · real-time alerts")
+    expect(h.last("sendMessage")!.reply_markup.inline_keyboard.flat().length).toBeGreaterThan(5)
+    h.clear()
+    await h.text(`/watch ${A}`)
+    expect(h.calls.filter((c) => c.method === "sendMessage")).toHaveLength(1)
   })
 
   it("caps the watchlist at 50", async () => {

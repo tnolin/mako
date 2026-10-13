@@ -17,10 +17,19 @@ import {
 } from "../settings"
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
+import { sendWelcome } from "./welcome"
 
 export const NOT_ADMIN = "Only admins of that chat can change its settings."
 type Scope =
-  | { kind: "user"; id: "u"; settings: Settings; save(s: Settings): Promise<void>; muted: number }
+  | {
+      kind: "user"
+      id: "u"
+      settings: Settings
+      save(s: Settings): Promise<void>
+      muted: number
+      /** True when this typed command just created the user. */
+      created: boolean
+    }
   | {
       kind: "chat"
       id: string
@@ -42,9 +51,10 @@ async function scopeFor(
   fresh = false,
 ): Promise<Scope | null> {
   if (id === "u") {
-    const user = fresh
-      ? (await ensureUser(deps.sql, ctx.from!.id)).user
-      : await findUser(deps.sql, ctx.from!.id)
+    const found = fresh
+      ? await ensureUser(deps.sql, ctx.from!.id)
+      : { user: await findUser(deps.sql, ctx.from!.id), created: false }
+    const user = found.user
     if (!user) {
       await show(ctx, NO_USER)
       return null
@@ -57,6 +67,7 @@ async function scopeFor(
       settings: user.settings,
       save: (s) => saveUserSettings(deps.sql, user.id, s),
       muted: m?.n ?? 0,
+      created: found.created,
     }
   }
   if (!(await isAdmin(ctx.api, id, ctx.from!.id))) {
@@ -108,7 +119,8 @@ async function render(ctx: Context, sc: Scope): Promise<void> {
         )}</b>`
   const lines = [title]
   if (sc.kind === "chat") {
-    if (!sc.active) lines.push(`Paused${sc.paused ? ` (${sc.paused})` : ""}.`)
+    if (!sc.active)
+      lines.push(`Paused${sc.paused && sc.paused !== "paused" ? ` (${sc.paused})` : ""}.`)
     // Channels have no topics.
     if (sc.chatType !== "channel") {
       lines.push(`Posts to ${where(s.thread)}.`)
@@ -149,7 +161,10 @@ export async function alertsScreen(
   fresh = false,
 ): Promise<void> {
   const sc = await scopeFor(ctx, deps, id, fresh)
-  if (sc) await render(ctx, sc)
+  if (!sc) return
+  await render(ctx, sc)
+  // Action first, then the welcome card, as /start does for deep links.
+  if (sc.kind === "user" && sc.created) await sendWelcome(ctx, sc.settings)
 }
 
 export const openChatSettings = (ctx: Context, deps: BotDeps, chatId: string) =>

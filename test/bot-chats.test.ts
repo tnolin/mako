@@ -280,7 +280,9 @@ describe("channels", () => {
     expect((await chat(CH.id))?.active).toBe(false)
     await h.update(shared)
     expect(await chat(CH.id)).toMatchObject({ active: true, kind: "channel" })
-    expect(h.last("sendMessage")!.text).toBe("MAKO will post alerts in News.")
+    const texts = h.calls.filter((c) => c.method === "sendMessage").map((c) => c.payload.text)
+    expect(texts.at(-2)).toBe("MAKO will post alerts in News.")
+    expect(texts.at(-1)).toContain("<b>MAKO</b> · real-time alerts")
   })
 
   it("activates when chat_shared arrives first and the rights follow", async () => {
@@ -335,10 +337,16 @@ describe("no user rows from old taps", () => {
     expect(await sql`select 1 from bot.users`).toHaveLength(0)
   })
 
-  it("lets the typed /alerts command create the user", async () => {
+  it("lets the typed /alerts command create the user, then shows the welcome card", async () => {
     await h.text("/alerts")
     expect(await sql`select 1 from bot.users`).toHaveLength(1)
-    expect(h.last("sendMessage")!.text).toContain("<b>My alerts</b>")
+    const texts = h.calls.filter((c) => c.method === "sendMessage").map((c) => c.payload.text)
+    expect(texts).toHaveLength(2)
+    expect(texts[0]).toContain("<b>My alerts</b>")
+    expect(texts[1]).toContain("<b>MAKO</b> · real-time alerts")
+    h.clear()
+    await h.text("/alerts")
+    expect(h.calls.filter((c) => c.method === "sendMessage")).toHaveLength(1)
   })
 })
 
@@ -369,6 +377,16 @@ describe("chat settings details", () => {
     expect(kb.map((b: { text: string }) => b.text)).toContain("Resume")
     await h.tap(`gc:${G.id}:resume`)
     expect((await chat(G.id))?.settings.pausedRoutes).toEqual([])
+  })
+
+  it("names the pause reason only when it is not a plain pause", async () => {
+    await addChat(sql, G.id, "supergroup")
+    await h.tap(`gc:${G.id}:pause`)
+    const paused = () => (h.last("editMessageText")!.text as string).split("\n")
+    expect(paused()).toContain("Paused.")
+    await sql`update bot.chats set paused_reason = 'rights' where chat_id = ${G.id}`
+    await h.tap(`gc:${G.id}`)
+    expect(paused()).toContain("Paused (rights).")
   })
 
   it("refuses to resume while MAKO cannot post", async () => {

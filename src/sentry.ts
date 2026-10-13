@@ -31,15 +31,23 @@ type Scrubbable = {
   extra?: unknown
   contexts?: unknown
   tags?: unknown
-  breadcrumbs?: { data?: unknown }[]
+  breadcrumbs?: { category?: string; data?: unknown }[]
 }
+
+/**
+ * Outgoing-request breadcrumbs keep the URL path (the bot token is in api.telegram.org/bot<TOKEN>/...)
+ * and console breadcrumbs carry whole log lines (chat ids). Logs already go to stdout, so drop both.
+ */
+const DROPPED_CRUMBS = new Set(["http", "fetch", "console"])
+const keepCrumb = (b: { category?: string }) => !(b.category && DROPPED_CRUMBS.has(b.category))
 
 export function scrubEvent<T extends Scrubbable>(e: T): T {
   delete e.user
   if (e.extra) e.extra = scrub(e.extra)
   if (e.contexts) e.contexts = scrub(e.contexts)
   if (e.tags) e.tags = scrub(e.tags)
-  if (e.breadcrumbs) e.breadcrumbs = e.breadcrumbs.map((b) => ({ ...b, data: scrub(b.data) }))
+  if (e.breadcrumbs)
+    e.breadcrumbs = e.breadcrumbs.filter(keepCrumb).map((b) => ({ ...b, data: scrub(b.data) }))
   return e
 }
 
@@ -84,7 +92,8 @@ export function initSentry(env: Record<string, string | undefined>, sdk: Sdk = S
       httpBodies: [],
     },
     beforeSend: (e) => scrubEvent(e),
-    beforeBreadcrumb: (b) => ({ ...b, data: scrub(b.data) as Record<string, unknown> | undefined }),
+    beforeBreadcrumb: (b) =>
+      keepCrumb(b) ? { ...b, data: scrub(b.data) as Record<string, unknown> | undefined } : null,
   })
   return {
     capture: (err, extra) =>

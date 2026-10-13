@@ -29,12 +29,15 @@ describe("scrubbers", () => {
       user: { id: "1" },
       extra: { user: 1, ok: true },
       tags: { chat: "-100", release: "v1" },
-      breadcrumbs: [{ data: { chat_id: 5, url: "/x" } }],
+      breadcrumbs: [
+        { category: "ui.click", data: { chat_id: 5, target: "/x" } },
+        { category: "http", data: { url: "https://api.telegram.org/bot123:ABC/sendMessage" } },
+      ],
     })
     expect(e).toEqual({
       extra: { ok: true },
       tags: { release: "v1" },
-      breadcrumbs: [{ data: { url: "/x" } }],
+      breadcrumbs: [{ category: "ui.click", data: { target: "/x" } }],
     })
   })
 
@@ -47,7 +50,12 @@ describe("scrubbers", () => {
     )
     const p = plainError(err) as Error
     expect(p.message).toBe("sendMessage: 403 Forbidden: bot was blocked by the user")
-    expect(JSON.stringify(p)).not.toContain("12345")
+    // JSON.stringify(Error) is "{}", so check the message and every own property directly.
+    const own = Object.getOwnPropertyNames(p).map(
+      (k) => (p as unknown as Record<string, unknown>)[k],
+    )
+    expect(JSON.stringify(own)).not.toContain("12345")
+    expect(JSON.stringify(own)).not.toContain("private alert text")
     expect(p).not.toHaveProperty("payload")
   })
 })
@@ -84,6 +92,17 @@ describe("initSentry", () => {
       },
     })
     expect(opts.beforeSend({ user: { id: 1 }, extra: { chat_id: 2 } })).toEqual({ extra: {} })
+    const crumb = (category: string, extra: Record<string, unknown>) =>
+      opts.beforeBreadcrumb({ category, ...extra })
+    expect(
+      crumb("http", { data: { url: "https://api.telegram.org/bot123:ABC/sendMessage" } }),
+    ).toBeNull()
+    expect(crumb("fetch", { data: { url: "https://rpc.example/KEY123" } })).toBeNull()
+    expect(crumb("console", { message: '{"msg":"notice","chatId":"-100123"}' })).toBeNull()
+    expect(crumb("ui.click", { data: { chat_id: 5, ok: 1 } })).toEqual({
+      category: "ui.click",
+      data: { ok: 1 },
+    })
     r.checkIn("error")
     expect(s.captureCheckIn).toHaveBeenCalledWith(
       { monitorSlug: "ink-pipeline", status: "error" },

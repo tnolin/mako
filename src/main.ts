@@ -28,6 +28,10 @@ const token = need("TELEGRAM_BOT_TOKEN")
 const linksBase = need("LINKS_BASE_URL").replace(/\/$/, "")
 const i = process.argv.indexOf("--from-id")
 const fromId = i >= 0 ? process.argv[i + 1] : undefined
+if (i >= 0 && !/^\d+$/.test(fromId ?? "")) {
+  console.error("usage: main.ts [--from-id <numeric event id>]")
+  process.exit(2)
+}
 
 const reporter = initSentry(env)
 const report = (err: unknown, extra?: Record<string, unknown>) => reporter.capture(err, extra)

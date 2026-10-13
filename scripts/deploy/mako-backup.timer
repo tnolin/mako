@@ -1,0 +1,9 @@
+[Unit]
+Description=Nightly MAKO bot schema dump
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+
+[Install]
+WantedBy=timers.target

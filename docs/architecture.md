@@ -56,11 +56,11 @@ Users choose alerts through a button setup flow on first start.
 | Curve progress | A token crosses a progress mark on its curve (e.g. 50%, 80%) | v0 |
 | Curve velocity | Progress jumps fast inside a short window | v0 |
 | Bonded / graduated | A token bonds or graduates from its launchpad curve | v0 |
-| Creator sell | The creator wallet, or a wallet it funded, sells a tracked token | v0 |
+| Creator sell | The launch's creator wallet sells its token | v0 |
 | Big buy / sell | A single trade above a size threshold | v0 |
 | New launch | A new token is created, filterable by launchpad and quote asset | v0 |
-| Market cap target | A watched token reaches a user-set market cap | v0 |
-| Price move | A bonded token moves by a set percent inside a window | v0 |
+| Market cap target | A watched token reaches a user-set market cap | v1 |
+| Price move | A bonded token moves by a set percent inside a window | v1 |
 | Serial deployer launch | A wallet with past launches deploys a new token | v1 |
 | Whale buy | A wallet already holding a large share buys more | v1 |
 | Top holder exit | A top 10 holder sells most of their position | v1 |
@@ -90,7 +90,7 @@ Users choose alerts through a button setup flow on first start.
 
 **Dedupe:** one alert per token per threshold. Velocity and price move alerts have a per-token cooldown. A bond alert replaces any pending progress alert for that token.
 
-**Creator tracking:** every launch records the creator wallet and the wallets it funded in the hour before launch as a linked group. A sell from that group on a tracked token fires Creator sell, with the amount and the share of the group's holdings sold.
+**Creator sell:** a sell by the launch's creator wallet fires DEV SELL, with realized PnL from the creator's curve trades and the creator's current share of supply.
 
 ## Interaction design
 
@@ -136,22 +136,26 @@ Buttons are the main interface, and slash commands open the same screens for peo
 
 ## Data model
 
-The bot owns the `bot` schema in the same Postgres as the indexer. It reads indexer tables and never writes to them.
+The bot owns the `bot` schema in the same Postgres as the indexer. It reads only `indexer.events` and `indexer.cursors` (ADR 0006).
 
-| Table | Key fields |
+| Table | Purpose |
 | --- | --- |
-| `users` | id, platform, platform_user_id, tier, created_at |
-| `groups` | id, platform, chat_id, owner, settings (JSON), tier |
-| `subscriptions` | owner (user or group), kind, target, params (JSON), cooldown |
-| `deliveries` | event_id, destination, status, sent_at |
-
-`deliveries` handles dedupe and doubles as the source for usage metrics.
+| `users` | One row per Telegram user: numeric id, settings (JSON), blocked time |
+| `chats` | Groups and channels the bot serves: Telegram chat id, kind, owner, settings (JSON), active flag |
+| `subscriptions` | A user's watched tokens and muted tokens |
+| `deliveries` | The send queue, the dedupe record and the source for usage metrics |
+| `delivery_daily` | Daily delivery counts by alert, chat type and status, rolled up from rows older than 90 days |
+| `commands_daily` | Daily command counts |
+| `user_actions` | Button and command events with no user column, for product metrics |
+| `notices` | Admin notices already sent to a chat, one per reason |
+| `state` | Key-value state such as poller cursors |
 
 ## Reliability
 
 - Presets keep new users on a focused set of alerts.
 - Per-group minimum trade sizes, quiet hours, and an hourly cap that rolls extra alerts into one digest.
 - Every send goes through a queue with per-destination throttles. Telegram allows about 30 messages per second overall and about 20 per minute to one group; Discord has per-route limits. A group over budget gets one summary message.
+- Alerts older than 3 minutes (30 for DEV SELL and BONDED) are dropped from the queue and counted in one summary message per chat.
 - Group feed settings are admin-only.
 - Secrets live in env vars. A secret scanner runs in CI.
 

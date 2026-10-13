@@ -1,5 +1,6 @@
 import { Bot } from "grammy"
 import type { UserFromGetMe } from "grammy/types"
+import { createFailureLimiter } from "../../delivery/limit"
 import { registerAlerts } from "../../menus/alerts"
 import { registerChats } from "../../menus/chats"
 import type { BotDeps } from "../../menus/deps"
@@ -48,9 +49,16 @@ export function createBot(deps: BotDeps & { token: string; botInfo?: UserFromGet
   registerChats(bot, deps)
   // Last: it catches plain text (pasted addresses and ForceReply answers).
   registerToken(bot, deps)
+  // A bad deploy or a Telegram outage fails every update: log each one, send Sentry the first and then one per window.
+  const limiter = createFailureLimiter({
+    report: deps.report,
+    log: (level, msg, fields) => {
+      if (msg !== "handler failed") deps.log(level, msg, fields)
+    },
+  })
   bot.catch((e) => {
     deps.log("error", "bot handler failed", { error: String(e.error) })
-    deps.report(e.error)
+    limiter.fail("handler", e.error)
   })
   return bot
 }

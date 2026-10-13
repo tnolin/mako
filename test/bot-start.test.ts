@@ -147,6 +147,31 @@ it("treats 'message is not modified' as success", async () => {
   expect(report).not.toHaveBeenCalled()
 })
 
+it("logs every handler failure but reports to Sentry once per window", async () => {
+  const log = vi.fn()
+  const bot = createBot({
+    token: "1:test",
+    botInfo: BOT_INFO,
+    sql,
+    prices,
+    log,
+    report,
+    linksBase: "https://go.makobot.xyz",
+  })
+  const h2 = harness(bot)
+  h2.on("sendMessage", () => ({ error: "Bad Request: something odd" }))
+  // handleUpdate throws; bot.start would pass the error to the handler set with bot.catch.
+  for (let i = 0; i < 3; i++) {
+    const err = await h2.text("/help").then(
+      () => null,
+      (e) => e,
+    )
+    await bot.errorHandler(err)
+  }
+  expect(log.mock.calls.filter((c) => c[1] === "bot handler failed")).toHaveLength(3)
+  expect(report).toHaveBeenCalledOnce()
+})
+
 it("counts known commands per day and ignores unknown ones", async () => {
   await h.text("/start")
   await h.text("/menu")

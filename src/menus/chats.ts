@@ -2,6 +2,7 @@ import type { Bot, Context } from "grammy"
 import type { ChatAdministratorRights, ChatMember } from "grammy/types"
 import type postgres from "postgres"
 import { logAction } from "../actions"
+import { moveChat } from "../chat-move"
 import { escapeHtml } from "../format"
 import { btn, isAdmin, type Kb, link, show, sleep } from "../platforms/telegram/ui"
 import {
@@ -64,10 +65,14 @@ async function upsertChat(
     on conflict (platform, chat_id) do update set removed_at = null, kind = excluded.kind`
 }
 
-async function markRemoved(deps: BotDeps, chatId: number | string): Promise<void> {
-  await deps.sql`update bot.chats set removed_at = now(), active = false where chat_id = ${chatId}`
+async function dropPending(deps: BotDeps, chatId: number | string): Promise<void> {
   await deps.sql`
     update bot.deliveries set status = 'skipped', summarized = true where chat_id = ${chatId} and status = 'pending'`
+}
+
+async function markRemoved(deps: BotDeps, chatId: number | string): Promise<void> {
+  await deps.sql`update bot.chats set removed_at = now(), active = false where chat_id = ${chatId}`
+  await dropPending(deps, chatId)
 }
 
 const postsOk = (m: ChatMember | null, channel: boolean) =>
@@ -117,15 +122,20 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
   bot.on("my_chat_member", async (ctx) => {
     const { chat, old_chat_member: o, new_chat_member: n, from } = ctx.myChatMember
     if (chat.type === "private") return
-    const inside = (s: string) => s === "member" || s === "administrator" || s === "creator"
-    if (inside(n.status) && !inside(o.status)) {
+    // A restricted bot that is still a member stays in the chat; only is_member: false means it left.
+    const inside = (m: ChatMember) =>
+      m.status === "member" ||
+      m.status === "administrator" ||
+      m.status === "creator" ||
+      (m.status === "restricted" && m.is_member)
+    if (inside(n) && !inside(o)) {
       await upsertChat(deps, chat.id, chat.type, (await findUser(deps.sql, from.id))?.id ?? null)
       if (chat.type !== "channel") {
         await ctx.api.sendMessage(chat.id, SETUP_LINE, {
           reply_markup: { inline_keyboard: guideKb() },
         })
       }
-    } else if (!inside(n.status) && inside(o.status)) {
+    } else if (!inside(n) && inside(o)) {
       await markRemoved(deps, chat.id)
     }
   })
@@ -138,20 +148,7 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
   groups.on("message:migrate_to_chat_id", async (ctx) => {
     const from = ctx.chat.id
     const to = ctx.msg.migrate_to_chat_id
-    await deps.sql.begin(async (tx) => {
-      const [taken] = await tx`select 1 from bot.chats where chat_id = ${to}`
-      if (!taken) {
-        await tx`update bot.chats set chat_id = ${to}, kind = 'supergroup' where chat_id = ${from}`
-        return
-      }
-      // The supergroup's own join event can arrive first: carry the old row's setup over and drop it.
-      await tx`
-        update bot.chats n set settings = o.settings, active = o.active, paused_reason = o.paused_reason,
-          owner = coalesce(n.owner, o.owner), setup_by = coalesce(o.setup_by, n.setup_by),
-          removed_at = null, kind = 'supergroup'
-        from bot.chats o where o.chat_id = ${from} and n.chat_id = ${to}`
-      await tx`delete from bot.chats where chat_id = ${from}`
-    })
+    await deps.sql.begin((tx) => moveChat(tx, from, to))
   })
   groups.command("setup", async (ctx) => {
     const thread = ctx.msg.is_topic_message ? (ctx.msg.message_thread_id ?? null) : null
@@ -317,6 +314,7 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
       return show(ctx, "MAKO isn't in that chat any more.", [[btn("Groups & channels", "gc")]])
     if (action === "pause") {
       await deps.sql`update bot.chats set active = false, paused_reason = 'paused' where chat_id = ${chatId}`
+      await dropPending(deps, chatId)
     } else if (action === "resume") {
       const me = await ctx.api.getChatMember(Number(chatId), ctx.me.id).catch(() => null)
       if (!postsOk(me, c.kind === "channel")) {

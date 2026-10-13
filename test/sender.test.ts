@@ -105,6 +105,7 @@ it("sends the most urgent heads first when more chats are ready than the budget"
 })
 
 it("drops alerts 3 minutes after their event, DEV SELL and BONDED after 30", async () => {
+  for (const id of [-1, -2, -3]) await addChat(sql, id, "supergroup")
   await enqueue(-1, "bonding", { ageMin: 4 })
   await enqueue(-2, "devsell", { ageMin: 4, priority: 0 })
   await enqueue(-3, "bonded", { ageMin: 31, priority: 1 })
@@ -276,15 +277,92 @@ it("moves a migrated group onto an already registered supergroup without duplica
   await sender().tick()
   const chats = await sql<{ chat_id: string; active: boolean; removed: boolean }[]>`
     select chat_id::text, active, removed_at is not null as removed from bot.chats order by chat_id desc`
-  expect(chats.map((c) => [c.chat_id, c.active, c.removed])).toEqual([
-    ["-5", false, true],
-    ["-1005", true, false],
-  ])
+  expect(chats.map((c) => [c.chat_id, c.active, c.removed])).toEqual([["-1005", true, false]])
   const rows = await sql`
     select chat_id::text, chat_type, dedupe_key, status from bot.deliveries order by dedupe_key, chat_id`
   expect(rows.map((r) => [r.chat_id, r.chat_type, r.dedupe_key, r.status])).toEqual([
     ["-1005", "supergroup", "only-old", "pending"],
     ["-1005", "supergroup", "same", "pending"],
+  ])
+})
+
+it("posts no summary into an inactive, removed or unregistered group, but still into a DM", async () => {
+  await addChat(sql, -1, "supergroup", basicPreset(), { active: false })
+  await addChat(sql, -2, "supergroup")
+  await sql`update bot.chats set removed_at = now() where chat_id = -2`
+  await enqueue(-1, "new", { ageMin: 5 })
+  await enqueue(-2, "new", { ageMin: 5 })
+  await enqueue(-3, "new", { ageMin: 5 })
+  await enqueue(42, "new", { ageMin: 5, chatType: "private" })
+  respond = () => ({ ok: false, kind: "retry_after", retryAfter: 60, description: "429" })
+  await sender().tick()
+  const sums = await sql`select chat_id::text from bot.deliveries where alert = 'summary'`
+  expect(sums.map((r) => r.chat_id)).toEqual(["42"])
+})
+
+it("runs the summary scan at most every 10 seconds", async () => {
+  await addChat(sql, -1, "supergroup")
+  await addChat(sql, -2, "supergroup")
+  respond = () => ({ ok: false, kind: "retry_after", retryAfter: 600, description: "429" })
+  const s = sender()
+  await enqueue(-1, "new", { ageMin: 5 })
+  await s.tick()
+  await enqueue(-2, "new", { ageMin: 5 })
+  t += 9000
+  await s.tick()
+  expect((await sql`select chat_id::text from bot.deliveries where alert = 'summary'`).length).toBe(
+    1,
+  )
+  t += 1000
+  await s.tick()
+  expect((await sql`select chat_id::text from bot.deliveries where alert = 'summary'`).length).toBe(
+    2,
+  )
+})
+
+it("indexes unsummarised skips for the summary scan", async () => {
+  const [i] =
+    await sql`select 1 from pg_indexes where schemaname = 'bot' and indexname = 'deliveries_unsummarized'`
+  expect(i).toBeDefined()
+})
+
+it("treats a removed or rights failure in a DM as the user blocking the bot", async () => {
+  await addUser(sql, 77)
+  await enqueue(77, "new", { chatType: "private" })
+  await enqueue(77, "bonding", { chatType: "private", priority: 2 })
+  respond = () => ({ ok: false, kind: "removed", description: "Bad Request: chat not found" })
+  const s = sender()
+  await s.tick()
+  expect(
+    (await sql`select blocked_at from bot.users where platform_user_id = 77`)[0]?.blocked_at,
+  ).not.toBeNull()
+  expect((await statuses()).sort()).toEqual(["bonding:skipped", "new:skipped"])
+  expect(notify).not.toHaveBeenCalled()
+  expect(await sql`select 1 from bot.notices`).toHaveLength(0)
+  await addUser(sql, 78)
+  await enqueue(78, "new", { chatType: "private" })
+  respond = () => ({ ok: false, kind: "rights", description: "Forbidden: have no rights to send" })
+  await s.tick()
+  expect(
+    (await sql`select blocked_at from bot.users where platform_user_id = 78`)[0]?.blocked_at,
+  ).not.toBeNull()
+  expect(notify).not.toHaveBeenCalled()
+})
+
+it("keeps a configured group's settings when it migrates onto an inactive supergroup row", async () => {
+  const me = await addUser(sql, 9)
+  await addChat(sql, -5, "group", { ...basicPreset(), thread: 4 }, { setupBy: me })
+  await addChat(sql, -1005, "supergroup", basicPreset(), { active: false })
+  await enqueue(-5, "new", { chatType: "group" })
+  respond = (r) =>
+    r.chat_id === "-5"
+      ? { ok: false, kind: "migrated", migrateTo: -1005, description: "upgraded" }
+      : { ok: true }
+  await sender().tick()
+  const rows = await sql`
+    select chat_id::text, active, setup_by::text, settings->>'thread' as thread, removed_at from bot.chats`
+  expect(rows).toEqual([
+    { chat_id: "-1005", active: true, setup_by: me, thread: "4", removed_at: null },
   ])
 })
 

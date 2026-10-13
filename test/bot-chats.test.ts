@@ -84,6 +84,20 @@ describe("groups", () => {
     expect(h.last("editMessageText")!.text).toBe(GUIDE)
   })
 
+  it("keeps a restricted bot that is still a member, and removes one that is not", async () => {
+    await addChat(sql, -5, "group")
+    const g = { id: -5, type: "group" as const, title: "Old" }
+    await h.update(member(g, "member", "restricted", 100, { is_member: true }))
+    expect((await chat(-5))?.removed_at).toBeNull()
+    await h.update(member(g, "member", "restricted", 100, { is_member: false }))
+    expect((await chat(-5))?.removed_at).not.toBeNull()
+  })
+
+  it("treats a restricted member as inside when it joins", async () => {
+    await h.update(member(G, "left", "restricted", 100, { is_member: true }))
+    expect(await chat(G.id)).toMatchObject({ active: false, removed_at: null })
+  })
+
   it("lets only admins run /setup, which captures the topic and activates the chat", async () => {
     const admin = await addUser(sql, 100)
     await h.update(member(G, "left", "member"))
@@ -194,6 +208,17 @@ describe("chat settings in the DM", () => {
     expect(s.alerts.pumping.image).toBe(false)
     await h.tap("al:u:reset")
     expect((await sql`select settings from bot.users`)[0]!.settings).toEqual(basicPreset())
+  })
+
+  it("drops the chat's queued alerts when it is paused", async () => {
+    await addChat(sql, G.id, "supergroup")
+    await sql`
+      insert into bot.deliveries (chat_id, chat_type, alert, dedupe_key, priority, event_ts, card)
+      values (${G.id}, 'supergroup', 'new', 'a', 5, now(), '{}')`
+    await h.tap(`gc:${G.id}:pause`)
+    expect(
+      await sql`select status, summarized from bot.deliveries where chat_id = ${G.id}`,
+    ).toEqual([{ status: "skipped", summarized: true }])
   })
 
   it("pauses, resumes after a rights check, and removes", async () => {

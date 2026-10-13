@@ -1,5 +1,6 @@
 import type postgres from "postgres"
 import type { Payload } from "../cards/card"
+import { moveChat } from "../chat-move"
 import type { Sql } from "../db"
 import type { Logger } from "../log"
 import type { PendingRow, SendResult } from "../platforms/telegram/send"
@@ -23,6 +24,7 @@ const MAX_IN_FLIGHT = 10
 const PER_SECOND = 25
 const MAX_ATTEMPTS = 5
 const LONG = [...LONG_WINDOW] as string[]
+const SUMMARY_EVERY_MS = 10_000
 
 export function createSender(deps: SenderDeps) {
   const { sql, notify } = deps
@@ -31,6 +33,7 @@ export function createSender(deps: SenderDeps) {
   const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log: deps.log })
   const nextAt = new Map<string, number>()
   const recent: number[] = []
+  let summarizedAt = Number.NEGATIVE_INFINITY
 
   const dropPending = (chatId: string, thread?: number | null) =>
     thread === undefined
@@ -68,6 +71,7 @@ export function createSender(deps: SenderDeps) {
              max((c.settings->>'thread')::int) as thread, count(*)::int as n
       from bot.deliveries d left join bot.chats c on c.chat_id = d.chat_id
       where d.status = 'skipped' and not d.summarized and d.alert not in ('summary', 'notice')
+        and (d.chat_type = 'private' or (c.active and c.removed_at is null))
         and not exists (
           select 1 from bot.deliveries s
           where s.chat_id = d.chat_id and s.alert = 'summary' and s.created_at > now() - interval '10 minutes')
@@ -112,7 +116,12 @@ export function createSender(deps: SenderDeps) {
       nextAt.set(r.chat_id, now() + gap)
       return
     }
-    switch (res.kind) {
+    // A DM has no chat row, group rights or topics: any of these means the user can't be reached.
+    const kind =
+      r.chat_type === "private" && ["removed", "rights", "topic"].includes(res.kind)
+        ? "blocked"
+        : res.kind
+    switch (kind) {
       case "retry_after":
         nextAt.set(r.chat_id, now() + (res.retryAfter ?? 5) * 1000)
         return
@@ -171,12 +180,7 @@ export function createSender(deps: SenderDeps) {
   /** A group that became a supergroup gets a new chat id; its queue follows, in one transaction. */
   async function migrate(from: string, to: string) {
     await sql.begin(async (tx) => {
-      const [existing] = await tx`select 1 from bot.chats where chat_id = ${to}`
-      if (existing) {
-        await tx`update bot.chats set active = false, removed_at = now() where chat_id = ${from}`
-      } else {
-        await tx`update bot.chats set chat_id = ${to}, kind = 'supergroup' where chat_id = ${from}`
-      }
+      await moveChat(tx, from, to)
       // Rows that already exist under the new id win; their old twins would collide on dedupe_key.
       await tx`
         delete from bot.deliveries d where d.chat_id = ${from} and d.status = 'pending'
@@ -190,8 +194,11 @@ export function createSender(deps: SenderDeps) {
   return {
     async tick() {
       await lateDrop()
-      await summarize()
       const t = now()
+      if (t - summarizedAt >= SUMMARY_EVERY_MS) {
+        summarizedAt = t
+        await summarize()
+      }
       while (recent.length > 0 && recent[0]! <= t - 1000) recent.shift()
       const budget = Math.min(MAX_IN_FLIGHT, PER_SECOND - recent.length)
       if (budget <= 0) return

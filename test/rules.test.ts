@@ -111,7 +111,8 @@ describe("trade rules", () => {
     ])
     const p = pick(cs, "pumping")!
     expect(p.card.rows).toEqual([
-      ["curve", "■■■□□□□□□□ 36% (+16% in 4m)"],
+      ["pumped", "+16% (4m)"],
+      ["curve", "■■■□□□□□□□ 36%"],
       ["mcap", "$25.0K"],
       ["volume", "$750 (4m)"],
       ["trades", "2 buys | 0 sells (4m)"],

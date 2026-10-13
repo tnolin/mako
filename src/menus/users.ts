@@ -33,10 +33,14 @@ export async function saveUserSettings(sql: Sql, id: string, s: Settings): Promi
   await sql`update bot.users set settings = ${sql.json(json(s))} where id = ${id}`
 }
 
-/** Delete my data: the user row (subscriptions cascade, chat references go null) and their DM deliveries. */
+/**
+ * Delete my data: the user row (subscriptions cascade, chat references go null) and their DM deliveries.
+ * The user row goes first: the poller holds a share lock on it while it writes a DM row, so the
+ * delivery delete below then sees that row.
+ */
 export async function deleteUserData(sql: Sql, tg: number): Promise<void> {
   await sql.begin(async (tx) => {
-    await tx`delete from bot.deliveries where chat_type = 'private' and chat_id = ${tg}`
     await tx`delete from bot.users where platform_user_id = ${tg}`
+    await tx`delete from bot.deliveries where chat_type = 'private' and chat_id = ${tg}`
   })
 }

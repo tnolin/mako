@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { initCursor, type PollerDeps, pollOnce, startPoller } from "../src/delivery/poller"
+import { deleteUserData } from "../src/menus/users"
 import type { Prices } from "../src/prices"
 import type { DevHolds } from "../src/rpc"
 import { allOff, basicPreset } from "../src/settings"
@@ -227,6 +228,40 @@ it("reads dev holds outside any transaction and never blocks other alerts", asyn
     "9.0% of supply",
   ])
   expect(await cursor()).toBe(ids[3])
+})
+
+it("writes no DM row for a user who deleted their data while the dev holds read ran", async () => {
+  await addUser(sql, 702)
+  await addUser(sql, 703)
+  await insertEvents(sql, [
+    L,
+    trade({
+      txHash: L.txHash,
+      trader: C,
+      tokenAmount: String(10n ** 26n),
+      quoteAmount: eth(1),
+      soldBps: 1000,
+    }),
+    trade({
+      trader: C,
+      side: "sell",
+      tokenAmount: String(10n ** 25n),
+      quoteAmount: eth(0.2),
+      soldBps: 900,
+      blockTimestamp: T0 + 900,
+    }),
+  ])
+  await pollOnce(
+    deps({
+      readHolds: async () => {
+        await deleteUserData(sql, 702)
+        return { pct: 9, now: false }
+      },
+    }),
+  )
+  const rows = await listDeliveries(sql)
+  expect(rows.filter((r) => r.alert === "devsell").map((r) => r.chat_id)).toEqual(["703"])
+  expect(rows.some((r) => r.chat_id === "702")).toBe(false)
 })
 
 it("recovers from a crash between the two writes with no lost or duplicate rows", async () => {

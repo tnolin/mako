@@ -50,8 +50,23 @@ export async function initCursor(sql: Sql, fromId?: string): Promise<string> {
 }
 
 /** Inserts deliveries and moves the cursor in one short transaction. No network calls inside. */
-async function write(sql: Sql, rows: Delivery[], cursor: string): Promise<void> {
+async function write(sql: Sql, all: Delivery[], cursor: string): Promise<void> {
   await sql.begin(async (tx) => {
+    // The audience was read before this write (DEV SELL waits on RPC), so a user may have deleted their
+    // data since. A DM row needs a live user; the share lock makes Delete my data wait for this commit
+    // and then remove the row it just wrote.
+    const dmIds = [...new Set(all.filter((r) => r.chatType === "private").map((r) => r.chatId))]
+    const live =
+      dmIds.length === 0
+        ? new Set<string>()
+        : new Set(
+            (
+              await tx<{ id: string }[]>`
+                select platform_user_id::text as id from bot.users
+                where platform_user_id = any(${dmIds}::bigint[]) for share`
+            ).map((u) => u.id),
+          )
+    const rows = all.filter((r) => r.chatType !== "private" || live.has(r.chatId))
     // 9 columns per row; 1,000 rows stays well under Postgres' 65,535 parameters.
     for (let i = 0; i < rows.length; i += 1000) {
       const chunk = rows.slice(i, i + 1000).map((r) => ({

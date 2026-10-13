@@ -3,6 +3,7 @@ import type { Button, Card } from "../../cards/card"
 import type { ChatType } from "../../delivery/recipients"
 import { escapeHtml, safeUrl } from "../../format"
 import { isPreviewHost } from "../../launchpads"
+import { ALERT_SQUARE } from "../../settings"
 
 /** Data rows: one <code> per line, labels padded to max(9, longest + 1) so values align. */
 export function renderRows(rows: Card["rows"]): string[] {
@@ -10,11 +11,12 @@ export function renderRows(rows: Card["rows"]): string[] {
   return rows.map(([l, v]) => `<code>${escapeHtml(l.padEnd(width))}${escapeHtml(v)}</code>`)
 }
 
-/** Alert HTML: header, name line, one <code> row per line, CA, links. Every creator-written string is escaped here. */
+/** Alert HTML: type line, ticker line, name line, one <code> row per line, CA, links. Every creator-written string is escaped here. */
 export function renderCard(card: Card): string {
   const rows = renderRows(card.rows)
   const lines = [
-    `<b>${escapeHtml(card.title)} · $${escapeHtml(card.ticker)}</b>`,
+    `<b>${ALERT_SQUARE[card.alert]} ${escapeHtml(card.title)}</b>`,
+    `<b>$${escapeHtml(card.ticker)}</b>`,
     `${escapeHtml(card.name)} · ${escapeHtml(card.launchpad)}`,
     "",
     ...rows,

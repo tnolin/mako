@@ -96,3 +96,29 @@ it("names the top skipped feed in the throttled notice", () => {
     "38 of 41 skipped were NEW TOKEN. Turn it off or /route it to its own topic.",
   )
 })
+
+it("tells channels to re-add MAKO from the DM menu, not to run /setup or /route", () => {
+  const removed = noticeText("removed", "News", { channel: true })
+  expect(removed).toContain("Add a channel")
+  expect(removed).not.toContain("/setup")
+  const throttled = noticeText("throttled", "News", {
+    top: "new",
+    topCount: 38,
+    total: 41,
+    channel: true,
+  })
+  expect(throttled).toContain("38 of 41 skipped were NEW TOKEN. Turn that feed off")
+  expect(throttled).not.toContain("/route")
+  expect(noticeText("rights", "News", { channel: true })).not.toMatch(/\/setup|\/route/)
+})
+
+it("sends a channel its own removed notice", async () => {
+  const setup = await addUser(sql, 11)
+  await addChat(sql, -100500, "channel", undefined, { setupBy: setup })
+  await createNotify({ sql, api: api({ title: "News" }), botUsername: "makoinkbot", log })(
+    "-100500",
+    "removed",
+  )
+  const [n] = await notices()
+  expect((n!.card as { html: string }).html).toContain("Add a channel")
+})

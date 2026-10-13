@@ -1,4 +1,4 @@
-import type { Bot } from "grammy"
+import type { Bot, Context } from "grammy"
 import { btn, COMMUNITY_URL, type Kb, link, show } from "../platforms/telegram/ui"
 import { ALERT_HELP, ALERT_LABEL, ALERTS } from "../settings"
 import type { BotDeps } from "./deps"
@@ -49,12 +49,14 @@ export const HELP = {
   ].join("\n"),
 }
 
-const helpKb = (): Kb => [
+// The main menu is a DM screen: its button does nothing in a group, so groups don't get it.
+const helpKb = (dm: boolean): Kb => [
   [btn("Alerts explained", "h:alerts"), btn("Group setup", "h:group")],
   [btn("Watchlist", "h:watch"), btn("Privacy", "h:privacy")],
-  [link("Community", COMMUNITY_URL), btn("Menu", "m")],
+  [link("Community", COMMUNITY_URL), ...(dm ? [btn("Menu", "m")] : [])],
 ]
-const back = (): Kb => [[btn("Help", "h"), btn("Menu", "m")]]
+const back = (dm: boolean): Kb => [[btn("Help", "h"), ...(dm ? [btn("Menu", "m")] : [])]]
+const isDm = (ctx: Context) => ctx.chat?.type === "private"
 
 const DELETE_CONFIRM =
   "<b>Delete my data</b>\nThis removes your settings, watchlist, mutes and the alerts queued for you. Server backups are deleted after 14 days. This can't be undone."
@@ -63,10 +65,10 @@ export function registerMain(bot: Bot, deps: BotDeps): void {
   const pm = bot.chatType("private")
   pm.command("menu", (ctx) => show(ctx, MENU_TEXT, menuKb()))
   pm.callbackQuery("m", (ctx) => show(ctx, MENU_TEXT, menuKb()))
-  bot.command("help", (ctx) => show(ctx, HELP.index, helpKb()))
-  bot.callbackQuery("h", (ctx) => show(ctx, HELP.index, helpKb()))
+  bot.command("help", (ctx) => show(ctx, HELP.index, helpKb(isDm(ctx))))
+  bot.callbackQuery("h", (ctx) => show(ctx, HELP.index, helpKb(isDm(ctx))))
   bot.callbackQuery(/^h:(alerts|group|watch|privacy)$/, (ctx) =>
-    show(ctx, HELP[ctx.match[1] as keyof typeof HELP], back()),
+    show(ctx, HELP[ctx.match[1] as keyof typeof HELP], back(isDm(ctx))),
   )
   pm.callbackQuery("st", (ctx) =>
     show(ctx, "<b>Settings</b>", [[btn("Delete my data", "dd")], [btn("Menu", "m")]]),

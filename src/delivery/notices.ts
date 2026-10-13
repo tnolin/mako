@@ -5,7 +5,14 @@ import { escapeHtml } from "../format"
 import type { Logger } from "../log"
 import { ALERT_LABEL, type AlertKind, PRIORITY } from "../settings"
 
-export type NoticeInfo = { alert?: AlertKind; top?: AlertKind; topCount?: number; total?: number }
+export type NoticeInfo = {
+  alert?: AlertKind
+  top?: AlertKind
+  topCount?: number
+  total?: number
+  /** Channels have no /setup, /route or topics, so their notices point at the DM menu instead. */
+  channel?: boolean
+}
 export type Notify = (chatId: string, reason: string, info?: NoticeInfo) => Promise<void>
 
 export type NoticeApi = {
@@ -19,7 +26,10 @@ const isAdmin = (status: string) => status === "creator" || status === "administ
 /** `titleHtml` is already escaped. */
 export function noticeText(reason: string, titleHtml: string, info: NoticeInfo): string {
   if (reason === "removed") {
-    return `MAKO was removed from ${titleHtml}, so it can no longer post alerts there. Add it again and run /setup to resume.`
+    const resume = info.channel
+      ? "Add it again as an admin that can post: open Groups & channels in your DM with MAKO and tap Add a channel."
+      : "Add it again and run /setup to resume."
+    return `MAKO was removed from ${titleHtml}, so it can no longer post alerts there. ${resume}`
   }
   if (reason === "rights") {
     return `MAKO lost permission to post in ${titleHtml}. Alerts there are paused. Give MAKO admin rights to post, then tap Resume in settings.`
@@ -29,7 +39,10 @@ export function noticeText(reason: string, titleHtml: string, info: NoticeInfo):
     return `The topic for ${label} alerts in ${titleHtml} was closed or deleted, so those alerts are paused. Run /route in another topic, or reopen it and tap Resume in settings.`
   }
   const label = info.top ? ALERT_LABEL[info.top] : "one feed"
-  return `MAKO is skipping alerts in ${titleHtml} because of high volume: ${info.total ?? 0} skipped in the last hour. ${info.topCount ?? 0} of ${info.total ?? 0} skipped were ${label}. Turn it off or /route it to its own topic.`
+  const fix = info.channel
+    ? "Turn that feed off in the channel's settings."
+    : "Turn it off or /route it to its own topic."
+  return `MAKO is skipping alerts in ${titleHtml} because of high volume: ${info.total ?? 0} skipped in the last hour. ${info.topCount ?? 0} of ${info.total ?? 0} skipped were ${label}. ${fix}`
 }
 
 /** Admin notices go by DM to setup_by (checked live), else to another admin who has started the bot. */
@@ -71,13 +84,19 @@ export function createNotify(deps: {
       log("info", "admin notice not delivered: no admin has started the bot", { chatId, reason })
       return
     }
+    const [kind] = await sql<
+      { kind: string }[]
+    >`select kind from bot.chats where chat_id = ${chatId}`
     const title = await api
       .getChat(Number(chatId))
       .then((c) => c.title)
       .catch(() => undefined)
     const payload: Payload = {
       type: "text",
-      html: noticeText(reason, title ? escapeHtml(title) : "your chat", info),
+      html: noticeText(reason, title ? escapeHtml(title) : "your chat", {
+        ...info,
+        channel: kind?.kind === "channel",
+      }),
       buttons: [
         [{ text: "Open settings", url: `https://t.me/${deps.botUsername}?start=s_${chatId}` }],
       ],

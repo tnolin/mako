@@ -121,6 +121,22 @@ it("tells the truth about storage in the privacy help", async () => {
   expect(text).toContain("Telegram user id")
 })
 
+it("offers the Menu button in a DM's help but not in a group's", async () => {
+  const group = { id: -1001, type: "supergroup" as const, title: "Alpha" }
+  await h.text("/help")
+  expect(buttons(h.last("sendMessage"))).toContain("Menu")
+  await h.tap("h:alerts")
+  expect(buttons(h.last("editMessageText"))).toContain("Menu")
+  h.clear()
+  await h.text("/help", { chat: group })
+  expect(buttons(h.last("sendMessage"))).toContain("Community")
+  expect(buttons(h.last("sendMessage"))).not.toContain("Menu")
+  await h.tap("h:alerts", { chat: group })
+  expect(buttons(h.last("editMessageText"))).toEqual(["Help"])
+  await h.tap("h", { chat: group })
+  expect(buttons(h.last("editMessageText"))).not.toContain("Menu")
+})
+
 it("treats 'message is not modified' as success", async () => {
   h.on("editMessageText", () => ({
     error:

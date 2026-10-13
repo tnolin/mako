@@ -6,3 +6,5 @@ useDefault = true
 [allowlist]
 description = "Test fixtures hold public on-chain addresses and hashes, which the generic-api-key rule flags."
 paths = ['''test/fixtures/.*\.json''']
+# Public EVM addresses (sample tokens in tests) are not secrets.
+regexes = ['''^0x[0-9a-fA-F]{40}$''']

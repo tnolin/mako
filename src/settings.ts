@@ -1,5 +1,7 @@
 export const ALERTS = ["new", "bonding", "pumping", "bonded", "devsell", "big"] as const
 export type AlertKind = (typeof ALERTS)[number]
+/** Regex alternation of every alert kind, for callback-data patterns, so a new alert needs no edit there. */
+export const ALERT_PATTERN = ALERTS.join("|")
 export const MARKS = [5000, 8000, 9000] as const
 export type Mark = (typeof MARKS)[number]
 export const BIG_STEPS = [250, 500, 1000] as const

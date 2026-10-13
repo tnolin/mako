@@ -20,6 +20,8 @@ export const LAUNCHPADS = {
 
 export type LaunchpadKey = keyof typeof LAUNCHPADS
 
+// shortcut: an unknown key falls back to the first launchpad, which is only right while there is one.
+// Upgrade path: once a second launchpad exists, treat an unknown key as an error.
 export function launchpadOf(key: string, list: Record<string, Launchpad> = LAUNCHPADS): Launchpad {
   return list[key] ?? Object.values(list)[0]!
 }

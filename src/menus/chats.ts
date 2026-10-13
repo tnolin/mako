@@ -7,6 +7,7 @@ import { escapeHtml } from "../format"
 import { btn, isAdmin, type Kb, link, show, sleep } from "../platforms/telegram/ui"
 import {
   ALERT_LABEL,
+  ALERT_PATTERN,
   ALERTS,
   type AlertKind,
   basicPreset,
@@ -169,6 +170,8 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
     s.thread = thread
     s.pausedRoutes = []
     const setupBy = (await findUser(deps.sql, ctx.from.id))?.id ?? null
+    // shortcut: writes the whole settings JSON (read-modify-write); a concurrent sender write to
+    // pausedRoutes can be overwritten. Upgrade to a targeted jsonb_set update.
     await deps.sql`
       update bot.chats set settings = ${deps.sql.json(json(s))}, active = true, paused_reason = null,
         setup_by = coalesce(${setupBy}::bigint, setup_by)
@@ -202,7 +205,7 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
       reply_markup: { inline_keyboard: routeKb(s, thread) },
     })
   })
-  groups.callbackQuery(/^rt:(new|bonding|pumping|bonded|devsell|big)$/, async (ctx) => {
+  groups.callbackQuery(new RegExp(`^rt:(${ALERT_PATTERN})$`), async (ctx) => {
     const m = ctx.callbackQuery.message
     const thread =
       m && "is_topic_message" in m && m.is_topic_message ? m.message_thread_id : undefined

@@ -10,7 +10,7 @@ MAKO watches every launch on Ink's launchpads and tells you, in a DM, a group to
 ## Quick start
 
     pnpm install
-    cp .env.example .env    # set DATABASE_URL (an ink-indexer database) and TELEGRAM_BOT_TOKEN
+    cp .env.example .env    # set DATABASE_URL (an ink-indexer database), TELEGRAM_BOT_TOKEN and LINKS_BASE_URL
     pnpm start
 
 ## What's inside

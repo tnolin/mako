@@ -110,6 +110,8 @@ void heartbeat.tick()
 const stopRetention = startRetention(sql, log, report)
 
 let stopping = false
+// shortcut: grammY handles updates one at a time, so a slow handler (linkChannel can wait up to 5 s for
+// rights) delays the updates behind it. Upgrade path: run updates concurrently with @grammyjs/runner.
 // If long polling dies (for example 409: another instance polls this token), exit so systemd restarts
 // the whole process. The poller and sender must not keep running while menus are dead.
 bot

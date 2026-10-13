@@ -6,6 +6,7 @@ import { escapeHtml } from "../format"
 import { btn, isAdmin, type Kb, show } from "../platforms/telegram/ui"
 import {
   ALERT_LABEL,
+  ALERT_PATTERN,
   ALERTS,
   type AlertKind,
   BIG_STEPS,
@@ -185,18 +186,15 @@ export function registerAlerts(bot: Bot, deps: BotDeps): void {
   const pm = bot.chatType("private")
   pm.command("alerts", (ctx) => alertsScreen(ctx, deps, "u", true))
   pm.callbackQuery(/^al:([^:]+)$/, (ctx) => alertsScreen(ctx, deps, ctx.match[1]!))
-  pm.callbackQuery(
-    /^al:([^:]+):(new|bonding|pumping|bonded|devsell|big):(on|img)$/,
-    async (ctx) => {
-      const sc = await scopeFor(ctx, deps, ctx.match[1]!)
-      if (!sc) return
-      const t = sc.settings.alerts[ctx.match[2] as AlertKind]
-      if (ctx.match[3] === "on") t.on = !t.on
-      else t.image = !t.image
-      await sc.save(sc.settings)
-      await render(ctx, sc)
-    },
-  )
+  pm.callbackQuery(new RegExp(`^al:([^:]+):(${ALERT_PATTERN}):(on|img)$`), async (ctx) => {
+    const sc = await scopeFor(ctx, deps, ctx.match[1]!)
+    if (!sc) return
+    const t = sc.settings.alerts[ctx.match[2] as AlertKind]
+    if (ctx.match[3] === "on") t.on = !t.on
+    else t.image = !t.image
+    await sc.save(sc.settings)
+    await render(ctx, sc)
+  })
   pm.callbackQuery(/^al:([^:]+):mk$/, async (ctx) => {
     const sc = await scopeFor(ctx, deps, ctx.match[1]!)
     if (sc) await marksScreen(ctx, sc)

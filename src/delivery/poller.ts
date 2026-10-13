@@ -93,6 +93,9 @@ async function write(sql: Sql, all: Delivery[], cursor: string): Promise<void> {
   })
 }
 
+// shortcut: a fixed batch of 500 events per pass (a full batch runs again at once), and an event whose
+// rule throws a non-database error is logged and skipped, so its alerts are lost. Upgrade path: make the
+// batch size configurable, and park failed events in a table for replay.
 /** Processes one batch of up to 500 confirmed events. Returns how many events it read. */
 export async function pollOnce(deps: PollerDeps): Promise<number> {
   const { sql, log } = deps

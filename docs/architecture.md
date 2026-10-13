@@ -130,6 +130,8 @@ Buttons are the main interface, and slash commands open the same screens for peo
 5. Button rows.
 6. Footer: bot name and community link.
 
+When the token has an image, the card is the caption of a square photo.
+
 **NFT card:** image, name and rank (v1), price in ETH and USD, discount to floor, seller and buyer short addresses, then buttons.
 
 **Platforms:** Telegram uses HTML messages with inline keyboards and edits the same message as people navigate. Discord uses embeds with a colored side bar, buttons and select menus, with ephemeral replies for personal screens.

@@ -1,7 +1,7 @@
 # 0007. Alert images: large link preview, sendPhoto fallback
 
 Date: 2026-10-12
-Status: Accepted
+Status: Superseded by 0010
 
 ## Context
 

@@ -57,7 +57,7 @@ it("sends a cached file_id as a photo with the alert as caption, in the topic, w
   expect(chat).toBe(-1001)
   expect(photo).toBe("CACHED")
   expect(o).toMatchObject({ parse_mode: "HTML", message_thread_id: 7 })
-  expect(o.caption).toContain("<b>🟩 NEW TOKEN</b>")
+  expect(o.caption).toContain("<b>NEW TOKEN</b>")
   expect(o.reply_markup).toMatchObject({
     inline_keyboard: [[{ text: "Trade" }, { text: "Watch" }]],
   })

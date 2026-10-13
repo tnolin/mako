@@ -23,7 +23,7 @@
 
 ## Adding an alert
 
-1. Add the kind to `AlertKind`, `PRIORITY`, `ALERT_LABEL`, `ALERT_SQUARE`, `ALERT_HELP` and the preset in `src/settings.ts`.
+1. Add the kind to `AlertKind`, `PRIORITY`, `ALERT_LABEL`, `ALERT_HELP` and the preset in `src/settings.ts`.
 2. Write the rule in `src/rules/<alert>.ts` with tests, and register it in `src/rules/index.ts`.
 3. Its settings row, onboarding toggle and routing button come from `ALERTS`, and the button callback patterns in `src/menus/alerts.ts`, `src/menus/start.ts` and `src/menus/chats.ts` are built from `ALERT_PATTERN` in `src/settings.ts`, so they need no edit. Describe its format in the PR.
 

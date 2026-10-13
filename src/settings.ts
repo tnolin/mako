@@ -48,16 +48,6 @@ export const ALERT_LABEL: Record<AlertKind, string> = {
   big: "BIG BUY/SELL",
 }
 
-/** One colour square per alert kind leads the card header, so types read apart in a shared feed. */
-export const ALERT_SQUARE: Record<AlertKind, string> = {
-  new: "🟩",
-  bonding: "🟨",
-  pumping: "🟧",
-  bonded: "🟦",
-  devsell: "🟥",
-  big: "🟪",
-}
-
 export const ALERT_HELP: Record<AlertKind, string> = {
   new: "a token launches",
   bonding: "curve passes 80% or 90%",

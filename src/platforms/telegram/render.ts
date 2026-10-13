@@ -2,7 +2,6 @@ import type { InlineKeyboardButton, InlineKeyboardMarkup } from "grammy/types"
 import type { Button, Card } from "../../cards/card"
 import type { ChatType } from "../../delivery/recipients"
 import { escapeHtml, safeUrl } from "../../format"
-import { ALERT_SQUARE } from "../../settings"
 
 /** Data rows: one <code> per line, labels padded to max(9, longest + 1) so values align. */
 export function renderRows(rows: Card["rows"]): string[] {
@@ -10,12 +9,12 @@ export function renderRows(rows: Card["rows"]): string[] {
   return rows.map(([l, v]) => `<code>${escapeHtml(l.padEnd(width))}${escapeHtml(v)}</code>`)
 }
 
-/** Alert HTML: type line, ticker line, name line, one <code> row per line, CA, links. Every creator-written string is escaped here. */
+/** Alert HTML: title line, ticker line, name line, one <code> row per line, CA, links. Every creator-written string is escaped here. */
 export function renderCard(card: Card): string {
   const rows = renderRows(card.rows)
   const lines = [
-    `<b>${ALERT_SQUARE[card.alert]} ${escapeHtml(card.title)}</b>`,
-    `<b>$${escapeHtml(card.ticker)}</b>`,
+    `<b>${escapeHtml(card.title)}</b>`,
+    `$${escapeHtml(card.ticker)}`,
     `${escapeHtml(card.name)} · ${escapeHtml(card.launchpad)}`,
     "",
     ...rows,

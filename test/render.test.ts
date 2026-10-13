@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Card } from "../src/cards/card"
 import { alertKeyboard, renderCard, toKeyboard } from "../src/platforms/telegram/render"
-import { ALERTS } from "../src/settings"
 
 const CA = "0x3c19e7a4b2d0f8c61e95a3b7d4c2e0f19a8b9ab0"
 const card: Card = {
@@ -26,11 +25,11 @@ const card: Card = {
 const ctx = { linksBase: "https://go.makobot.xyz", botUsername: "makoinkbot" }
 
 describe("renderCard", () => {
-  it("matches the alert format: square header, bold ticker, one code per line, padded labels, CA only", () => {
+  it("matches the alert format: bold alert name, plain ticker, one code per line, padded labels, CA only", () => {
     expect(renderCard(card)).toBe(
       [
-        "<b>🟨 BONDING 80%</b>",
-        "<b>$GOBLO</b>",
+        "<b>BONDING 80%</b>",
+        "$GOBLO",
         "Goblo · InkyPump",
         "",
         "<code>curve    ■■■■■■■■□□ 80%</code>",
@@ -46,27 +45,19 @@ describe("renderCard", () => {
   })
 
   it.each([
-    ["new", "NEW TOKEN", "🟩"],
-    ["bonding", "BONDING 90%", "🟨"],
-    ["pumping", "PUMPING", "🟧"],
-    ["bonded", "BONDED", "🟦"],
-    ["devsell", "DEV SELL", "🟥"],
-    ["big", "BIG BUY", "🟪"],
-    ["big", "BIG SELL", "🟪"],
-  ] as const)(
-    "leads the %s alert %s with %s and keeps type and ticker on separate lines",
-    (alert, title, square) => {
-      const [type, ticker, name] = renderCard({ ...card, alert, title }).split("\n")
-      expect(type).toBe(`<b>${square} ${title}</b>`)
-      expect(ticker).toBe("<b>$GOBLO</b>")
-      expect(name).toBe("Goblo · InkyPump")
-      expect(type).not.toContain("·")
-    },
-  )
-
-  it("has a square for every alert kind", () => {
-    for (const alert of ALERTS)
-      expect(renderCard({ ...card, alert })).toMatch(/^<b>[🟩🟨🟧🟦🟥🟪] /u)
+    ["new", "NEW TOKEN"],
+    ["bonding", "BONDING 90%"],
+    ["pumping", "PUMPING"],
+    ["bonded", "BONDED"],
+    ["devsell", "DEV SELL"],
+    ["big", "BIG BUY"],
+    ["big", "BIG SELL"],
+  ] as const)("leads the %s alert %s with its bold name, then the plain ticker", (alert, title) => {
+    const [type, ticker, name] = renderCard({ ...card, alert, title }).split("\n")
+    expect(type).toBe(`<b>${title}</b>`)
+    expect(ticker).toBe("$GOBLO")
+    expect(name).toBe("Goblo · InkyPump")
+    expect(type).not.toContain("·")
   })
 
   it("widens the label column to fit `dev holds`", () => {
@@ -89,7 +80,7 @@ describe("renderCard", () => {
       links: [{ label: "X", url: `https://x.com/a"onmouseover="1` }],
     })
     expect(html).toContain("&lt;a href=&quot;https://evil&quot;&gt;x&lt;/a&gt; &amp; co · InkyPump")
-    expect(html).toContain("<b>$&lt;b&gt;P&lt;/b&gt;</b>")
+    expect(html.split("\n")[1]).toBe("$&lt;b&gt;P&lt;/b&gt;")
     expect(html).toContain(`<a href="https://x.com/a&quot;onmouseover=&quot;1">X</a>`)
     expect(html.match(/<a /g)).toHaveLength(1)
   })

@@ -86,14 +86,30 @@ it("shows the main menu to a returning user", async () => {
     "Look up token",
     "Hot now",
     "Near bonding",
-    "Just bonded",
+    "Recently bonded",
     "My watchlist",
     "My alerts",
-    "Groups & channels",
     "Settings",
     "Help",
-    "Community",
   ])
+  expect(
+    h.last("sendMessage")!.reply_markup.inline_keyboard.map((r: unknown[]) => r.length),
+  ).toEqual([2, 2, 2, 2])
+})
+
+it("puts Groups & channels in Settings and Community in Help", async () => {
+  await h.tap("st")
+  const st = h.last("editMessageText")!.reply_markup.inline_keyboard
+  expect(st.map((r: { text: string }[]) => r.map((b) => b.text))).toEqual([
+    ["Groups & channels", "Delete my data"],
+    ["Menu"],
+  ])
+  expect(st[0][0].callback_data).toBe("gc")
+  await h.tap("h")
+  const rows = h.last("editMessageText")!.reply_markup.inline_keyboard
+  const help = rows.flat()
+  expect(help.find((b: { text: string }) => b.text === "Community")?.url).toMatch(/^https:/)
+  expect(rows.every((r: unknown[]) => r.length <= 2)).toBe(true)
 })
 
 it("deletes the user, their subscriptions and DM deliveries after confirming, and keeps group rows", async () => {

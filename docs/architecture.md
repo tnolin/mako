@@ -101,7 +101,7 @@ Buttons are the main interface, and slash commands open the same screens for peo
 | Row | Buttons |
 | --- | --- |
 | 1 | Look up token |
-| 2 | Hot now · Near bonding · Just bonded |
+| 2 | Hot now · Near bonding · Recently bonded |
 | 3 | NFTs · Wallets · Lending |
 | 4 | My watchlist · My alerts · Presets |
 | 5 | Settings · Help · Community |

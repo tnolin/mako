@@ -10,7 +10,7 @@ import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { addUser, subscribe } from "./helpers/bot"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
-import { addr, bond, ETH, launch, trade } from "./helpers/events"
+import { addr, bond, ETH, hash, launch, trade } from "./helpers/events"
 import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -68,9 +68,10 @@ describe("token card", () => {
     const m = h.last("sendPhoto")!
     expect(m.photo).toBeInstanceOf(InputFile)
     expect(m.parse_mode).toBe("HTML")
-    expect(m.caption.split("\n").slice(0, 3)).toEqual([
-      "<b>$GOBLO · Goblo</b>",
-      "InkyPump · curve",
+    expect(m.caption.split("\n").slice(0, 4)).toEqual([
+      "<b>$GOBLO</b>",
+      "Goblo · InkyPump",
+      "",
       "<code>curve    ■■■■■■■■□□ 80%</code>",
     ])
     expect(m.caption).not.toContain("Not a token")
@@ -104,7 +105,7 @@ describe("token card", () => {
     await h.text(`/t ${A}`)
     expect(h.last("sendPhoto")).toBeUndefined()
     const m = h.last("sendMessage")!
-    expect(m.text).toContain("<b>$GOBLO · Goblo</b>")
+    expect(m.text).toContain("<b>$GOBLO</b>")
     expect(m.link_preview_options).toEqual({ is_disabled: true })
     expect(img.fetchFn).not.toHaveBeenCalled()
   })
@@ -138,7 +139,7 @@ describe("token card", () => {
     expect(
       h.calls
         .filter((c) => c.method === "sendPhoto")
-        .some((c) => String(c.payload.caption).startsWith("<b>$GOBLO · Goblo</b>")),
+        .some((c) => String(c.payload.caption).startsWith("<b>$GOBLO</b>")),
     ).toBe(true)
   })
 
@@ -166,8 +167,8 @@ describe("token card", () => {
     expect(h.last("editMessageText")).toBeUndefined()
     expect(h.last("editMessageCaption")).toBeUndefined()
     const m = h.last("sendPhoto")!
-    expect(m.caption).toContain("InkyPump · bonded")
-    expect(m.caption).toContain("<code>mcap at bond $213K</code>")
+    expect(m.caption).toMatch(/<code>bonded {3}[^<]* ago at \$213K<\/code>/)
+    expect(m.caption).not.toContain("mcap at bond")
     expect(h.last("answerCallbackQuery")).toBeDefined()
   })
 
@@ -175,7 +176,7 @@ describe("token card", () => {
     await sql`update indexer.events set payload = jsonb_set(payload, '{imageUrl}', 'null') where type = 'launchpad.launch'`
     await h.tap(`t:${A}`)
     expect(h.last("editMessageText")).toBeUndefined()
-    expect(h.last("sendMessage")!.text).toContain("<b>$GOBLO · Goblo</b>")
+    expect(h.last("sendMessage")!.text).toContain("<b>$GOBLO</b>")
   })
 
   it("never creates a user from a token tap", async () => {
@@ -189,7 +190,7 @@ describe("token card", () => {
     expect(h.last("editMessageText")).toBeUndefined()
     expect(h.last("sendPhoto")).toBeUndefined()
     const m = h.last("editMessageCaption")!
-    expect(m.caption).toContain("<b>$GOBLO · Goblo</b>")
+    expect(m.caption).toContain("<b>$GOBLO</b>")
     expect(m.parse_mode).toBe("HTML")
     expect(kbOf(m)[1]![0]).toEqual({ text: "Refresh", callback_data: `tr:${A}` })
     expect(img.fetchFn).not.toHaveBeenCalled()
@@ -199,7 +200,7 @@ describe("token card", () => {
   it("refreshes a text card by editing its text with the preview disabled", async () => {
     await h.tap(`tr:${A}`)
     const m = h.last("editMessageText")!
-    expect(m.text).toContain("<b>$GOBLO · Goblo</b>")
+    expect(m.text).toContain("<b>$GOBLO</b>")
     expect(m.link_preview_options).toEqual({ is_disabled: true })
     expect(h.last("editMessageCaption")).toBeUndefined()
   })
@@ -217,7 +218,7 @@ describe("token card", () => {
     await h.tap(`tr:${A}`, { photo: true })
     expect(h.last("editMessageCaption")).toBeUndefined()
     expect(h.last("sendPhoto")).toBeUndefined()
-    expect(h.last("sendMessage")!.text).toContain("<b>$GOBLO · Goblo</b>")
+    expect(h.last("sendMessage")!.text).toContain("<b>$GOBLO</b>")
     expect(h.last("sendMessage")!.link_preview_options).toEqual({ is_disabled: true })
     expect(h.last("answerCallbackQuery")).toBeDefined()
     expect(report).not.toHaveBeenCalled()
@@ -251,15 +252,194 @@ describe("token card", () => {
   })
 })
 
+describe("token card layout", () => {
+  const POOL = hash(0xabc)
+  const lines = (caption: string) => caption.split("\n")
+  const bondedCard = async (poolId: string = POOL) => {
+    await insertEvents(sql, [
+      bond({ token: A, poolId: poolId as `0x${string}`, blockNumber: "1002" }),
+    ])
+    await h.text(`/t ${A}`)
+    return h.last("sendPhoto")!
+  }
+
+  it("lays a curve token out like an alert: header, rows with windows, description, CA", async () => {
+    await h.text(`/t ${A}`)
+    const l = lines(h.last("sendPhoto")!.caption)
+    expect(l.slice(0, 8)).toEqual([
+      "<b>$GOBLO</b>",
+      "Goblo · InkyPump",
+      "",
+      "<code>curve    ■■■■■■■■□□ 80%</code>",
+      "<code>mcap     $213K</code>",
+      "<code>volume   $50 (24h)</code>",
+      "<code>trades   1 buy | 0 sells (24h)</code>",
+      expect.stringMatching(/^<code>age {6}\d+[mhd]/),
+    ])
+    expect(l.slice(8)).toEqual([
+      "<code>dev      0 buys | 0 sells</code>",
+      "",
+      "A &lt;b&gt;goblin&lt;/b&gt;",
+      "",
+      `CA   <code>${A}</code>`,
+    ])
+  })
+
+  it("leaves out the description and its blank line when there is none", async () => {
+    await sql`update indexer.events set payload = jsonb_set(payload, '{description}', 'null') where type = 'launchpad.launch'`
+    await h.text(`/t ${A}`)
+    const l = lines(h.last("sendPhoto")!.caption)
+    expect(l.slice(-3)).toEqual([
+      "<code>dev      0 buys | 0 sells</code>",
+      "",
+      `CA   <code>${A}</code>`,
+    ])
+    expect(l.filter((x) => x === "")).toHaveLength(2)
+  })
+
+  it("counts volume and trades over the last 24h from the cursor, and keeps mcap current", async () => {
+    await setCursorBlock(sql, 1001 + 86_400 + 1)
+    await h.text(`/t ${A}`)
+    const c = h.last("sendPhoto")!.caption
+    expect(c).toContain("<code>mcap     $213K</code>")
+    expect(c).toContain("<code>volume   $0 (24h)</code>")
+    expect(c).toContain("<code>trades   0 buys | 0 sells (24h)</code>")
+  })
+
+  it("shows the dev's trades without a window", async () => {
+    await insertEvents(sql, [
+      trade({ token: A, trader: addr(0xc1), side: "buy", soldBps: 8100, blockNumber: "1002" }),
+      trade({ token: A, trader: addr(0xc1), side: "sell", soldBps: 8000, blockNumber: "1003" }),
+    ])
+    await h.text(`/t ${A}`)
+    expect(h.last("sendPhoto")!.caption).toContain("<code>dev      1 buy | 1 sell</code>")
+  })
+
+  it("lays a bonded token out with a status row and curve totals", async () => {
+    const m = await bondedCard()
+    const l = lines(m.caption)
+    expect(l.slice(0, 4)).toEqual(["<b>$GOBLO</b>", "Goblo · InkyPump", "", expect.any(String)])
+    expect(l[3]).toMatch(/^<code>bonded {3}\d+d( \d+h)? ago at \$213K<\/code>$/)
+    expect(l.slice(4, 6)).toEqual([
+      "<code>volume   $50 (on curve)</code>",
+      "<code>trades   1 buy | 0 sells (on curve)</code>",
+    ])
+    expect(l[6]).toMatch(/^<code>age {6}/)
+    expect(l[7]).toBe("<code>dev      0 buys | 0 sells</code>")
+    expect(l[8]).toBe("")
+    expect(m.caption).not.toContain("<code>curve")
+    expect(m.caption).not.toContain("mcap")
+  })
+
+  it("adds Chart for a bonded token from its bond event's poolId", async () => {
+    const m = await bondedCard()
+    expect(kbOf(m)).toEqual([
+      [
+        { text: "Trade", url: `https://go.makobot.xyz/t/${A}` },
+        { text: "Watch", callback_data: `w:${A}` },
+      ],
+      [
+        { text: "Chart", url: `https://www.geckoterminal.com/ink/pools/${POOL}` },
+        { text: "Explorer", url: `https://explorer.inkonchain.com/token/${A}` },
+      ],
+      [{ text: "Refresh", callback_data: `tr:${A}` }],
+    ])
+  })
+
+  it("lowercases the poolId for the Chart link", async () => {
+    const m = await bondedCard(`0x${"AB".repeat(32)}`)
+    expect(kbOf(m)[1]![0]).toEqual({
+      text: "Chart",
+      url: `https://www.geckoterminal.com/ink/pools/0x${"ab".repeat(32)}`,
+    })
+  })
+
+  it.each([["0xabc"], [`0x${"g".repeat(64)}`], [`${"a".repeat(64)}`], [`0x${"a".repeat(65)}`]])(
+    "omits Chart for a malformed poolId (%s)",
+    async (poolId) => {
+      const m = await bondedCard(poolId)
+      expect(
+        kbOf(m)
+          .flat()
+          .map((b) => b.text),
+      ).toEqual(["Trade", "Watch", "Explorer", "Refresh"])
+    },
+  )
+
+  it("keeps a curve token's two-row keyboard without Chart", async () => {
+    await h.text(`/t ${A}`)
+    expect(kbOf(h.last("sendPhoto")).map((r) => r.map((b) => b.text))).toEqual([
+      ["Trade", "Watch"],
+      ["Refresh", "Explorer"],
+    ])
+  })
+})
+
 describe("discovery lists", () => {
   it("lists hot tokens with a button each", async () => {
     await h.tap("l:hot")
     const m = h.last("editMessageText")!
-    expect(m.text).toContain("1. $GOBLO · Goblo · 1 trade (1h)")
+    expect(m.text.split("\n")[0]).toBe("<b>Hot now (24h)</b>")
+    expect(m.text).toContain("1. $GOBLO · Goblo · 1 trade (24h)")
     expect(kbOf(m)).toEqual([
       [{ text: "$GOBLO", callback_data: `t:${A}` }],
       [{ text: "Menu", callback_data: "m" }],
     ])
+  })
+
+  it("falls back to 7 days for hot tokens and says so in the title", async () => {
+    await setCursorBlock(sql, 1001 + 100_000)
+    await h.tap("l:hot")
+    const m = h.last("editMessageText")!
+    expect(m.text.split("\n")[0]).toBe("<b>Hot now (7d)</b>")
+    expect(m.text).toContain("1. $GOBLO · Goblo · 1 trade (7d)")
+  })
+
+  it("shows the empty line when nothing traded in 7 days", async () => {
+    await setCursorBlock(sql, 1001 + 700_000)
+    await h.tap("l:hot")
+    const m = h.last("editMessageText")!
+    expect(m.text).toContain(EMPTY.hot)
+    expect(kbOf(m)).toEqual([[{ text: "Menu", callback_data: "m" }]])
+  })
+
+  it("lists unbonded tokens from 10% by progress, leaving out bonded, 0% and quiet ones", async () => {
+    const [B, C, D, E] = [addr(0xb1), addr(0xc2), addr(0xd2), addr(0xe2)]
+    await insertEvents(sql, [
+      launch({ token: B, ticker: "BEE", name: "Bee", blockNumber: "1002" }),
+      trade({ token: B, soldBps: 3000, blockNumber: "1003" }),
+      launch({ token: C, ticker: "CEE", name: "Cee", blockNumber: "1004" }),
+      trade({ token: C, soldBps: 0, blockNumber: "1005" }),
+      launch({ token: D, ticker: "DEE", name: "Dee", blockNumber: "1006" }),
+      trade({ token: D, soldBps: 9500, blockNumber: "1007" }),
+      bond({ token: D, blockNumber: "1008" }),
+      launch({ token: E, ticker: "EEE", name: "Eee", blockNumber: "1009" }),
+      trade({ token: E, soldBps: 500, blockNumber: "1010" }),
+    ])
+    await setCursorBlock(sql, 1010)
+    await h.tap("l:near")
+    const m = h.last("editMessageText")!
+    expect(m.text).toBe("<b>Near bonding</b>\n1. $GOBLO · Goblo · 80%\n2. $BEE · Bee · 30%")
+    expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "$BEE", "Menu"])
+  })
+
+  it("keeps a token near bonding for 7 days", async () => {
+    await setCursorBlock(sql, 1001 + 600_000)
+    await h.tap("l:near")
+    expect(h.last("editMessageText")!.text).toContain("$GOBLO")
+    await setCursorBlock(sql, 1001 + 700_000)
+    await h.tap("l:near")
+    expect(h.last("editMessageText")!.text).toContain(EMPTY.near)
+  })
+
+  it("calls the bonded list Recently bonded", async () => {
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002" })])
+    await h.tap("l:bonded")
+    expect(h.last("editMessageText")!.text.split("\n")[0]).toBe("<b>Recently bonded</b>")
+    expect(h.last("editMessageText")!.text).toContain("1. $GOBLO · Goblo · bonded ")
+    await sql`delete from indexer.events where type = 'launchpad.bond'`
+    await h.tap("l:bonded")
+    expect(h.last("editMessageText")!.text).toBe(`<b>Recently bonded</b>\n${EMPTY.bonded}`)
   })
 
   it.each([["hot"], ["near"], ["bonded"]] as const)("shows an empty state for %s", async (kind) => {

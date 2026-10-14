@@ -83,30 +83,41 @@ export async function cursorBlock(sql: Sql): Promise<string | null> {
   return r?.block ?? null
 }
 
-// shortcut: Ink makes one block per second, so the last hour is the last 3,600 blocks.
+// shortcut: Ink makes one block per second, so the last day is the last 86,400 blocks.
 // Switch to blockTimestamp ranges if the block time changes.
-const HOUR_BLOCKS = 3600
-const DAY_BLOCKS = 86_400
+export const DAY_BLOCKS = 86_400
+const WEEK_BLOCKS = 7 * DAY_BLOCKS
 
-export function hotNow(sql: Sql): Promise<{ token: string; trades: number }[]> {
+function hottest(sql: Sql, blocks: number): Promise<{ token: string; trades: number }[]> {
   return sql<{ token: string; trades: number }[]>`
     select entity as token, count(*)::int as trades from indexer.events
     where type = 'launchpad.trade'
-      and block >= (select block - ${HOUR_BLOCKS} from indexer.cursors where source = 'inkypump')
+      and block >= (select block - ${blocks} from indexer.cursors where source = 'inkypump')
     group by entity order by trades desc, max(id) desc limit 5`
 }
 
+/** Tokens by trade count over the last 24h, or over 7 days when nothing traded in 24h. */
+export async function hotNow(
+  sql: Sql,
+): Promise<{ window: "24h" | "7d"; rows: { token: string; trades: number }[] }> {
+  const day = await hottest(sql, DAY_BLOCKS)
+  if (day.length > 0) return { window: "24h", rows: day }
+  return { window: "7d", rows: await hottest(sql, WEEK_BLOCKS) }
+}
+
+/** Unbonded tokens traded in the last 7 days, at 10% or more of the curve, by latest progress. */
 export function nearBonding(sql: Sql): Promise<{ token: string; soldBps: number }[]> {
   return sql<{ token: string; soldBps: number }[]>`
     select token, sold_bps as "soldBps" from (
       select distinct on (entity) entity as token, (payload->>'soldBps')::int as sold_bps
       from indexer.events
       where type = 'launchpad.trade'
-        and block >= (select block - ${DAY_BLOCKS} from indexer.cursors where source = 'inkypump')
+        and block >= (select block - ${WEEK_BLOCKS} from indexer.cursors where source = 'inkypump')
       order by entity, id desc
     ) t
-    where not exists (select 1 from indexer.events b where b.entity = t.token and b.type = 'launchpad.bond')
-    order by sold_bps desc limit 5`
+    where sold_bps >= 1000
+      and not exists (select 1 from indexer.events b where b.entity = t.token and b.type = 'launchpad.bond')
+    order by sold_bps desc, token limit 5`
 }
 
 /** Latest bonds. Uses events_type_id. */

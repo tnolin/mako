@@ -8,15 +8,10 @@ export const MENU_TEXT = "<b>MAKO</b> · real-time alerts for Ink memecoins"
 
 export function menuKb(): Kb {
   return [
-    [btn("Look up token", "look")],
-    [btn("Hot now", "l:hot"), btn("Near bonding", "l:near"), btn("Just bonded", "l:bonded")],
+    [btn("Look up token", "look"), btn("Hot now", "l:hot")],
+    [btn("Near bonding", "l:near"), btn("Recently bonded", "l:bonded")],
     [btn("My watchlist", "wl"), btn("My alerts", "al:u")],
-    [
-      btn("Groups & channels", "gc"),
-      btn("Settings", "st"),
-      btn("Help", "h"),
-      link("Community", COMMUNITY_URL),
-    ],
+    [btn("Settings", "st"), btn("Help", "h")],
   ]
 }
 
@@ -31,7 +26,7 @@ export const HELP = {
   ].join("\n"),
   group: [
     "<b>Group setup</b>",
-    "1. Add MAKO to the group (Groups & channels → Add to a group).",
+    "1. Add MAKO to the group (Settings → Groups & channels → Add to a group).",
     "2. Run /setup in the topic where alerts should go.",
     "3. Optional: run /route in other topics to send chosen alerts there.",
     "4. Tap Open settings to pick feeds, thresholds and images in your DM with MAKO.",
@@ -71,7 +66,10 @@ export function registerMain(bot: Bot, deps: BotDeps): void {
     show(ctx, HELP[ctx.match[1] as keyof typeof HELP], back(isDm(ctx))),
   )
   pm.callbackQuery("st", (ctx) =>
-    show(ctx, "<b>Settings</b>", [[btn("Delete my data", "dd")], [btn("Menu", "m")]]),
+    show(ctx, "<b>Settings</b>", [
+      [btn("Groups & channels", "gc"), btn("Delete my data", "dd")],
+      [btn("Menu", "m")],
+    ]),
   )
   const confirm = (): Kb => [[btn("Yes, delete", "dd:yes"), btn("Cancel", "st")]]
   pm.command("deletedata", (ctx) => show(ctx, DELETE_CONFIRM, confirm()))

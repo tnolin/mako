@@ -27,7 +27,7 @@ const isAdmin = (status: string) => status === "creator" || status === "administ
 export function noticeText(reason: string, titleHtml: string, info: NoticeInfo): string {
   if (reason === "removed") {
     const resume = info.channel
-      ? "Add it again as an admin that can post: open Groups & channels in your DM with MAKO and tap Add a channel."
+      ? "Add it again as an admin that can post: open Settings, then Groups & channels, in your DM with MAKO and tap Add a channel."
       : "Add it again and run /setup to resume."
     return `MAKO was removed from ${titleHtml}, so it can no longer post alerts there. ${resume}`
   }

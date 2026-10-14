@@ -1,8 +1,8 @@
 import type { Bot, Context } from "grammy"
 import { valueText } from "../cards/money"
-import { age, bar, buysSells, clean, count, escapeHtml } from "../format"
-import { bondOf, launchOf, tradesOf } from "../history"
-import { launchpadOf, unknownTokenText } from "../launchpads"
+import { age, bar, buysSells, clean, escapeHtml } from "../format"
+import { bondOf, cursorBlock, DAY_BLOCKS, launchOf, tradesOf } from "../history"
+import { unknownTokenText } from "../launchpads"
 import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
@@ -14,47 +14,99 @@ import { WATCH_PROMPT, watchToken } from "./watchlist"
 
 export const LOOKUP_PROMPT = "Send a token address."
 
-export async function tokenCard(
-  deps: BotDeps,
-  ca: string,
-): Promise<{ html: string; imageUrl: string | null } | null> {
+const CHART_POOL = /^0x[0-9a-f]{64}$/
+
+/** GeckoTerminal's pool page for a bonded token, or null when the bond event's poolId is not a v4 pool id. */
+function chartUrl(poolId: string): string | null {
+  const id = poolId.toLowerCase()
+  return CHART_POOL.test(id) ? `https://www.geckoterminal.com/ink/pools/${id}` : null
+}
+
+export type TokenCard = {
+  html: string
+  imageUrl: string | null
+  bonded: boolean
+  /** Set for a bonded token whose bond event carries a valid pool id. */
+  chartUrl: string | null
+}
+
+export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | null> {
   const { sql, prices } = deps
   const l = await launchOf(sql, ca)
   if (!l) return null
-  const [trades, b] = await Promise.all([tradesOf(sql, ca), bondOf(sql, ca)])
+  const [trades, b, cursor] = await Promise.all([
+    tradesOf(sql, ca),
+    bondOf(sql, ca),
+    cursorBlock(sql),
+  ])
   const now = Math.floor(Date.now() / 1000)
   const last = trades.at(-1)
   const q = l.p.quoteAsset
   const dev = devCounts(trades, l.p.creator, last?.id ?? l.id)
   const rows: [string, string][] = []
   if (b) {
+    // We don't index post-bond trades, so a bonded token's volume and trades are its curve totals.
     const w = windowStats(trades, 0, b.id)
-    rows.push(["curve", bar(10_000)])
-    if (last) rows.push(["mcap at bond", valueText(last.p.marketCap, q, prices)])
-    rows.push(["volume", valueText(w.volume, q, prices)], ["trades", count(w.buys + w.sells)])
+    const at = last ? ` at ${valueText(last.p.marketCap, q, prices)}` : ""
+    rows.push(
+      ["bonded", `${age(now - b.p.blockTimestamp)} ago${at}`],
+      ["volume", `${valueText(w.volume, q, prices)} (on curve)`],
+      ["trades", `${buysSells(w.buys, w.sells)} (on curve)`],
+    )
   } else {
-    const w = windowStats(trades, now - 3600, last?.id ?? l.id)
+    // shortcut: without an indexer cursor (an empty database) the 24h window is every trade.
+    const from = cursor === null ? null : BigInt(cursor) - BigInt(DAY_BLOCKS)
+    const day = trades.filter((t) => from === null || BigInt(t.p.blockNumber) >= from)
+    const w = windowStats(day, 0, last?.id ?? l.id)
     rows.push(["curve", bar(last?.p.soldBps ?? 0)])
     if (last) rows.push(["mcap", valueText(last.p.marketCap, q, prices)])
     rows.push(
-      ["volume", `${valueText(w.volume, q, prices)} (1h)`],
-      ["trades", `${buysSells(w.buys, w.sells)} (1h)`],
+      ["volume", `${valueText(w.volume, q, prices)} (24h)`],
+      ["trades", `${buysSells(w.buys, w.sells)} (24h)`],
     )
   }
   rows.push(["age", age(now - l.p.blockTimestamp)], ["dev", buysSells(dev.buys, dev.sells)])
   const card = makeCard("new", "", l.p, rows, creatorLinks(l.p))
   const desc = clean(l.p.description, 200)
   const lines = [
-    `<b>$${escapeHtml(card.ticker)} · ${escapeHtml(card.name)}</b>`,
-    `${escapeHtml(launchpadOf(l.p.launchpad).name)} · ${b ? "bonded" : "curve"}`,
+    `<b>$${escapeHtml(card.ticker)}</b>`,
+    `${escapeHtml(card.name)} · ${escapeHtml(card.launchpad)}`,
+    "",
     ...renderRows(rows),
-    ...(desc ? [escapeHtml(desc)] : []),
+    "",
+    ...(desc ? [escapeHtml(desc), ""] : []),
     `CA   <code>${ca}</code>`,
   ]
   if (card.links.length > 0) {
     lines.push(card.links.map((x) => `<a href="${escapeHtml(x.url)}">${x.label}</a>`).join(" · "))
   }
-  return { html: lines.join("\n"), imageUrl: card.imageUrl }
+  return {
+    html: lines.join("\n"),
+    imageUrl: card.imageUrl,
+    bonded: !!b,
+    chartUrl: b ? chartUrl(b.p.poolId) : null,
+  }
+}
+
+/** Buttons under a token card. A bonded token adds Chart (when it has one) and moves Refresh to a third row. */
+export function tokenKb(
+  deps: Pick<BotDeps, "linksBase">,
+  ca: string,
+  o: Pick<TokenCard, "bonded" | "chartUrl"> & {
+    /** In a DM: a Watch button. Elsewhere: a deep link into the bot. */
+    watch: { dm: true; watching: boolean } | { dm: false; botUsername: string }
+  },
+): Kb {
+  const refresh = btn("Refresh", `tr:${ca}`)
+  const explorer = link("Explorer", `https://explorer.inkonchain.com/token/${ca}`)
+  const top = [
+    link("Trade", tradeUrl(deps.linksBase, ca)),
+    o.watch.dm
+      ? btn(o.watch.watching ? "Watching" : "Watch", `w:${ca}`)
+      : link("Watch", `https://t.me/${o.watch.botUsername}?start=w_${ca}`),
+  ]
+  if (!o.bonded) return [top, [refresh, explorer]]
+  return [top, [...(o.chartUrl ? [link("Chart", o.chartUrl)] : []), explorer], [refresh]]
 }
 
 async function isWatching(deps: BotDeps, tg: number, ca: string): Promise<boolean> {
@@ -83,15 +135,10 @@ async function loadCard(
   }
   const dm = ctx.chat?.type === "private"
   const watching = dm && ctx.from ? await isWatching(deps, ctx.from.id, ca) : false
-  const kb: Kb = [
-    [
-      link("Trade", tradeUrl(deps.linksBase, ca)),
-      dm
-        ? btn(watching ? "Watching" : "Watch", `w:${ca}`)
-        : link("Watch", `https://t.me/${ctx.me.username}?start=w_${ca}`),
-    ],
-    [btn("Refresh", `tr:${ca}`), link("Explorer", `https://explorer.inkonchain.com/token/${ca}`)],
-  ]
+  const kb = tokenKb(deps, ca, {
+    ...card,
+    watch: dm ? { dm, watching } : { dm, botUsername: ctx.me.username },
+  })
   return { ca, ...card, kb }
 }
 

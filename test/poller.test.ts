@@ -503,3 +503,35 @@ it("drops a late launch for a card that was already sent, without throwing", asy
   expect(cards[0]!.card.entries).toHaveLength(5)
   expect(await rowsBy("new:")).toHaveLength(10)
 })
+
+it("sends one notice for a flood longer than 15 minutes polled in many passes", async () => {
+  await addUser(sql, 501)
+  // One launch every 10 s for 30 min: 180 launches, in flood from the 11th to the end.
+  const long = Array.from({ length: 180 }, (_, i) =>
+    launch({
+      token: addr(0x3000 + i),
+      ticker: `L${i}`,
+      blockTimestamp: MIN0 + i * 10,
+      blockNumber: String(5000 + i * 10),
+      txHash: hash(0x7000 + i),
+    }),
+  )
+  const ids = await insertEvents(sql, long)
+  for (let i = 29; i < ids.length; i += 30) await pollOnce(deps({ maxId: ids[i]! }))
+  await pollOnce(deps())
+  expect(await rowsBy("flood:")).toHaveLength(1)
+  expect(await rowsBy("new:")).toHaveLength(10)
+})
+
+it("queues the notice after individual alerts that share its second", async () => {
+  await addUser(sql, 501)
+  // The 10th and 11th launches share a second, as both real flood starts in the local data do.
+  const tie = flood(15).map((e, i) => (i === 10 ? { ...e, blockTimestamp: MIN0 + 18 } : e))
+  await insertEvents(sql, tie)
+  await pollOnce(deps())
+  const [last] = await sql<{ ts: Date }[]>`
+    select max(event_ts) as ts from bot.deliveries where dedupe_key like 'new:%'`
+  const [notice] = await sql<{ ts: Date }[]>`
+    select event_ts as ts from bot.deliveries where dedupe_key like 'flood:%'`
+  expect(notice!.ts.getTime()).toBeGreaterThan(last!.ts.getTime())
+})

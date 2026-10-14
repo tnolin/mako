@@ -13,21 +13,24 @@ export const BATCH_S = 60
 export const BATCH_GRACE_S = 30
 export const BATCH_SHOWN = 10
 export const BATCH_NAME_MAX = 20
+/**
+ * The poller looks back further and further until every flood start it uses is certain, up to this far.
+ * shortcut: a flood that has lasted longer than this can get one more notice per MAX_LOOKBACK_S.
+ */
+export const MAX_LOOKBACK_S = 86_400
 
 export type LaunchMark = { id: string; launchpad: string; ts: number }
 
 /**
  * Launch id → id of the launch that started its flood, for launches in flood. A launch is in flood when its
  * launchpad had more than FLOOD_LAUNCHES launches in the FLOOD_WINDOW_S up to and including it (id order).
- * `all` must hold every launch from at least 2 × FLOOD_WINDOW_S before the first launch the caller cares
- * about, so that launch's predecessor is classified with a full window. The sliding window assumes
+ * A start is only right when the launch before it was classified with a full window; `uncertainStarts`
+ * names the starts that aren't, so the caller can load more history. The sliding window assumes
  * timestamps never decrease in id order, which holds because events are inserted in block order.
  */
 export function floodStarts(all: LaunchMark[]): Map<string, string> {
   const out = new Map<string, string>()
-  const byLp = new Map<string, LaunchMark[]>()
-  for (const l of all) byLp.set(l.launchpad, [...(byLp.get(l.launchpad) ?? []), l])
-  for (const ls of byLp.values()) {
+  for (const ls of byLaunchpad(all).values()) {
     let start: string | null = null
     let lo = 0
     for (let i = 0; i < ls.length; i++) {
@@ -39,6 +42,38 @@ export function floodStarts(all: LaunchMark[]): Map<string, string> {
       } else {
         start = null
       }
+    }
+  }
+  return out
+}
+
+function byLaunchpad(all: LaunchMark[]): Map<string, LaunchMark[]> {
+  const m = new Map<string, LaunchMark[]>()
+  for (const l of all) {
+    const ls = m.get(l.launchpad)
+    if (ls) ls.push(l)
+    else m.set(l.launchpad, [l])
+  }
+  return m
+}
+
+/**
+ * Flood starts that may be wrong because `all` begins at `fromTs`: the start's own window or the window of
+ * the launch before it reaches back past the history loaded, so the flood may really have started earlier.
+ */
+export function uncertainStarts(
+  all: LaunchMark[],
+  fromTs: number,
+  starts: Map<string, string>,
+): Set<string> {
+  const out = new Set<string>()
+  for (const ls of byLaunchpad(all).values()) {
+    for (let i = 0; i < ls.length; i++) {
+      const l = ls[i]!
+      if (starts.get(l.id) !== l.id) continue
+      const prev = ls[i - 1]
+      if (l.ts - FLOOD_WINDOW_S < fromTs || !prev || prev.ts - FLOOD_WINDOW_S < fromTs)
+        out.add(l.id)
     }
   }
   return out
@@ -79,7 +114,8 @@ export function floodRows(
     const lp = l.p.launchpad
     const name = launchpadOf(lp).name
     const nk = `flood:${lp}:${starts.get(l.id)}`
-    if (!notices.has(nk)) notices.set(nk, { name, ts: l.p.blockTimestamp })
+    // Half a second past its launch, so the notice follows the individual alerts of that same second.
+    if (!notices.has(nk)) notices.set(nk, { name, ts: l.p.blockTimestamp + 0.5 })
     const minute = Math.floor(l.p.blockTimestamp / BATCH_S)
     const ck = `newtokens:${lp}:${minute}`
     const card = cards.get(ck) ?? { lp: name, minute, entries: [] }

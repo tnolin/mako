@@ -7,7 +7,14 @@ import type { Prices } from "../prices"
 import type { DevHolds, HoldsReq } from "../rpc"
 import { type Candidate, rulesFor, withDevHolds } from "../rules/index"
 import { PRIORITY } from "../settings"
-import { FLOOD_WINDOW_S, type FloodRow, floodRows, floodStarts } from "./flood"
+import {
+  FLOOD_WINDOW_S,
+  type FloodRow,
+  floodRows,
+  floodStarts,
+  MAX_LOOKBACK_S,
+  uncertainStarts,
+} from "./flood"
 import { createFailureLimiter } from "./limit"
 import { type Delivery, loadAudience, newTokenChats, route } from "./recipients"
 
@@ -92,23 +99,33 @@ async function write(
       }))
       await tx`insert into bot.deliveries ${tx(chunk)} on conflict (chat_id, dedupe_key) do nothing`
     }
-    for (const r of floods.filter((r) => r.chatType !== "private" || live.has(r.chatId))) {
-      const values = tx`
-        (${r.chatId}, ${r.chatType}, ${r.threadId}, 'new', null, ${r.dedupeKey}, ${PRIORITY.new},
-         to_timestamp(${r.eventTs}), ${r.sendAfter === null ? null : new Date(r.sendAfter * 1000)},
-         ${tx.json(r.payload as unknown as postgres.JSONValue)})`
-      if (r.payload.type !== "newtokens") {
-        await tx`
-          insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, send_after, card)
-          values ${values} on conflict (chat_id, dedupe_key) do nothing`
-        continue
-      }
-      // A card gains the entries it doesn't hold yet, so a re-run or a minute split across batches adds each
-      // launch once. shortcut: a launch that arrives after its minute's card was sent (indexer lag past
-      // BATCH_GRACE_S) is in no card. Upgrade path: append it to the next open card.
+    const floodLive = floods.filter((r) => r.chatType !== "private" || live.has(r.chatId))
+    const asRow = (r: FloodRow) => ({
+      chat_id: r.chatId,
+      chat_type: r.chatType,
+      thread_id: r.threadId,
+      alert: "new",
+      token: null,
+      dedupe_key: r.dedupeKey,
+      priority: PRIORITY.new,
+      event_ts: new Date(r.eventTs * 1000),
+      send_after: r.sendAfter === null ? null : new Date(r.sendAfter * 1000),
+      card: tx.json(r.payload as unknown as postgres.JSONValue),
+    })
+    const notices = floodLive.filter((r) => r.payload.type !== "newtokens").map(asRow)
+    const cards = floodLive.filter((r) => r.payload.type === "newtokens").map(asRow)
+    // 10 columns per row; 1,000 rows stays well under Postgres' 65,535 parameters.
+    for (let i = 0; i < notices.length; i += 1000) {
+      await tx`insert into bot.deliveries ${tx(notices.slice(i, i + 1000))} on conflict (chat_id, dedupe_key) do nothing`
+    }
+    // A card gains the entries it doesn't hold yet, so a re-run or a minute split across batches adds each
+    // launch once. Keys are unique within a pass, so one statement can upsert many cards.
+    // shortcut: a launch read after its minute's card was sent (indexer lag past BATCH_GRACE_S) is in no
+    // card, and one that lands while the sender is sending the card stays in the row but not the message.
+    // Upgrade path: append late launches to the next open card.
+    for (let i = 0; i < cards.length; i += 1000) {
       await tx`
-        insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, send_after, card)
-        values ${values}
+        insert into bot.deliveries ${tx(cards.slice(i, i + 1000))}
         on conflict (chat_id, dedupe_key) do update
           set card = jsonb_set(bot.deliveries.card, '{entries}',
             (bot.deliveries.card->'entries') || coalesce((
@@ -140,16 +157,21 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
   const lastId = events.at(-1)!.id
   // Launch floods: decided from launch events alone, so a re-run or replay classifies the same way.
   const launches = events.filter((e) => e.p.type === "launchpad.launch") as Row<LaunchEvent>[]
-  const starts =
-    launches.length === 0
-      ? new Map<string, string>()
-      : floodStarts(
-          await launchesAround(
-            sql,
-            Math.min(...launches.map((l) => l.p.blockTimestamp)) - 2 * FLOOD_WINDOW_S,
-            lastId,
-          ),
-        )
+  let starts = new Map<string, string>()
+  if (launches.length > 0) {
+    const minTs = launches.reduce(
+      (m, l) => Math.min(m, l.p.blockTimestamp),
+      Number.POSITIVE_INFINITY,
+    )
+    // A long flood's start lies further back than one window: widen the history until it is certain.
+    for (let back = 2 * FLOOD_WINDOW_S; ; back *= 2) {
+      const from = minTs - back
+      const history = await launchesAround(sql, from, lastId)
+      starts = floodStarts(history)
+      const unsure = uncertainStarts(history, from, starts)
+      if (back >= MAX_LOOKBACK_S || !launches.some((l) => unsure.has(starts.get(l.id) ?? ""))) break
+    }
+  }
   const rules = deps.rules ?? rulesFor
   const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log })
   const cands: Candidate[] = []

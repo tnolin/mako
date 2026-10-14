@@ -2,6 +2,7 @@ import { GrammyError, InputFile } from "grammy"
 import { expect, it, vi } from "vitest"
 import type { Card } from "../src/cards/card"
 import { createImages } from "../src/platforms/telegram/images"
+import { renderNewTokens } from "../src/platforms/telegram/render"
 import { createSend, type PendingRow } from "../src/platforms/telegram/send"
 import { imageResponse, memoryCache, okFetch, photoResult } from "./helpers/images"
 
@@ -236,4 +237,19 @@ it("returns a classified failure instead of throwing", async () => {
   )
   const r = row({ card: { type: "card", card, image: false } })
   expect(await createSend(a, setup().opts)(r)).toMatchObject({ ok: false, kind: "blocked" })
+})
+
+it("sends a NEW TOKENS card as text, rendered with the bot username, without a preview or photo", async () => {
+  const a = api()
+  const payload = {
+    type: "newtokens" as const,
+    launchpad: "InkyPump",
+    entries: [{ token: card.token, name: "Goblo", ticker: "GOBLO" }],
+  }
+  expect(await createSend(a, setup().opts)(row({ card: payload }))).toEqual({ ok: true })
+  expect(a.sendPhoto).not.toHaveBeenCalled()
+  const [chat, text, o] = textCall(a)
+  expect(chat).toBe(-1001)
+  expect(text).toBe(renderNewTokens(payload, "makoinkbot"))
+  expect(o).toMatchObject({ parse_mode: "HTML", link_preview_options: { is_disabled: true } })
 })

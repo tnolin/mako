@@ -3,7 +3,7 @@ import type { Payload } from "../../cards/card"
 import type { ChatType } from "../../delivery/recipients"
 import { classify, type Failure } from "./errors"
 import type { Images } from "./images"
-import { alertKeyboard, renderCard, toKeyboard } from "./render"
+import { alertKeyboard, renderCard, renderNewTokens, toKeyboard } from "./render"
 
 export type PendingRow = {
   id: string
@@ -34,6 +34,14 @@ export function createSend(
           message_thread_id: thread,
           link_preview_options: { is_disabled: true },
           reply_markup: p.buttons ? toKeyboard(p.buttons) : undefined,
+        })
+        return { ok: true }
+      }
+      if (p.type === "newtokens") {
+        await api.sendMessage(chat, renderNewTokens(p, opts.botUsername), {
+          parse_mode: "HTML",
+          message_thread_id: thread,
+          link_preview_options: { is_disabled: true },
         })
         return { ok: true }
       }

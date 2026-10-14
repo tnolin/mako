@@ -389,3 +389,149 @@ it("startPoller reports a failing batch once, keeps the cursor, and keeps loopin
     vi.useRealTimers()
   }
 })
+
+// Launch floods. MIN0 is a minute boundary, so a 25-launch flood 2 s apart stays in one minute bucket.
+const MIN0 = Math.floor(T0 / 60) * 60
+const flood = (n: number, o: { lp?: string; from?: number; ts0?: number } = {}) =>
+  Array.from({ length: n }, (_, i) =>
+    launch({
+      token: addr(0x1000 + (o.from ?? 0) + i),
+      name: `Flood ${i + 1}`,
+      ticker: `F${i + 1}`,
+      launchpad: (o.lp ?? "inkypump") as never,
+      blockTimestamp: (o.ts0 ?? MIN0) + i * 2,
+      blockNumber: String(2000 + (o.from ?? 0) + i),
+      txHash: hash(0x5000 + (o.from ?? 0) + i),
+    }),
+  )
+type FloodRow = {
+  chat_id: string
+  dedupe_key: string
+  status: string
+  // biome-ignore lint/suspicious/noExplicitAny: test reads jsonb payloads of several shapes
+  card: any
+  send_after: Date | null
+  thread_id: number | null
+}
+const rowsBy = async (prefix: string) =>
+  sql<FloodRow[]>`
+    select chat_id::text, dedupe_key, status, card, send_after, thread_id from bot.deliveries
+    where dedupe_key like ${`${prefix}%`} order by created_at, event_ts`
+const NOTICE =
+  "Lots of new tokens are launching on InkyPump at once. To avoid spam, NEW TOKEN alerts are grouped into one message per minute until it slows down."
+
+it("sends individual NEW TOKEN up to 10 launches, then one notice and minute cards instead", async () => {
+  await addUser(sql, 501)
+  await insertEvents(sql, flood(25))
+  await pollOnce(deps())
+  expect(await rowsBy("new:")).toHaveLength(10)
+  const notice = await rowsBy("flood:")
+  expect(notice).toHaveLength(1)
+  expect(notice[0]!.card.html).toBe(NOTICE)
+  const cards = await rowsBy("newtokens:")
+  expect(cards).toHaveLength(1)
+  expect(cards[0]!.card.entries.map((e: { ticker: string }) => e.ticker)).toEqual(
+    Array.from({ length: 15 }, (_, i) => `F${i + 11}`),
+  )
+  const minute = MIN0 / 60
+  expect(cards[0]!.dedupe_key).toBe(`newtokens:inkypump:${minute}`)
+  expect(cards[0]!.send_after!.getTime()).toBe(((minute + 1) * 60 + 30) * 1000)
+})
+
+it("splits a flood into one card per minute bucket", async () => {
+  await addUser(sql, 501)
+  await insertEvents(sql, flood(70)) // flooded launches 11..70 span MIN0+20 .. MIN0+138: three minute buckets
+  await pollOnce(deps())
+  const keys = (await rowsBy("newtokens:")).map((r) => r.dedupe_key)
+  expect(new Set(keys).size).toBe(keys.length)
+  expect(keys).toHaveLength(3)
+})
+
+it("is idempotent across a re-run of the same events", async () => {
+  await addUser(sql, 501)
+  await insertEvents(sql, flood(25))
+  await pollOnce(deps())
+  await sql`update bot.state set value = '0' where key = 'events_cursor'`
+  await pollOnce(deps())
+  expect(await rowsBy("flood:")).toHaveLength(1)
+  expect((await rowsBy("newtokens:"))[0]!.card.entries).toHaveLength(15)
+})
+
+it("builds the same card when a flood spans two poll batches", async () => {
+  await addUser(sql, 501)
+  const ids = await insertEvents(sql, flood(25))
+  await pollOnce(deps({ maxId: ids[12]! }))
+  await pollOnce(deps())
+  expect(await rowsBy("flood:")).toHaveLength(1)
+  expect((await rowsBy("newtokens:"))[0]!.card.entries).toHaveLength(15)
+})
+
+it("leaves a quiet launchpad's NEW TOKEN alerts alone", async () => {
+  await addUser(sql, 501)
+  await insertEvents(sql, [...flood(15), ...flood(2, { lp: "other", from: 500 })])
+  await pollOnce(deps())
+  const individual = await rowsBy("new:")
+  expect(individual.filter((r) => r.card.card?.launchpadKey === "other")).toHaveLength(2)
+  expect(individual).toHaveLength(12)
+})
+
+it("routes to the NEW TOKEN topic and skips chats with NEW TOKEN off or paused", async () => {
+  const s = basicPreset()
+  await addChat(sql, -1001, "supergroup", { ...s, thread: 2, routes: { new: 3 } })
+  await addChat(sql, -1002, "supergroup", {
+    ...s,
+    alerts: { ...s.alerts, new: { ...s.alerts.new, on: false } },
+  })
+  await addChat(sql, -1003, "supergroup", { ...s, pausedRoutes: ["new"] })
+  await insertEvents(sql, flood(15))
+  await pollOnce(deps())
+  expect(new Set((await rowsBy("flood:")).map((r) => r.chat_id))).toEqual(new Set(["-1001"]))
+  const cards = await rowsBy("newtokens:")
+  expect(cards.map((r) => r.chat_id)).toEqual(["-1001"])
+  expect(cards[0]!.thread_id).toBe(3)
+})
+
+it("drops a late launch for a card that was already sent, without throwing", async () => {
+  await addUser(sql, 501)
+  await insertEvents(sql, flood(15))
+  await pollOnce(deps())
+  await sql`update bot.deliveries set status = 'sent' where dedupe_key like 'newtokens:%'`
+  await insertEvents(sql, flood(1, { from: 900, ts0: MIN0 + 40 }))
+  await expect(pollOnce(deps())).resolves.toBeGreaterThan(0)
+  const cards = await rowsBy("newtokens:")
+  expect(cards).toHaveLength(1)
+  expect(cards[0]!.card.entries).toHaveLength(5)
+  expect(await rowsBy("new:")).toHaveLength(10)
+})
+
+it("sends one notice for a flood longer than 15 minutes polled in many passes", async () => {
+  await addUser(sql, 501)
+  // One launch every 10 s for 30 min: 180 launches, in flood from the 11th to the end.
+  const long = Array.from({ length: 180 }, (_, i) =>
+    launch({
+      token: addr(0x3000 + i),
+      ticker: `L${i}`,
+      blockTimestamp: MIN0 + i * 10,
+      blockNumber: String(5000 + i * 10),
+      txHash: hash(0x7000 + i),
+    }),
+  )
+  const ids = await insertEvents(sql, long)
+  for (let i = 29; i < ids.length; i += 30) await pollOnce(deps({ maxId: ids[i]! }))
+  await pollOnce(deps())
+  expect(await rowsBy("flood:")).toHaveLength(1)
+  expect(await rowsBy("new:")).toHaveLength(10)
+})
+
+it("queues the notice after individual alerts that share its second", async () => {
+  await addUser(sql, 501)
+  // The 10th and 11th launches share a second, as both real flood starts in the local data do.
+  const tie = flood(15).map((e, i) => (i === 10 ? { ...e, blockTimestamp: MIN0 + 18 } : e))
+  await insertEvents(sql, tie)
+  await pollOnce(deps())
+  const [last] = await sql<{ ts: Date }[]>`
+    select max(event_ts) as ts from bot.deliveries where dedupe_key like 'new:%'`
+  const [notice] = await sql<{ ts: Date }[]>`
+    select event_ts as ts from bot.deliveries where dedupe_key like 'flood:%'`
+  expect(notice!.ts.getTime()).toBeGreaterThan(last!.ts.getTime())
+})

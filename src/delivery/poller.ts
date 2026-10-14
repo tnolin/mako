@@ -1,12 +1,22 @@
+import type { LaunchEvent } from "@ink-indexer/events"
 import type postgres from "postgres"
 import type { Sql } from "../db"
-import { eventsAfter, maxEventId } from "../history"
+import { eventsAfter, launchesAround, maxEventId, type Row } from "../history"
 import type { Logger } from "../log"
 import type { Prices } from "../prices"
 import type { DevHolds, HoldsReq } from "../rpc"
 import { type Candidate, rulesFor, withDevHolds } from "../rules/index"
+import { PRIORITY } from "../settings"
+import {
+  FLOOD_WINDOW_S,
+  type FloodRow,
+  floodRows,
+  floodStarts,
+  MAX_LOOKBACK_S,
+  uncertainStarts,
+} from "./flood"
 import { createFailureLimiter } from "./limit"
-import { type Delivery, loadAudience, route } from "./recipients"
+import { type Delivery, loadAudience, newTokenChats, route } from "./recipients"
 
 export type PollerDeps = {
   sql: Sql
@@ -50,12 +60,19 @@ export async function initCursor(sql: Sql, fromId?: string): Promise<string> {
 }
 
 /** Inserts deliveries and moves the cursor in one short transaction. No network calls inside. */
-async function write(sql: Sql, all: Delivery[], cursor: string): Promise<void> {
+async function write(
+  sql: Sql,
+  all: Delivery[],
+  cursor: string,
+  floods: FloodRow[] = [],
+): Promise<void> {
   await sql.begin(async (tx) => {
     // The audience was read before this write (DEV SELL waits on RPC), so a user may have deleted their
     // data since. A DM row needs a live user; the share lock makes Delete my data wait for this commit
     // and then remove the row it just wrote.
-    const dmIds = [...new Set(all.filter((r) => r.chatType === "private").map((r) => r.chatId))]
+    const dmIds = [
+      ...new Set([...all, ...floods].filter((r) => r.chatType === "private").map((r) => r.chatId)),
+    ]
     const live =
       dmIds.length === 0
         ? new Set<string>()
@@ -82,6 +99,41 @@ async function write(sql: Sql, all: Delivery[], cursor: string): Promise<void> {
       }))
       await tx`insert into bot.deliveries ${tx(chunk)} on conflict (chat_id, dedupe_key) do nothing`
     }
+    const floodLive = floods.filter((r) => r.chatType !== "private" || live.has(r.chatId))
+    const asRow = (r: FloodRow) => ({
+      chat_id: r.chatId,
+      chat_type: r.chatType,
+      thread_id: r.threadId,
+      alert: "new",
+      token: null,
+      dedupe_key: r.dedupeKey,
+      priority: PRIORITY.new,
+      event_ts: new Date(r.eventTs * 1000),
+      send_after: r.sendAfter === null ? null : new Date(r.sendAfter * 1000),
+      card: tx.json(r.payload as unknown as postgres.JSONValue),
+    })
+    const notices = floodLive.filter((r) => r.payload.type !== "newtokens").map(asRow)
+    const cards = floodLive.filter((r) => r.payload.type === "newtokens").map(asRow)
+    // 10 columns per row; 1,000 rows stays well under Postgres' 65,535 parameters.
+    for (let i = 0; i < notices.length; i += 1000) {
+      await tx`insert into bot.deliveries ${tx(notices.slice(i, i + 1000))} on conflict (chat_id, dedupe_key) do nothing`
+    }
+    // A card gains the entries it doesn't hold yet, so a re-run or a minute split across batches adds each
+    // launch once. Keys are unique within a pass, so one statement can upsert many cards.
+    // shortcut: a launch read after its minute's card was sent (indexer lag past BATCH_GRACE_S) is in no
+    // card, and one that lands while the sender is sending the card stays in the row but not the message.
+    // Upgrade path: append late launches to the next open card.
+    for (let i = 0; i < cards.length; i += 1000) {
+      await tx`
+        insert into bot.deliveries ${tx(cards.slice(i, i + 1000))}
+        on conflict (chat_id, dedupe_key) do update
+          set card = jsonb_set(bot.deliveries.card, '{entries}',
+            (bot.deliveries.card->'entries') || coalesce((
+              select jsonb_agg(e) from jsonb_array_elements(excluded.card->'entries') e
+              where not (bot.deliveries.card->'entries' @> jsonb_build_array(jsonb_build_object('token', e->>'token')))
+            ), '[]'::jsonb))
+          where bot.deliveries.status = 'pending'`
+    }
     for (const r of rows.filter((r) => r.supersedesBonding)) {
       await tx`
         update bot.deliveries set status = 'superseded'
@@ -102,11 +154,31 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
   const cursor = await initCursor(sql)
   const events = await eventsAfter(sql, cursor, 500, deps.maxId)
   if (events.length === 0) return 0
+  const lastId = events.at(-1)!.id
+  // Launch floods: decided from launch events alone, so a re-run or replay classifies the same way.
+  const launches = events.filter((e) => e.p.type === "launchpad.launch") as Row<LaunchEvent>[]
+  let starts = new Map<string, string>()
+  if (launches.length > 0) {
+    const minTs = launches.reduce(
+      (m, l) => Math.min(m, l.p.blockTimestamp),
+      Number.POSITIVE_INFINITY,
+    )
+    // A long flood's start lies further back than one window: widen the history until it is certain.
+    for (let back = 2 * FLOOD_WINDOW_S; ; back *= 2) {
+      const from = minTs - back
+      const history = await launchesAround(sql, from, lastId)
+      starts = floodStarts(history)
+      const unsure = uncertainStarts(history, from, starts)
+      if (back >= MAX_LOOKBACK_S || !launches.some((l) => unsure.has(starts.get(l.id) ?? ""))) break
+    }
+  }
   const rules = deps.rules ?? rulesFor
   const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log })
   const cands: Candidate[] = []
   let skipped = 0
   for (const ev of events) {
+    // A launch in flood would only yield the NEW TOKEN alert that flood mode replaces.
+    if (starts.has(ev.id)) continue
     try {
       cands.push(...(await rules(ev, { sql, prices: deps.prices, log })))
     } catch (err) {
@@ -119,8 +191,10 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
     }
   }
   if (skipped === 0) limiter.ok("rule")
-  const deliveries = route(cands, await loadAudience(sql, [...new Set(cands.map((c) => c.token))]))
-  const lastId = events.at(-1)!.id
+  const flooded = launches.filter((l) => starts.has(l.id))
+  const aud = await loadAudience(sql, [...new Set(cands.map((c) => c.token))])
+  const deliveries = route(cands, aud)
+  const floods = flooded.length === 0 ? [] : floodRows(flooded, starts, newTokenChats(aud))
   const dev = deliveries.filter((d) => d.alert === "devsell")
   const rest = deliveries.filter((d) => d.alert !== "devsell")
   // Start the dev holds reads first; the other alerts are written while they run.
@@ -136,7 +210,7 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
     const id = BigInt(d.eventId)
     return m === null || id < m ? id : m
   }, null)
-  await write(sql, rest, firstDev === null ? lastId : String(firstDev - 1n))
+  await write(sql, rest, firstDev === null ? lastId : String(firstDev - 1n), floods)
   if (dev.length > 0) {
     const holds = new Map<string, DevHolds>()
     for (const [id, p] of reads) holds.set(id, await p)

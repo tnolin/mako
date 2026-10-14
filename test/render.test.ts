@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest"
 import type { Card } from "../src/cards/card"
-import { alertKeyboard, renderCard, toKeyboard } from "../src/platforms/telegram/render"
+import {
+  alertKeyboard,
+  renderCard,
+  renderNewTokens,
+  toKeyboard,
+} from "../src/platforms/telegram/render"
 
 const CA = "0x3c19e7a4b2d0f8c61e95a3b7d4c2e0f19a8b9ab0"
 const card: Card = {
@@ -162,5 +167,55 @@ describe("toKeyboard", () => {
         ],
       ],
     })
+  })
+})
+
+const entry = (i: number, name = `Token ${i}`) => ({
+  token: `0x${String(i).padStart(40, "0")}`,
+  name,
+  ticker: `T${i}`,
+})
+
+describe("renderNewTokens", () => {
+  it("lists up to 10 newest first, each line one t_ link, then the rest as a count", () => {
+    const html = renderNewTokens(
+      {
+        type: "newtokens",
+        launchpad: "InkyPump",
+        entries: Array.from({ length: 15 }, (_, i) => entry(i + 1)),
+      },
+      "makoinkbot",
+    )
+    const lines = html.split("\n")
+    expect(lines.slice(0, 3)).toEqual(["<b>NEW TOKENS</b>", "InkyPump", ""])
+    expect(lines[3]).toBe(
+      `<a href="https://t.me/makoinkbot?start=t_${entry(15).token}">Token 15 · $T15</a>`,
+    )
+    expect(lines).toHaveLength(3 + 10 + 1)
+    expect(lines.at(-2)).toContain("Token 6 · $T6")
+    expect(lines.at(-1)).toBe("and 5 more tokens")
+  })
+
+  it("says 1 more token in the singular and nothing when all fit", () => {
+    const eleven = Array.from({ length: 11 }, (_, i) => entry(i + 1))
+    const one = renderNewTokens({ type: "newtokens", launchpad: "InkyPump", entries: eleven }, "b")
+    expect(one.split("\n").at(-1)).toBe("and 1 more token")
+    const three = renderNewTokens(
+      { type: "newtokens", launchpad: "InkyPump", entries: eleven.slice(0, 3) },
+      "b",
+    )
+    expect(three).not.toContain("more token")
+  })
+
+  it("escapes names and tickers", () => {
+    const html = renderNewTokens(
+      {
+        type: "newtokens",
+        launchpad: "InkyPump",
+        entries: [{ token: entry(1).token, name: "<b>x</b>", ticker: "A&B" }],
+      },
+      "b",
+    )
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt; · $A&amp;B</a>")
   })
 })

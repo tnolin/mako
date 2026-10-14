@@ -1,5 +1,6 @@
 import type { BondEvent, IndexerEvent, LaunchEvent, TradeEvent } from "@ink-indexer/events"
 import type { Sql } from "./db"
+import type { LaunchMark } from "./delivery/flood"
 
 /** An indexer event and its table id (a decimal string). */
 export type Row<T> = { id: string; p: T }
@@ -125,4 +126,28 @@ export function justBonded(sql: Sql): Promise<Row<BondEvent>[]> {
   return sql<Row<BondEvent>[]>`
     select id::text, payload as p from indexer.events
     where type = 'launchpad.bond' order by events.id desc limit 5`
+}
+
+/**
+ * Confirmed launches from `fromTs` (blockTimestamp) up to event `toId`, in id order, for flood detection.
+ * Narrowed by block first so it uses events_block: Ink makes about one block per second, so blocks within
+ * 10× the time span are a safe superset.
+ */
+export async function launchesAround(
+  sql: Sql,
+  fromTs: number,
+  toId: string,
+): Promise<LaunchMark[]> {
+  const [to] = await sql<{ block: string; ts: number }[]>`
+    select block::text, (payload->>'blockTimestamp')::float8 as ts from indexer.events where id = ${toId}`
+  if (!to) return []
+  const span = Math.max(0, to.ts - fromTs)
+  return sql<LaunchMark[]>`
+    select id::text, payload->>'launchpad' as launchpad, (payload->>'blockTimestamp')::float8 as ts
+    from indexer.events
+    where type = 'launchpad.launch' and confirmed
+      and block >= ${String(BigInt(to.block) - BigInt(Math.ceil(span * 10) + 100))}::bigint
+      and events.id <= ${toId}
+      and (payload->>'blockTimestamp')::bigint >= ${fromTs}
+    order by events.id`
 }

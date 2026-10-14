@@ -1,5 +1,6 @@
 import type { InlineKeyboardButton, InlineKeyboardMarkup } from "grammy/types"
-import type { Button, Card } from "../../cards/card"
+import type { Button, Card, Payload } from "../../cards/card"
+import { BATCH_SHOWN } from "../../delivery/flood"
 import type { ChatType } from "../../delivery/recipients"
 import { escapeHtml, safeUrl } from "../../format"
 
@@ -70,4 +71,24 @@ export function toKeyboard(buttons: Button[][]): InlineKeyboardMarkup {
       ),
     ),
   }
+}
+
+/** A launch-flood card: up to BATCH_SHOWN tokens, newest first, each line a link to its token card. */
+export function renderNewTokens(
+  p: Extract<Payload, { type: "newtokens" }>,
+  botUsername: string,
+): string {
+  const shown = [...p.entries].reverse().slice(0, BATCH_SHOWN)
+  const more = p.entries.length - shown.length
+  const lines = [
+    "<b>NEW TOKENS</b>",
+    escapeHtml(p.launchpad),
+    "",
+    ...shown.map(
+      (e) =>
+        `<a href="https://t.me/${botUsername}?start=t_${e.token}">${escapeHtml(e.name)} · $${escapeHtml(e.ticker)}</a>`,
+    ),
+  ]
+  if (more > 0) lines.push(`and ${more} more token${more === 1 ? "" : "s"}`)
+  return lines.join("\n")
 }

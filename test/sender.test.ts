@@ -53,12 +53,16 @@ async function enqueue(
     ageMin?: number
     thread?: number | null
     key?: string
+    /** Seconds from now until the row may be sent; negative is in the past. */
+    sendAfterSec?: number
   } = {},
 ) {
+  const sendAfter = o.sendAfterSec === undefined ? null : `${o.sendAfterSec} seconds`
   await sql`
-    insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, card)
+    insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, send_after, card)
     values (${chatId}, ${o.chatType ?? "supergroup"}, ${o.thread ?? null}, ${alert}, '0xd1', ${o.key ?? `${alert}:${Math.random()}`},
-            ${o.priority ?? 5}, now() - ${`${o.ageMin ?? 0} minutes`}::interval, ${sql.json(card as unknown as postgres.JSONValue)})`
+            ${o.priority ?? 5}, now() - ${`${o.ageMin ?? 0} minutes`}::interval,
+            now() + ${sendAfter}::interval, ${sql.json(card as unknown as postgres.JSONValue)})`
 }
 const statuses = async () =>
   (
@@ -414,7 +418,7 @@ it("fails unclassified errors and reports them", async () => {
   expect(report).toHaveBeenCalledOnce()
 })
 
-it("folds the real 24 Aug launch burst into one summary instead of a backlog", async () => {
+it("turns the real 24 Aug launch burst into 10 alerts, one notice and one card per minute", async () => {
   await addUser(sql, 1001)
   const burst = loadFixture("burst-0824")
   await insertEvents(sql, burst)
@@ -423,11 +427,19 @@ it("folds the real 24 Aug launch burst into one summary instead of a backlog", a
   while (
     (await pollOnce({ sql, prices, log: () => {}, report, readHolds: async () => null })) > 0
   ) {}
-  const launches = burst.filter((e) => e.type === "launchpad.launch").length
-  expect(await sql`select 1 from bot.deliveries where alert = 'new'`).toHaveLength(launches)
+  const launched = burst.filter((e) => e.type === "launchpad.launch")
+  const count = async (prefix: string) =>
+    (await sql`select 1 from bot.deliveries where dedupe_key like ${`${prefix}%`}`).length
+  expect(await count("new:")).toBe(10)
+  expect(await count("flood:")).toBe(1)
+  const cards = await sql<{ card: { entries: unknown[] } }[]>`
+    select card from bot.deliveries where dedupe_key like 'newtokens:%'`
+  const minutes = new Set(launched.slice(10).map((e) => Math.floor(e.blockTimestamp / 60)))
+  expect(cards).toHaveLength(minutes.size)
+  expect(cards.reduce((n, c) => n + c.card.entries.length, 0)).toBe(launched.length - 10)
   await sender().tick() // fixture events are from August, so every alert is already late
   const skipped = (await sql`select 1 from bot.deliveries where status = 'skipped'`).length
-  expect(skipped).toBeGreaterThanOrEqual(launches)
+  expect(skipped).toBe(10 + 1 + cards.length)
   const summaries = await sql<
     { card: Payload }[]
   >`select card from bot.deliveries where alert = 'summary'`
@@ -456,4 +468,48 @@ it("keeps ticking when a tick fails and reporting itself throws", async () => {
   } finally {
     vi.useRealTimers()
   }
+})
+
+it("holds a row until its send_after", async () => {
+  await addChat(sql, -100, "supergroup")
+  await enqueue(-100, "new", { key: "later", sendAfterSec: 3600 })
+  await enqueue(-100, "new", { key: "now" })
+  const s = sender()
+  await s.tick()
+  t += 5_000
+  await s.tick()
+  expect(sent).toHaveLength(1)
+  const [held] = await sql<
+    { status: string }[]
+  >`select status from bot.deliveries where dedupe_key = 'later'`
+  expect(held!.status).toBe("pending")
+})
+
+it("sends a held row once send_after has passed", async () => {
+  await addChat(sql, -100, "supergroup")
+  await enqueue(-100, "new", { key: "due", sendAfterSec: -1 })
+  await sender().tick()
+  expect(sent).toHaveLength(1)
+})
+
+it("orders same-pass rows of one chat by event time", async () => {
+  await addChat(sql, -100, "supergroup")
+  const now = Math.floor(Date.now() / 1000)
+  await sql.begin(async (tx) => {
+    // One transaction: identical created_at, as rows written in one poller pass have.
+    for (const [key, ts] of [
+      ["c", now - 1],
+      ["a", now - 3],
+      ["b", now - 2],
+    ] as const) {
+      await tx`insert into bot.deliveries (chat_id, chat_type, alert, dedupe_key, priority, event_ts, card)
+        values (-100, 'supergroup', 'new', ${key}, 5, to_timestamp(${ts}), ${tx.json({ type: "text", html: key })})`
+    }
+  })
+  const s = sender()
+  for (let i = 0; i < 3; i++) {
+    await s.tick()
+    t += 5_000
+  }
+  expect(sent.map((r) => (r.card as { html: string }).html)).toEqual(["a", "b", "c"])
 })

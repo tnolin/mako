@@ -21,3 +21,10 @@ export type Button = { text: string; url?: string; data?: string }
 export type Payload =
   | { type: "card"; card: Card; image: boolean }
   | { type: "text"; html: string; buttons?: Button[][] }
+  | {
+      type: "newtokens"
+      /** Launchpad display name. */
+      launchpad: string
+      /** Oldest first; names and tickers already cleaned. */
+      entries: { token: string; name: string; ticker: string }[]
+    }

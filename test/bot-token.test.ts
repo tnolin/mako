@@ -21,22 +21,33 @@ const CHECKSUMMED = "0x00000000000000000000000000000000000000A1"
 let sql: Sql
 let h: ReturnType<typeof harness>
 let img: ReturnType<typeof testImages>
+// Live KRAK reading (2026-10-14): 5.3289 ETH at 1B supply. At the test price of $2,500 that is $13.3K.
+const KRAK_SQRT = 1085330431310623941983443206493297n
+const POOL = `0x${"ab".repeat(32)}` as `0x${string}`
+const log = vi.fn()
+// Default: the node is unreachable, so bonded cards use the bonded-at row unless a test opts in.
+let readSqrtPrice: ReturnType<typeof vi.fn<(poolId: string) => Promise<bigint>>>
 
 beforeEach(async () => {
   img = testImages()
   await sql?.end()
   sql = await resetDb(inject("databaseUrl"))
   report.mockClear()
+  log.mockReset()
+  readSqrtPrice = vi.fn(async (_poolId: string): Promise<bigint> => {
+    throw new Error("no node in tests")
+  })
   h = harness(
     createBot({
       token: "1:test",
       botInfo: BOT_INFO,
       sql,
       prices,
-      log: () => {},
+      log,
       report,
       linksBase: "https://go.makobot.xyz",
       images: img.images,
+      readSqrtPrice,
     }),
   )
   await insertEvents(sql, [
@@ -577,5 +588,72 @@ describe("watchlist and mutes", () => {
     expect(
       await sql`select 1 from bot.user_actions where action in ('watch','unwatch','mute','unmute')`,
     ).toHaveLength(0)
+  })
+})
+
+describe("bonded live market cap", () => {
+  const bonded = () => insertEvents(sql, [bond({ token: A, blockNumber: "1002", poolId: POOL })])
+
+  it("shows the bond age and the live mcap when the pool read succeeds", async () => {
+    readSqrtPrice.mockResolvedValue(KRAK_SQRT)
+    await bonded()
+    await h.text(`/t ${A}`)
+    const c = h.last("sendPhoto")!.caption
+    expect(c).toMatch(/<code>bonded {3}\d+d ago<\/code>/)
+    expect(c).toContain("<code>mcap     $13.3K</code>")
+    expect(c).not.toContain(" at $")
+    expect(readSqrtPrice).toHaveBeenCalledWith(POOL)
+  })
+
+  it("falls back to the bonded-at row when the read fails, and logs a warn without the RPC URL", async () => {
+    readSqrtPrice.mockRejectedValueOnce(new Error("timeout"))
+    await bonded()
+    await h.text(`/t ${A}`)
+    const c = h.last("sendPhoto")!.caption
+    expect(c).toMatch(/<code>bonded {3}\d+d ago at \$213K<\/code>/)
+    expect(c).not.toContain("<code>mcap ")
+    expect(log).toHaveBeenCalledWith("warn", "pool price read failed", {
+      token: A,
+      reason: "timeout",
+    })
+  })
+
+  it("makes no read for a malformed or missing poolId", async () => {
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002", poolId: "0x1234" as never })])
+    await h.text(`/t ${A}`)
+    expect(readSqrtPrice).not.toHaveBeenCalled()
+    expect(h.last("sendPhoto")!.caption).toMatch(/bonded {3}\d+d ago at \$213K/)
+  })
+
+  it("falls back for an uninitialized pool (sqrtPrice 0)", async () => {
+    readSqrtPrice.mockResolvedValueOnce(0n)
+    await bonded()
+    await h.text(`/t ${A}`)
+    expect(h.last("sendPhoto")!.caption).toMatch(/bonded {3}\d+d ago at \$213K/)
+  })
+
+  it("shows the quote amount when there is no USD price", async () => {
+    readSqrtPrice.mockResolvedValue(KRAK_SQRT)
+    const noUsd = harness(
+      createBot({
+        token: "1:test",
+        botInfo: BOT_INFO,
+        sql,
+        prices: { usd: () => null, symbol: () => "ETH" },
+        log,
+        report,
+        linksBase: "https://go.makobot.xyz",
+        images: img.images,
+        readSqrtPrice,
+      }),
+    )
+    await bonded()
+    await noUsd.text(`/t ${A}`)
+    expect(noUsd.last("sendPhoto")!.caption).toContain("<code>mcap     5.33 ETH</code>")
+  })
+
+  it("never reads the pool for a curve token", async () => {
+    await h.text(`/t ${A}`)
+    expect(readSqrtPrice).not.toHaveBeenCalled()
   })
 })

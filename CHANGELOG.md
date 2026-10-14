@@ -11,4 +11,5 @@
 - Near bonding lists unbonded tokens that traded in the last 7 days and are at 10% or more of the curve, highest first.
 - Just bonded is now Recently bonded.
 - Token cards use the alert layout. Curve tokens show 24h volume and trades; bonded tokens show when they bonded.
+- Bonded token cards show the current market cap from the token's Uniswap pool.
 - Two-column main menu. Groups & channels moved into Settings and Community into Help.

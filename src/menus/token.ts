@@ -1,3 +1,4 @@
+import type { BondEvent, LaunchEvent } from "@ink-indexer/events"
 import type { Bot, Context } from "grammy"
 import { valueText } from "../cards/money"
 import { age, bar, buysSells, clean, escapeHtml } from "../format"
@@ -7,6 +8,7 @@ import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
 import { btn, findAddress, type Kb, link, show, threadOf } from "../platforms/telegram/ui"
+import { isPoolId, poolMcap } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
 import { devCounts, windowStats } from "../rules/stats"
 import type { BotDeps } from "./deps"
@@ -22,6 +24,22 @@ function bondedAgo(seconds: number): string {
 }
 
 export type TokenCard = { html: string; imageUrl: string | null }
+
+/** Current market cap from the token's v4 pool in raw quote units, or null when it can't be read. Never throws. */
+async function liveMcap(deps: BotDeps, b: BondEvent, l: LaunchEvent): Promise<bigint | null> {
+  const id = String(b.poolId ?? "").toLowerCase()
+  if (!deps.readSqrtPrice || !isPoolId(id)) return null
+  try {
+    return poolMcap(await deps.readSqrtPrice(id), l.token, l.quoteAsset, l.totalSupply)
+  } catch (err) {
+    // The message only: fetch errors don't carry the URL, and the RPC URL can hold a provider key.
+    deps.log("warn", "pool price read failed", {
+      token: l.token,
+      reason: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+    })
+    return null
+  }
+}
 
 export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | null> {
   const { sql, prices } = deps
@@ -40,12 +58,15 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   if (b) {
     // We don't index post-bond trades, so a bonded token's volume and trades are its curve totals.
     const w = windowStats(trades, 0, b.id)
-    const at = last ? ` at ${valueText(last.p.marketCap, q, prices)}` : ""
-    rows.push(
-      ["bonded", `${bondedAgo(now - b.p.blockTimestamp)} ago${at}`],
-      ["volume", valueText(w.volume, q, prices)],
-      ["trades", buysSells(w.buys, w.sells)],
-    )
+    const ago = `${bondedAgo(now - b.p.blockTimestamp)} ago`
+    const live = await liveMcap(deps, b.p, l.p)
+    if (live !== null) {
+      rows.push(["bonded", ago], ["mcap", valueText(live, q, prices)])
+    } else {
+      const at = last ? ` at ${valueText(last.p.marketCap, q, prices)}` : ""
+      rows.push(["bonded", `${ago}${at}`])
+    }
+    rows.push(["volume", valueText(w.volume, q, prices)], ["trades", buysSells(w.buys, w.sells)])
   } else {
     // shortcut: without an indexer cursor (an empty database) the 24h window is every trade.
     const from = cursor === null ? null : BigInt(cursor) - BigInt(DAY_BLOCKS)

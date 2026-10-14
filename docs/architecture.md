@@ -131,7 +131,7 @@ Settings holds Groups & channels and Delete my data. Help holds Community.
 5. Button rows.
 6. Footer: bot name and community link.
 
-When the token has an image, the card is the caption of a square photo.
+When the token has an image, the card is the caption of a square photo. A bonded token's card shows its current market cap, read from the token's Uniswap v4 pool.
 
 **NFT card:** image, name and rank (v1), price in ETH and USD, discount to floor, seller and buyer short addresses, then buttons.
 

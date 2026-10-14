@@ -53,12 +53,16 @@ async function enqueue(
     ageMin?: number
     thread?: number | null
     key?: string
+    /** Seconds from now until the row may be sent; negative is in the past. */
+    sendAfterSec?: number
   } = {},
 ) {
+  const sendAfter = o.sendAfterSec === undefined ? null : `${o.sendAfterSec} seconds`
   await sql`
-    insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, card)
+    insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, send_after, card)
     values (${chatId}, ${o.chatType ?? "supergroup"}, ${o.thread ?? null}, ${alert}, '0xd1', ${o.key ?? `${alert}:${Math.random()}`},
-            ${o.priority ?? 5}, now() - ${`${o.ageMin ?? 0} minutes`}::interval, ${sql.json(card as unknown as postgres.JSONValue)})`
+            ${o.priority ?? 5}, now() - ${`${o.ageMin ?? 0} minutes`}::interval,
+            now() + ${sendAfter}::interval, ${sql.json(card as unknown as postgres.JSONValue)})`
 }
 const statuses = async () =>
   (
@@ -456,4 +460,48 @@ it("keeps ticking when a tick fails and reporting itself throws", async () => {
   } finally {
     vi.useRealTimers()
   }
+})
+
+it("holds a row until its send_after", async () => {
+  await addChat(sql, -100, "supergroup")
+  await enqueue(-100, "new", { key: "later", sendAfterSec: 3600 })
+  await enqueue(-100, "new", { key: "now" })
+  const s = sender()
+  await s.tick()
+  t += 5_000
+  await s.tick()
+  expect(sent).toHaveLength(1)
+  const [held] = await sql<
+    { status: string }[]
+  >`select status from bot.deliveries where dedupe_key = 'later'`
+  expect(held!.status).toBe("pending")
+})
+
+it("sends a held row once send_after has passed", async () => {
+  await addChat(sql, -100, "supergroup")
+  await enqueue(-100, "new", { key: "due", sendAfterSec: -1 })
+  await sender().tick()
+  expect(sent).toHaveLength(1)
+})
+
+it("orders same-pass rows of one chat by event time", async () => {
+  await addChat(sql, -100, "supergroup")
+  const now = Math.floor(Date.now() / 1000)
+  await sql.begin(async (tx) => {
+    // One transaction: identical created_at, as rows written in one poller pass have.
+    for (const [key, ts] of [
+      ["c", now - 1],
+      ["a", now - 3],
+      ["b", now - 2],
+    ] as const) {
+      await tx`insert into bot.deliveries (chat_id, chat_type, alert, dedupe_key, priority, event_ts, card)
+        values (-100, 'supergroup', 'new', ${key}, 5, to_timestamp(${ts}), ${tx.json({ type: "text", html: key })})`
+    }
+  })
+  const s = sender()
+  for (let i = 0; i < 3; i++) {
+    await s.tick()
+    t += 5_000
+  }
+  expect(sent.map((r) => (r.card as { html: string }).html)).toEqual(["a", "b", "c"])
 })

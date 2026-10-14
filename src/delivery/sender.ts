@@ -205,7 +205,9 @@ export function createSender(deps: SenderDeps) {
       const heads = await sql<(PendingRow & { priority: number; created_at: Date })[]>`
         select distinct on (chat_id) id::text, chat_id::text, chat_type, thread_id, alert, token, card, attempts,
                priority, created_at
-        from bot.deliveries where status = 'pending' order by chat_id, priority, created_at`
+        from bot.deliveries
+        where status = 'pending' and (send_after is null or send_after <= now())
+        order by chat_id, priority, created_at, event_ts`
       // Across chats, the most urgent heads go first when the global budget can't cover them all.
       const ready = heads
         .filter((r) => (nextAt.get(r.chat_id) ?? 0) <= t)

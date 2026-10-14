@@ -1,12 +1,15 @@
+import type { LaunchEvent } from "@ink-indexer/events"
 import type postgres from "postgres"
 import type { Sql } from "../db"
-import { eventsAfter, maxEventId } from "../history"
+import { eventsAfter, launchesAround, maxEventId, type Row } from "../history"
 import type { Logger } from "../log"
 import type { Prices } from "../prices"
 import type { DevHolds, HoldsReq } from "../rpc"
 import { type Candidate, rulesFor, withDevHolds } from "../rules/index"
+import { PRIORITY } from "../settings"
+import { FLOOD_WINDOW_S, type FloodRow, floodRows, floodStarts } from "./flood"
 import { createFailureLimiter } from "./limit"
-import { type Delivery, loadAudience, route } from "./recipients"
+import { type Delivery, loadAudience, newTokenChats, route } from "./recipients"
 
 export type PollerDeps = {
   sql: Sql
@@ -50,12 +53,19 @@ export async function initCursor(sql: Sql, fromId?: string): Promise<string> {
 }
 
 /** Inserts deliveries and moves the cursor in one short transaction. No network calls inside. */
-async function write(sql: Sql, all: Delivery[], cursor: string): Promise<void> {
+async function write(
+  sql: Sql,
+  all: Delivery[],
+  cursor: string,
+  floods: FloodRow[] = [],
+): Promise<void> {
   await sql.begin(async (tx) => {
     // The audience was read before this write (DEV SELL waits on RPC), so a user may have deleted their
     // data since. A DM row needs a live user; the share lock makes Delete my data wait for this commit
     // and then remove the row it just wrote.
-    const dmIds = [...new Set(all.filter((r) => r.chatType === "private").map((r) => r.chatId))]
+    const dmIds = [
+      ...new Set([...all, ...floods].filter((r) => r.chatType === "private").map((r) => r.chatId)),
+    ]
     const live =
       dmIds.length === 0
         ? new Set<string>()
@@ -82,6 +92,31 @@ async function write(sql: Sql, all: Delivery[], cursor: string): Promise<void> {
       }))
       await tx`insert into bot.deliveries ${tx(chunk)} on conflict (chat_id, dedupe_key) do nothing`
     }
+    for (const r of floods.filter((r) => r.chatType !== "private" || live.has(r.chatId))) {
+      const values = tx`
+        (${r.chatId}, ${r.chatType}, ${r.threadId}, 'new', null, ${r.dedupeKey}, ${PRIORITY.new},
+         to_timestamp(${r.eventTs}), ${r.sendAfter === null ? null : new Date(r.sendAfter * 1000)},
+         ${tx.json(r.payload as unknown as postgres.JSONValue)})`
+      if (r.payload.type !== "newtokens") {
+        await tx`
+          insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, send_after, card)
+          values ${values} on conflict (chat_id, dedupe_key) do nothing`
+        continue
+      }
+      // A card gains the entries it doesn't hold yet, so a re-run or a minute split across batches adds each
+      // launch once. shortcut: a launch that arrives after its minute's card was sent (indexer lag past
+      // BATCH_GRACE_S) is in no card. Upgrade path: append it to the next open card.
+      await tx`
+        insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, send_after, card)
+        values ${values}
+        on conflict (chat_id, dedupe_key) do update
+          set card = jsonb_set(bot.deliveries.card, '{entries}',
+            (bot.deliveries.card->'entries') || coalesce((
+              select jsonb_agg(e) from jsonb_array_elements(excluded.card->'entries') e
+              where not (bot.deliveries.card->'entries' @> jsonb_build_array(jsonb_build_object('token', e->>'token')))
+            ), '[]'::jsonb))
+          where bot.deliveries.status = 'pending'`
+    }
     for (const r of rows.filter((r) => r.supersedesBonding)) {
       await tx`
         update bot.deliveries set status = 'superseded'
@@ -102,11 +137,26 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
   const cursor = await initCursor(sql)
   const events = await eventsAfter(sql, cursor, 500, deps.maxId)
   if (events.length === 0) return 0
+  const lastId = events.at(-1)!.id
+  // Launch floods: decided from launch events alone, so a re-run or replay classifies the same way.
+  const launches = events.filter((e) => e.p.type === "launchpad.launch") as Row<LaunchEvent>[]
+  const starts =
+    launches.length === 0
+      ? new Map<string, string>()
+      : floodStarts(
+          await launchesAround(
+            sql,
+            Math.min(...launches.map((l) => l.p.blockTimestamp)) - 2 * FLOOD_WINDOW_S,
+            lastId,
+          ),
+        )
   const rules = deps.rules ?? rulesFor
   const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log })
   const cands: Candidate[] = []
   let skipped = 0
   for (const ev of events) {
+    // A launch in flood would only yield the NEW TOKEN alert that flood mode replaces.
+    if (starts.has(ev.id)) continue
     try {
       cands.push(...(await rules(ev, { sql, prices: deps.prices, log })))
     } catch (err) {
@@ -119,8 +169,10 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
     }
   }
   if (skipped === 0) limiter.ok("rule")
-  const deliveries = route(cands, await loadAudience(sql, [...new Set(cands.map((c) => c.token))]))
-  const lastId = events.at(-1)!.id
+  const flooded = launches.filter((l) => starts.has(l.id))
+  const aud = await loadAudience(sql, [...new Set(cands.map((c) => c.token))])
+  const deliveries = route(cands, aud)
+  const floods = flooded.length === 0 ? [] : floodRows(flooded, starts, newTokenChats(aud))
   const dev = deliveries.filter((d) => d.alert === "devsell")
   const rest = deliveries.filter((d) => d.alert !== "devsell")
   // Start the dev holds reads first; the other alerts are written while they run.
@@ -136,7 +188,7 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
     const id = BigInt(d.eventId)
     return m === null || id < m ? id : m
   }, null)
-  await write(sql, rest, firstDev === null ? lastId : String(firstDev - 1n))
+  await write(sql, rest, firstDev === null ? lastId : String(firstDev - 1n), floods)
   if (dev.length > 0) {
     const holds = new Map<string, DevHolds>()
     for (const [id, p] of reads) holds.set(id, await p)

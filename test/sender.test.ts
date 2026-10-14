@@ -418,7 +418,7 @@ it("fails unclassified errors and reports them", async () => {
   expect(report).toHaveBeenCalledOnce()
 })
 
-it("folds the real 24 Aug launch burst into one summary instead of a backlog", async () => {
+it("turns the real 24 Aug launch burst into 10 alerts, one notice and one card per minute", async () => {
   await addUser(sql, 1001)
   const burst = loadFixture("burst-0824")
   await insertEvents(sql, burst)
@@ -427,11 +427,19 @@ it("folds the real 24 Aug launch burst into one summary instead of a backlog", a
   while (
     (await pollOnce({ sql, prices, log: () => {}, report, readHolds: async () => null })) > 0
   ) {}
-  const launches = burst.filter((e) => e.type === "launchpad.launch").length
-  expect(await sql`select 1 from bot.deliveries where alert = 'new'`).toHaveLength(launches)
+  const launched = burst.filter((e) => e.type === "launchpad.launch")
+  const count = async (prefix: string) =>
+    (await sql`select 1 from bot.deliveries where dedupe_key like ${`${prefix}%`}`).length
+  expect(await count("new:")).toBe(10)
+  expect(await count("flood:")).toBe(1)
+  const cards = await sql<{ card: { entries: unknown[] } }[]>`
+    select card from bot.deliveries where dedupe_key like 'newtokens:%'`
+  const minutes = new Set(launched.slice(10).map((e) => Math.floor(e.blockTimestamp / 60)))
+  expect(cards).toHaveLength(minutes.size)
+  expect(cards.reduce((n, c) => n + c.card.entries.length, 0)).toBe(launched.length - 10)
   await sender().tick() // fixture events are from August, so every alert is already late
   const skipped = (await sql`select 1 from bot.deliveries where status = 'skipped'`).length
-  expect(skipped).toBeGreaterThanOrEqual(launches)
+  expect(skipped).toBe(10 + 1 + cards.length)
   const summaries = await sql<
     { card: Payload }[]
   >`select card from bot.deliveries where alert = 'summary'`

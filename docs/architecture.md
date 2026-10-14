@@ -159,6 +159,7 @@ The bot owns the `bot` schema in the same Postgres as the indexer. It reads only
 - Per-group minimum trade sizes, quiet hours, and an hourly cap that rolls extra alerts into one digest.
 - Every send goes through a queue with per-destination throttles. Telegram allows about 30 messages per second overall and about 20 per minute to one group; Discord has per-route limits. A group over budget gets one summary message.
 - Alerts older than 3 minutes (30 for DEV SELL and BONDED) are dropped from the queue and counted in one summary message per chat.
+- Launch floods: when a launchpad has more than 10 launches in 5 minutes, its individual NEW TOKEN alerts stop. Every chat with NEW TOKEN on gets one notice per flood, then one NEW TOKENS card per minute listing that minute's launches, until it slows down. Floods are worked out from the launch events alone, so a restart or replay gives the same result.
 - Group feed settings are admin-only.
 - Secrets live in env vars. A secret scanner runs in CI.
 

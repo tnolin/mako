@@ -164,3 +164,21 @@ export async function loadAudience(sql: Sql, tokens: string[]): Promise<Audience
     lastPump,
   }
 }
+
+/** Chats that get NEW TOKEN: users and active chats with it on and its route not paused, with their topic. */
+export function newTokenChats(
+  aud: Audience,
+): { chatId: string; chatType: ChatType; threadId: number | null }[] {
+  const out: { chatId: string; chatType: ChatType; threadId: number | null }[] = []
+  for (const u of aud.users) {
+    if (u.settings.alerts.new.on)
+      out.push({ chatId: u.chatId, chatType: "private", threadId: null })
+  }
+  for (const c of aud.chats) {
+    if (!c.settings.alerts.new.on || c.settings.pausedRoutes?.includes("new")) continue
+    const threadId =
+      c.chatType === "channel" ? null : (c.settings.routes?.new ?? c.settings.thread ?? null)
+    out.push({ chatId: c.chatId, chatType: c.chatType, threadId })
+  }
+  return out
+}

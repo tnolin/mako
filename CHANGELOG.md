@@ -14,3 +14,4 @@
 - Bonded token cards show the current market cap from the token's Uniswap pool.
 - Refresh on a token card works once every 15 seconds per person.
 - Two-column main menu. Groups & channels moved into Settings and Community into Help.
+- Launch floods: when a launchpad has more than 10 launches in 5 minutes, NEW TOKEN alerts for it are grouped into one message per minute.

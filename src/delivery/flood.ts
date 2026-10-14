@@ -1,3 +1,10 @@
+import type { LaunchEvent } from "@ink-indexer/events"
+import type { Payload } from "../cards/card"
+import { clean } from "../format"
+import type { Row } from "../history"
+import { launchpadOf } from "../launchpads"
+import type { ChatType } from "./recipients"
+
 /** More than this many launches on one launchpad within FLOOD_WINDOW_S is a flood. */
 export const FLOOD_LAUNCHES = 10
 export const FLOOD_WINDOW_S = 300
@@ -32,6 +39,77 @@ export function floodStarts(all: LaunchMark[]): Map<string, string> {
       } else {
         start = null
       }
+    }
+  }
+  return out
+}
+
+export type FloodRow = {
+  chatId: string
+  chatType: ChatType
+  threadId: number | null
+  dedupeKey: string
+  /** Epoch seconds. */
+  eventTs: number
+  /** Epoch seconds; set on cards, which wait for their minute to end. */
+  sendAfter: number | null
+  payload: Payload
+}
+
+type Target = { chatId: string; chatType: ChatType; threadId: number | null }
+
+const noticeHtml = (name: string) =>
+  `Lots of new tokens are launching on ${name} at once. To avoid spam, NEW TOKEN alerts are grouped into one message per minute until it slows down.`
+
+/**
+ * The deliveries that replace individual NEW TOKEN alerts for launches in flood: one notice per flood and
+ * one card per minute bucket, for every chat that gets NEW TOKEN. `flooded` is in event-id order.
+ */
+export function floodRows(
+  flooded: Row<LaunchEvent>[],
+  starts: Map<string, string>,
+  to: Target[],
+): FloodRow[] {
+  const notices = new Map<string, { name: string; ts: number }>()
+  const cards = new Map<
+    string,
+    { lp: string; minute: number; entries: { token: string; name: string; ticker: string }[] }
+  >()
+  for (const l of flooded) {
+    const lp = l.p.launchpad
+    const name = launchpadOf(lp).name
+    const nk = `flood:${lp}:${starts.get(l.id)}`
+    if (!notices.has(nk)) notices.set(nk, { name, ts: l.p.blockTimestamp })
+    const minute = Math.floor(l.p.blockTimestamp / BATCH_S)
+    const ck = `newtokens:${lp}:${minute}`
+    const card = cards.get(ck) ?? { lp: name, minute, entries: [] }
+    card.entries.push({
+      token: l.p.token,
+      name: clean(l.p.name, BATCH_NAME_MAX),
+      ticker: clean(l.p.ticker, 32) || "?",
+    })
+    cards.set(ck, card)
+  }
+  const out: FloodRow[] = []
+  for (const t of to) {
+    for (const [key, n] of notices) {
+      out.push({
+        ...t,
+        dedupeKey: key,
+        eventTs: n.ts,
+        sendAfter: null,
+        payload: { type: "text", html: noticeHtml(n.name) },
+      })
+    }
+    for (const [key, c] of cards) {
+      const end = (c.minute + 1) * BATCH_S
+      out.push({
+        ...t,
+        dedupeKey: key,
+        eventTs: end,
+        sendAfter: end + BATCH_GRACE_S,
+        payload: { type: "newtokens", launchpad: c.lp, entries: c.entries },
+      })
     }
   }
   return out

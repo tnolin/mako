@@ -1,10 +1,10 @@
 import { InputFile } from "grammy"
-import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
+import { afterAll, afterEach, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { escapeHtml } from "../src/format"
 import { unknownTokenText } from "../src/launchpads"
 import { EMPTY } from "../src/menus/lists"
-import { LOOKUP_PROMPT } from "../src/menus/token"
+import { LOOKUP_PROMPT, REFRESH_COOLDOWN_MS, refreshCooldown } from "../src/menus/token"
 import { WATCH_PROMPT } from "../src/menus/watchlist"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
@@ -21,22 +21,33 @@ const CHECKSUMMED = "0x00000000000000000000000000000000000000A1"
 let sql: Sql
 let h: ReturnType<typeof harness>
 let img: ReturnType<typeof testImages>
+// Live KRAK reading (2026-10-14): 5.3289 ETH at 1B supply. At the test price of $2,500 that is $13.3K.
+const KRAK_SQRT = 1085330431310623941983443206493297n
+const POOL = `0x${"ab".repeat(32)}` as `0x${string}`
+const log = vi.fn()
+// Default: the node is unreachable, so bonded cards use the bonded-at row unless a test opts in.
+let readSqrtPrice: ReturnType<typeof vi.fn<(poolId: string) => Promise<bigint>>>
 
 beforeEach(async () => {
   img = testImages()
   await sql?.end()
   sql = await resetDb(inject("databaseUrl"))
   report.mockClear()
+  log.mockReset()
+  readSqrtPrice = vi.fn(async (_poolId: string): Promise<bigint> => {
+    throw new Error("no node in tests")
+  })
   h = harness(
     createBot({
       token: "1:test",
       botInfo: BOT_INFO,
       sql,
       prices,
-      log: () => {},
+      log,
       report,
       linksBase: "https://go.makobot.xyz",
       images: img.images,
+      readSqrtPrice,
     }),
   )
   await insertEvents(sql, [
@@ -577,5 +588,128 @@ describe("watchlist and mutes", () => {
     expect(
       await sql`select 1 from bot.user_actions where action in ('watch','unwatch','mute','unmute')`,
     ).toHaveLength(0)
+  })
+})
+
+describe("bonded live market cap", () => {
+  const bonded = () => insertEvents(sql, [bond({ token: A, blockNumber: "1002", poolId: POOL })])
+
+  it("shows the bond age and the live mcap when the pool read succeeds", async () => {
+    readSqrtPrice.mockResolvedValue(KRAK_SQRT)
+    await bonded()
+    await h.text(`/t ${A}`)
+    const c = h.last("sendPhoto")!.caption
+    expect(c).toMatch(/<code>bonded {3}\d+d ago<\/code>/)
+    expect(c).toContain("<code>mcap     $13.3K</code>")
+    expect(c).not.toContain(" at $")
+    expect(readSqrtPrice).toHaveBeenCalledWith(POOL)
+  })
+
+  it("falls back to the bonded-at row when the read fails, and logs a warn without the RPC URL", async () => {
+    readSqrtPrice.mockRejectedValueOnce(new Error("timeout"))
+    await bonded()
+    await h.text(`/t ${A}`)
+    const c = h.last("sendPhoto")!.caption
+    expect(c).toMatch(/<code>bonded {3}\d+d ago at \$213K<\/code>/)
+    expect(c).not.toContain("<code>mcap ")
+    expect(log).toHaveBeenCalledWith("warn", "pool price read failed", {
+      token: A,
+      reason: "timeout",
+    })
+  })
+
+  it("makes no read for a malformed or missing poolId", async () => {
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002", poolId: "0x1234" as never })])
+    await h.text(`/t ${A}`)
+    expect(readSqrtPrice).not.toHaveBeenCalled()
+    expect(h.last("sendPhoto")!.caption).toMatch(/bonded {3}\d+d ago at \$213K/)
+  })
+
+  it("falls back for an uninitialized pool (sqrtPrice 0)", async () => {
+    readSqrtPrice.mockResolvedValueOnce(0n)
+    await bonded()
+    await h.text(`/t ${A}`)
+    expect(h.last("sendPhoto")!.caption).toMatch(/bonded {3}\d+d ago at \$213K/)
+  })
+
+  it("shows the quote amount when there is no USD price", async () => {
+    readSqrtPrice.mockResolvedValue(KRAK_SQRT)
+    const noUsd = harness(
+      createBot({
+        token: "1:test",
+        botInfo: BOT_INFO,
+        sql,
+        prices: { usd: () => null, symbol: () => "ETH" },
+        log,
+        report,
+        linksBase: "https://go.makobot.xyz",
+        images: img.images,
+        readSqrtPrice,
+      }),
+    )
+    await bonded()
+    await noUsd.text(`/t ${A}`)
+    expect(noUsd.last("sendPhoto")!.caption).toContain("<code>mcap     5.33 ETH</code>")
+  })
+
+  it("never reads the pool for a curve token", async () => {
+    await h.text(`/t ${A}`)
+    expect(readSqrtPrice).not.toHaveBeenCalled()
+  })
+})
+
+describe("refreshCooldown", () => {
+  it("allows the first tap, then counts down per key, then allows again", () => {
+    let t = 1_000_000
+    const tap = refreshCooldown(15_000, () => t)
+    expect(tap("100:0xa")).toBe(0)
+    t += 1_000
+    expect(tap("100:0xa")).toBe(14)
+    t += 13_200 // 14.2 s after the first tap
+    expect(tap("100:0xa")).toBe(1)
+    t += 800 // exactly 15 s
+    expect(tap("100:0xa")).toBe(0)
+  })
+
+  it("keeps users and tokens apart", () => {
+    const t = 1_000_000
+    const tap = refreshCooldown(15_000, () => t)
+    expect(tap("100:0xa")).toBe(0)
+    expect(tap("200:0xa")).toBe(0)
+    expect(tap("100:0xb")).toBe(0)
+    expect(tap("100:0xa")).toBe(15)
+  })
+
+  it("is 15 s on the bot", () => {
+    expect(REFRESH_COOLDOWN_MS).toBe(15_000)
+  })
+})
+
+describe("Refresh cooldown on the bot", () => {
+  afterEach(() => vi.restoreAllMocks())
+  const edits = () => h.calls.filter((c) => c.method === "editMessageCaption").length
+
+  it("answers a second tap within 15 s with a pop-up and makes no edit or read", async () => {
+    readSqrtPrice.mockResolvedValue(KRAK_SQRT)
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002", poolId: POOL })])
+    const T = 2_000_000_000_000
+    const now = vi.spyOn(Date, "now").mockReturnValue(T)
+    await h.tap(`tr:${A}`, { photo: true })
+    expect(edits()).toBe(1)
+    const reads = readSqrtPrice.mock.calls.length
+    now.mockReturnValue(T + 4_000)
+    await h.tap(`tr:${A}`, { photo: true })
+    expect(edits()).toBe(1)
+    expect(h.last("answerCallbackQuery")!.text).toBe("Up to date, try again in 11s")
+    expect(readSqrtPrice.mock.calls.length).toBe(reads)
+    now.mockReturnValue(T + 15_000)
+    await h.tap(`tr:${A}`, { photo: true })
+    expect(edits()).toBe(2)
+  })
+
+  it("lets another user refresh the same card at once", async () => {
+    await h.tap(`tr:${A}`, { photo: true, from: 100 })
+    await h.tap(`tr:${A}`, { photo: true, from: 200 })
+    expect(edits()).toBe(2)
   })
 })

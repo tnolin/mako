@@ -1,3 +1,4 @@
+import type { BondEvent, LaunchEvent } from "@ink-indexer/events"
 import type { Bot, Context } from "grammy"
 import { valueText } from "../cards/money"
 import { age, bar, buysSells, clean, escapeHtml } from "../format"
@@ -7,12 +8,35 @@ import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
 import { btn, findAddress, type Kb, link, show, threadOf } from "../platforms/telegram/ui"
+import { isPoolId, poolMcap } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
 import { devCounts, windowStats } from "../rules/stats"
 import type { BotDeps } from "./deps"
 import { WATCH_PROMPT, watchToken } from "./watchlist"
 
 export const LOOKUP_PROMPT = "Send a token address."
+
+export const REFRESH_COOLDOWN_MS = 15_000
+
+/**
+ * Per-key cooldown. Returns the whole seconds left, or 0 and records the tap.
+ * shortcut: in memory and per process, so a restart clears it; expired keys are swept on every tap
+ * (O(keys)). Move to a shared store only if the bot runs as several processes.
+ */
+export function refreshCooldown(
+  ms: number,
+  now: () => number = () => Date.now(),
+): (key: string) => number {
+  const last = new Map<string, number>()
+  return (key) => {
+    const t = now()
+    for (const [k, at] of last) if (t - at >= ms) last.delete(k)
+    const at = last.get(key)
+    if (at !== undefined) return Math.ceil((ms - (t - at)) / 1000)
+    last.set(key, t)
+    return 0
+  }
+}
 
 /** Time since bonding: whole days from one day, whole hours below that, "<1h" under an hour. */
 function bondedAgo(seconds: number): string {
@@ -22,6 +46,22 @@ function bondedAgo(seconds: number): string {
 }
 
 export type TokenCard = { html: string; imageUrl: string | null }
+
+/** Current market cap from the token's v4 pool in raw quote units, or null when it can't be read. Never throws. */
+async function liveMcap(deps: BotDeps, b: BondEvent, l: LaunchEvent): Promise<bigint | null> {
+  const id = String(b.poolId ?? "").toLowerCase()
+  if (!deps.readSqrtPrice || !isPoolId(id)) return null
+  try {
+    return poolMcap(await deps.readSqrtPrice(id), l.token, l.quoteAsset, l.totalSupply)
+  } catch (err) {
+    // rpcSqrtPrice throws fixed messages (or the node's own error text), never the RPC URL, which can hold a key.
+    deps.log("warn", "pool price read failed", {
+      token: l.token,
+      reason: err instanceof Error ? err.message.slice(0, 120) : "unknown",
+    })
+    return null
+  }
+}
 
 export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | null> {
   const { sql, prices } = deps
@@ -40,12 +80,15 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   if (b) {
     // We don't index post-bond trades, so a bonded token's volume and trades are its curve totals.
     const w = windowStats(trades, 0, b.id)
-    const at = last ? ` at ${valueText(last.p.marketCap, q, prices)}` : ""
-    rows.push(
-      ["bonded", `${bondedAgo(now - b.p.blockTimestamp)} ago${at}`],
-      ["volume", valueText(w.volume, q, prices)],
-      ["trades", buysSells(w.buys, w.sells)],
-    )
+    const ago = `${bondedAgo(now - b.p.blockTimestamp)} ago`
+    const live = await liveMcap(deps, b.p, l.p)
+    if (live !== null) {
+      rows.push(["bonded", ago], ["mcap", valueText(live, q, prices)])
+    } else {
+      const at = last ? ` at ${valueText(last.p.marketCap, q, prices)}` : ""
+      rows.push(["bonded", `${ago}${at}`])
+    }
+    rows.push(["volume", valueText(w.volume, q, prices)], ["trades", buysSells(w.buys, w.sells)])
   } else {
     // shortcut: without an indexer cursor (an empty database) the 24h window is every trade.
     const from = cursor === null ? null : BigInt(cursor) - BigInt(DAY_BLOCKS)
@@ -187,7 +230,17 @@ async function refreshTokenCard(ctx: Context, deps: BotDeps, raw: string): Promi
 export function registerToken(bot: Bot, deps: BotDeps): void {
   bot.command("t", (ctx) => sendTokenCard(ctx, deps, ctx.match))
   bot.callbackQuery(/^t:(0x[0-9a-f]{40})$/, (ctx) => sendTokenCard(ctx, deps, ctx.match[1]!))
-  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})$/, (ctx) => refreshTokenCard(ctx, deps, ctx.match[1]!))
+  const cooldown = refreshCooldown(REFRESH_COOLDOWN_MS)
+  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})$/, async (ctx) => {
+    const ca = ctx.match[1]!
+    // Checked before any read: a tap inside the cooldown touches neither the database nor the node.
+    const wait = cooldown(`${ctx.from.id}:${ca}`)
+    if (wait > 0) {
+      await ctx.answerCallbackQuery({ text: `Up to date, try again in ${wait}s` }).catch(() => {})
+      return
+    }
+    await refreshTokenCard(ctx, deps, ca)
+  })
   const pm = bot.chatType("private")
   pm.callbackQuery("look", async (ctx) => {
     await ctx.answerCallbackQuery()

@@ -11,6 +11,7 @@ import { log } from "./log"
 import { createBot } from "./platforms/telegram/bot"
 import { createImages, sqlImageCache } from "./platforms/telegram/images"
 import { createSend } from "./platforms/telegram/send"
+import { rpcSqrtPrice } from "./pool"
 import { createPrices } from "./prices"
 import { DEFAULT_RPC, readDevHolds, rpcBalanceOf } from "./rpc"
 import { initSentry } from "./sentry"
@@ -48,7 +49,8 @@ await initCursor(sql, fromId)
 const prices = createPrices({ log, report: (m) => reporter.message(m) })
 const stopPrices = prices.start()
 const images = createImages({ fetch, cache: sqlImageCache(sql), log })
-const bot = createBot({ token, sql, prices, log, report, linksBase, images })
+const readSqrtPrice = rpcSqrtPrice(env.INK_RPC_URL || DEFAULT_RPC)
+const bot = createBot({ token, sql, prices, log, report, linksBase, images, readSqrtPrice })
 await bot.init()
 const botUsername = bot.botInfo.username
 

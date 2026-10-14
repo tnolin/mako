@@ -10,7 +10,7 @@ export function isMissingState(message: string): boolean {
 
 export type BalanceOf = (token: string, holder: string, blockTag: string) => Promise<bigint>
 
-/** Read-only `eth_call balanceOf`. The bot's only RPC use. 5 s timeout. */
+/** Read-only `eth_call balanceOf` for DEV SELL's dev holds. 5 s timeout. */
 export function rpcBalanceOf(url: string = DEFAULT_RPC, fetchFn: typeof fetch = fetch): BalanceOf {
   return async (token, holder, blockTag) => {
     const data = `0x70a08231${holder.slice(2).toLowerCase().padStart(64, "0")}`

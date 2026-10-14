@@ -25,6 +25,7 @@ export function rpcSqrtPrice(
 ): ReadSqrtPrice {
   const cache = new Map<string, { at: number; value: Promise<bigint> }>()
   const read = async (poolId: string): Promise<bigint> => {
+    // Errors carry fixed text only: Node's fetch puts the full URL (and any provider key in it) in some messages.
     const res = await fetchFn(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -35,8 +36,14 @@ export function rpcSqrtPrice(
         params: [{ to: STATE_VIEW, data: `${GET_SLOT0}${poolId.slice(2)}` }, "latest"],
       }),
       signal: AbortSignal.timeout(3000),
+    }).catch((err: unknown) => {
+      throw new Error(
+        err instanceof Error && err.name === "TimeoutError" ? "timeout" : "fetch failed",
+      )
     })
-    const j = (await res.json()) as { result?: string; error?: { message?: string } }
+    const j = (await res.json().catch(() => {
+      throw new Error(`bad response (HTTP ${res.status})`)
+    })) as { result?: string; error?: { message?: string } }
     if (j.error) throw new Error(j.error.message ?? "rpc error")
     if (typeof j.result !== "string" || j.result.length < 66) {
       throw new Error(`short eth_call result (HTTP ${res.status})`)

@@ -54,7 +54,7 @@ async function liveMcap(deps: BotDeps, b: BondEvent, l: LaunchEvent): Promise<bi
   try {
     return poolMcap(await deps.readSqrtPrice(id), l.token, l.quoteAsset, l.totalSupply)
   } catch (err) {
-    // The message only: fetch errors don't carry the URL, and the RPC URL can hold a provider key.
+    // rpcSqrtPrice throws fixed messages (or the node's own error text), never the RPC URL, which can hold a key.
     deps.log("warn", "pool price read failed", {
       token: l.token,
       reason: err instanceof Error ? err.message.slice(0, 120) : "unknown",

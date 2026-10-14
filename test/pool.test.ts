@@ -97,6 +97,31 @@ describe("rpcSqrtPrice", () => {
     expect((f as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2)
   })
 
+  it("never puts the RPC URL in an error, which the card logs", async () => {
+    const urlError = vi.fn(async () => {
+      throw new TypeError("Failed to parse URL from https://rpc.test/KEY123")
+    }) as unknown as typeof fetch
+    const err = await rpcSqrtPrice("https://rpc.test/KEY123", urlError)(POOL).catch((e) => e)
+    expect(err.message).toBe("fetch failed")
+    expect(String(err)).not.toContain("KEY123")
+  })
+
+  it("reports a timeout as timeout", async () => {
+    const slow = vi.fn(async () => {
+      throw new DOMException("The operation was aborted due to timeout", "TimeoutError")
+    }) as unknown as typeof fetch
+    await expect(rpcSqrtPrice("https://rpc.test", slow)(POOL)).rejects.toThrow(/^timeout$/)
+  })
+
+  it("reports a non-JSON body as a bad response", async () => {
+    const html = vi.fn(
+      async () => new Response("<html>502</html>", { status: 502 }),
+    ) as unknown as typeof fetch
+    await expect(rpcSqrtPrice("https://rpc.test", html)(POOL)).rejects.toThrow(
+      /^bad response \(HTTP 502\)$/,
+    )
+  })
+
   it("refuses a malformed pool id without calling the node", async () => {
     const f = rpc({})
     await expect(rpcSqrtPrice("https://rpc.test", f)("0x1234")).rejects.toThrow("bad pool id")

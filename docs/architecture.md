@@ -100,11 +100,12 @@ Buttons are the main interface, and slash commands open the same screens for peo
 
 | Row | Buttons |
 | --- | --- |
-| 1 | Look up token |
-| 2 | Hot now · Near bonding · Recently bonded |
-| 3 | NFTs · Wallets · Lending |
-| 4 | My watchlist · My alerts · Presets |
-| 5 | Settings · Help · Community |
+| 1 | Look up token · Hot now |
+| 2 | Near bonding · Recently bonded |
+| 3 | My watchlist · My alerts |
+| 4 | Settings · Help |
+
+Settings holds Groups & channels and Delete my data. Help holds Community.
 
 **Token card buttons:** Watch, Holders, Dev history, Chart, Refresh, Open on launchpad, Explorer.
 **NFT card buttons:** Follow collection, Floor, Rarity (v1), Recent sales, Open on marketplace.

@@ -319,16 +319,50 @@ describe("token card layout", () => {
     const m = await bondedCard()
     const l = lines(m.caption)
     expect(l.slice(0, 4)).toEqual(["<b>$GOBLO</b>", "Goblo · InkyPump", "", expect.any(String)])
-    expect(l[3]).toMatch(/^<code>bonded {3}\d+d( \d+h)? ago at \$213K<\/code>$/)
+    expect(l[3]).toMatch(/^<code>bonded {3}\d+d ago at \$213K<\/code>$/)
     expect(l.slice(4, 6)).toEqual([
-      "<code>volume   $50 (on curve)</code>",
-      "<code>trades   1 buy | 0 sells (on curve)</code>",
+      "<code>volume   $50</code>",
+      "<code>trades   1 buy | 0 sells</code>",
     ])
     expect(l[6]).toMatch(/^<code>age {6}/)
     expect(l[7]).toBe("<code>dev      0 buys | 0 sells</code>")
     expect(l[8]).toBe("")
     expect(m.caption).not.toContain("<code>curve")
     expect(m.caption).not.toContain("mcap")
+    expect(m.caption).not.toContain("on curve")
+  })
+
+  it.each([
+    [29 * 86_400 + 3 * 3600, "29d"],
+    [86_400 + 60, "1d"],
+    [23 * 3600 + 600, "23h"],
+    [5 * 3600 + 600, "5h"],
+    [3600 + 5, "1h"],
+    [1800, "&lt;1h"],
+  ])("shows the time since bonding (%i s ago) as %s", async (secs, shown) => {
+    const bondedAt = Math.floor(Date.now() / 1000) - secs
+    await insertEvents(sql, [bond({ token: A, blockTimestamp: bondedAt, blockNumber: "1002" })])
+    await h.text(`/t ${A}`)
+    expect(lines(h.last("sendPhoto")!.caption)[3]).toBe(
+      `<code>bonded   ${shown} ago at $213K</code>`,
+    )
+  })
+
+  it("keeps the age row in days and hours for a bonded token", async () => {
+    const m = await bondedCard()
+    expect(lines(m.caption)[6]).toMatch(/^<code>age {6}\d+d \d+h<\/code>$/)
+  })
+
+  it("refreshes a bonded card keeping its three-row keyboard", async () => {
+    await insertEvents(sql, [bond({ token: A, poolId: POOL, blockNumber: "1002" })])
+    await h.tap(`tr:${A}`, { photo: true })
+    const m = h.last("editMessageCaption")!
+    expect(m.caption).toMatch(/<code>bonded {3}\d+d ago at \$213K<\/code>/)
+    expect(kbOf(m).map((r) => r.map((b) => b.text))).toEqual([
+      ["Trade", "Watch"],
+      ["Chart", "Explorer"],
+      ["Refresh"],
+    ])
   })
 
   it("adds Chart for a bonded token from its bond event's poolId", async () => {
@@ -355,16 +389,26 @@ describe("token card layout", () => {
   })
 
   it.each([["0xabc"], [`0x${"g".repeat(64)}`], [`${"a".repeat(64)}`], [`0x${"a".repeat(65)}`]])(
-    "omits Chart for a malformed poolId (%s)",
+    "omits Chart for a malformed poolId (%s) and joins Explorer and Refresh",
     async (poolId) => {
       const m = await bondedCard(poolId)
-      expect(
-        kbOf(m)
-          .flat()
-          .map((b) => b.text),
-      ).toEqual(["Trade", "Watch", "Explorer", "Refresh"])
+      expect(kbOf(m).map((r) => r.map((b) => b.text))).toEqual([
+        ["Trade", "Watch"],
+        ["Explorer", "Refresh"],
+      ])
     },
   )
+
+  it("omits Chart, and still renders the card, when the bond event has no poolId", async () => {
+    await insertEvents(sql, [bond({ token: A, poolId: undefined as never, blockNumber: "1002" })])
+    await h.text(`/t ${A}`)
+    const m = h.last("sendPhoto")!
+    expect(m.caption).toContain("<code>bonded ")
+    expect(kbOf(m).map((r) => r.map((b) => b.text))).toEqual([
+      ["Trade", "Watch"],
+      ["Explorer", "Refresh"],
+    ])
+  })
 
   it("keeps a curve token's two-row keyboard without Chart", async () => {
     await h.text(`/t ${A}`)
@@ -399,7 +443,7 @@ describe("discovery lists", () => {
     await setCursorBlock(sql, 1001 + 700_000)
     await h.tap("l:hot")
     const m = h.last("editMessageText")!
-    expect(m.text).toContain(EMPTY.hot)
+    expect(m.text).toBe(`<b>Hot now</b>\n${EMPTY.hot}`)
     expect(kbOf(m)).toEqual([[{ text: "Menu", callback_data: "m" }]])
   })
 

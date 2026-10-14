@@ -17,9 +17,16 @@ export const LOOKUP_PROMPT = "Send a token address."
 const CHART_POOL = /^0x[0-9a-f]{64}$/
 
 /** GeckoTerminal's pool page for a bonded token, or null when the bond event's poolId is not a v4 pool id. */
-function chartUrl(poolId: string): string | null {
-  const id = poolId.toLowerCase()
+function chartUrl(poolId: string | undefined): string | null {
+  const id = String(poolId ?? "").toLowerCase()
   return CHART_POOL.test(id) ? `https://www.geckoterminal.com/ink/pools/${id}` : null
+}
+
+/** Time since bonding: whole days from one day, whole hours below that, "<1h" under an hour. */
+function bondedAgo(seconds: number): string {
+  const h = Math.floor(seconds / 3600)
+  if (h < 1) return "<1h"
+  return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
 }
 
 export type TokenCard = {
@@ -49,9 +56,9 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
     const w = windowStats(trades, 0, b.id)
     const at = last ? ` at ${valueText(last.p.marketCap, q, prices)}` : ""
     rows.push(
-      ["bonded", `${age(now - b.p.blockTimestamp)} ago${at}`],
-      ["volume", `${valueText(w.volume, q, prices)} (on curve)`],
-      ["trades", `${buysSells(w.buys, w.sells)} (on curve)`],
+      ["bonded", `${bondedAgo(now - b.p.blockTimestamp)} ago${at}`],
+      ["volume", valueText(w.volume, q, prices)],
+      ["trades", buysSells(w.buys, w.sells)],
     )
   } else {
     // shortcut: without an indexer cursor (an empty database) the 24h window is every trade.
@@ -88,7 +95,7 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   }
 }
 
-/** Buttons under a token card. A bonded token adds Chart (when it has one) and moves Refresh to a third row. */
+/** Buttons under a token card. A bonded token with a Chart link moves Refresh to a third row; without one, Explorer and Refresh share row 2. */
 export function tokenKb(
   deps: Pick<BotDeps, "linksBase">,
   ca: string,
@@ -106,7 +113,9 @@ export function tokenKb(
       : link("Watch", `https://t.me/${o.watch.botUsername}?start=w_${ca}`),
   ]
   if (!o.bonded) return [top, [refresh, explorer]]
-  return [top, [...(o.chartUrl ? [link("Chart", o.chartUrl)] : []), explorer], [refresh]]
+  return o.chartUrl
+    ? [top, [link("Chart", o.chartUrl), explorer], [refresh]]
+    : [top, [explorer, refresh]]
 }
 
 async function isWatching(deps: BotDeps, tg: number, ca: string): Promise<boolean> {

@@ -100,13 +100,14 @@ Buttons are the main interface, and slash commands open the same screens for peo
 
 | Row | Buttons |
 | --- | --- |
-| 1 | Look up token |
-| 2 | Hot now · Near bonding · Just bonded |
-| 3 | NFTs · Wallets · Lending |
-| 4 | My watchlist · My alerts · Presets |
-| 5 | Settings · Help · Community |
+| 1 | Look up token · Hot now |
+| 2 | Near bonding · Recently bonded |
+| 3 | My watchlist · My alerts |
+| 4 | Settings · Help |
 
-**Token card buttons:** Watch, Holders, Dev history, Chart, Refresh, Open on launchpad, Explorer.
+Settings holds Groups & channels and Delete my data. Help holds Community.
+
+**Token card buttons:** Watch, Holders, Dev history, Refresh, Open on launchpad, Explorer.
 **NFT card buttons:** Follow collection, Floor, Rarity (v1), Recent sales, Open on marketplace.
 **Group admin panel** (`/setup`): Feeds, Thresholds, Minimum sizes, Quiet hours, Hourly cap, Card layout.
 
@@ -129,6 +130,8 @@ Buttons are the main interface, and slash commands open the same screens for peo
 4. Creator line: creator wallet and whether it has sold.
 5. Button rows.
 6. Footer: bot name and community link.
+
+When the token has an image, the card is the caption of a square photo.
 
 **NFT card:** image, name and rank (v1), price in ETH and USD, discount to floor, seller and buyer short addresses, then buttons.
 

@@ -223,10 +223,7 @@ it("reads dev holds outside any transaction and never blocks other alerts", asyn
   release({ pct: 9, now: false })
   await run
   const dev = (await listDeliveries(sql)).find((r) => r.alert === "devsell")!
-  expect(dev.card.type === "card" && dev.card.card.rows).toContainEqual([
-    "dev holds",
-    "9.0% of supply",
-  ])
+  expect(dev.card.type === "card" && dev.card.card.rows).toContainEqual(["dev holds", "9.0%"])
   expect(await cursor()).toBe(ids[3])
 })
 

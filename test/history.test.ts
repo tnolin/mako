@@ -1,3 +1,4 @@
+import type { Address } from "@ink-indexer/events"
 import { afterAll, beforeAll, describe, expect, inject, it } from "vitest"
 import type { Sql } from "../src/db"
 import {
@@ -72,14 +73,104 @@ describe("synthetic events", () => {
   })
 
   it("lists hot, near-bonding and bonded tokens", async () => {
-    expect(await hotNow(sql)).toEqual([
-      { token: B, trades: 2 },
-      { token: A, trades: 1 },
-    ])
+    expect(await hotNow(sql)).toEqual({
+      window: "24h",
+      rows: [
+        { token: B, trades: 2 },
+        { token: A, trades: 1 },
+      ],
+    })
     expect(await nearBonding(sql)).toEqual([{ token: B, soldBps: 4500 }])
     expect((await justBonded(sql)).map((b) => b.p.token)).toEqual([A])
     expect((await launchesOf(sql, [A, B])).get(B)?.creator).toBe(C)
     expect(await cursorBlock(sql)).toBe("105")
+  })
+})
+
+describe("discovery windows", () => {
+  const CUR = 1_000_000
+  const DAY = 86_400
+  const [H1, H2, N1, N2, N3, N4, N5] = [0xf1, 0xf2, 0xf3, 0xf4, 0xf5, 0xf6, 0xf7].map(addr) as [
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+    Address,
+  ]
+  const at = (token: Address, soldBps: number, blocksAgo: number) =>
+    trade({ token, soldBps, blockNumber: String(CUR - blocksAgo) })
+  const withDb = async (events: ReturnType<typeof trade>[], fn: (s: Sql) => Promise<void>) => {
+    const own = await resetDb(inject("databaseUrl"))
+    try {
+      await insertEvents(own, events)
+      await setCursorBlock(own, CUR)
+      await fn(own)
+    } finally {
+      await own.end()
+    }
+  }
+
+  it("ranks hot tokens by trades in the last 24h", async () => {
+    await withDb(
+      [at(H1, 2000, 10), at(H2, 2000, 20), at(H2, 2100, 30), at(H1, 2000, DAY + 5)],
+      async (s) => {
+        expect(await hotNow(s)).toEqual({
+          window: "24h",
+          rows: [
+            { token: H2, trades: 2 },
+            { token: H1, trades: 1 },
+          ],
+        })
+      },
+    )
+  })
+
+  it("falls back to 7 days when nothing traded in 24h, and to nothing after that", async () => {
+    await withDb(
+      [at(H1, 2000, DAY + 5), at(H1, 2100, DAY * 3), at(H2, 2000, DAY * 6)],
+      async (s) => {
+        expect(await hotNow(s)).toEqual({
+          window: "7d",
+          rows: [
+            { token: H1, trades: 2 },
+            { token: H2, trades: 1 },
+          ],
+        })
+      },
+    )
+    await withDb([at(H1, 2000, DAY * 8)], async (s) => {
+      expect(await hotNow(s)).toEqual({ window: "7d", rows: [] })
+    })
+  })
+
+  it("ranks unbonded tokens traded in 7 days by latest progress, from 10% up", async () => {
+    await withDb(
+      [
+        // N1: latest trade is 55% (an earlier 90% sell-off does not count).
+        at(N1, 9000, DAY * 3),
+        at(N1, 5500, 100),
+        // N2: 12%, six days ago.
+        at(N2, 1200, DAY * 6),
+        // N3: exactly 10%.
+        at(N3, 1000, 50),
+        // N4: 9.99%, N5: 0%, and a token with no trade in 7 days.
+        at(N4, 999, 50),
+        at(N5, 0, 50),
+        at(H1, 8000, DAY * 8),
+        // H2 bonded.
+        at(H2, 9900, 50),
+      ],
+      async (s) => {
+        await insertEvents(s, [bond({ token: H2, blockNumber: String(CUR - 40) })])
+        expect(await nearBonding(s)).toEqual([
+          { token: N1, soldBps: 5500 },
+          { token: N2, soldBps: 1200 },
+          { token: N3, soldBps: 1000 },
+        ])
+      },
+    )
   })
 })
 

@@ -25,7 +25,8 @@ export function pumping(t: TradeCtx): Candidate[] {
       priority: PRIORITY.pumping,
       eventTs: p.blockTimestamp,
       card: makeCard("pumping", "PUMPING", l, [
-        ["curve", `${bar(p.soldBps)} (+${Math.floor(gain / 100)}% in ${mins}m)`],
+        ["pumped", `+${Math.floor(gain / 100)}% (${mins}m)`],
+        ["curve", bar(p.soldBps)],
         ["mcap", valueText(p.marketCap, p.quoteAsset, t.prices)],
         ["volume", `${valueText(win.volume, p.quoteAsset, t.prices)} (${mins}m)`],
         ["trades", `${buysSells(win.buys, win.sells)} (${mins}m)`],

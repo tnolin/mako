@@ -2,7 +2,8 @@ import type { Api } from "grammy"
 import type { Payload } from "../../cards/card"
 import type { ChatType } from "../../delivery/recipients"
 import { classify, type Failure } from "./errors"
-import { alertKeyboard, imagePlan, renderCard, toKeyboard } from "./render"
+import type { Images } from "./images"
+import { alertKeyboard, renderCard, toKeyboard } from "./render"
 
 export type PendingRow = {
   id: string
@@ -17,58 +18,38 @@ export type PendingRow = {
 
 export type SendResult = { ok: true } | ({ ok: false } & Failure)
 
-/** Sends one delivery, choosing preview, photo or plain text. Never throws. */
+/** Sends one delivery, as a photo with the alert as caption or as plain text. Never throws. */
 export function createSend(
   api: Pick<Api, "sendMessage" | "sendPhoto">,
-  opts: { linksBase: string; botUsername: string },
+  opts: { linksBase: string; botUsername: string; images: Images },
 ): (row: PendingRow) => Promise<SendResult> {
   return async (row) => {
     const chat = Number(row.chat_id)
-    const base = { parse_mode: "HTML" as const, message_thread_id: row.thread_id ?? undefined }
+    const thread = row.thread_id ?? undefined
     try {
       const p = row.card
       if (p.type === "text") {
         await api.sendMessage(chat, p.html, {
-          ...base,
+          parse_mode: "HTML",
+          message_thread_id: thread,
           link_preview_options: { is_disabled: true },
           reply_markup: p.buttons ? toKeyboard(p.buttons) : undefined,
         })
         return { ok: true }
       }
-      const html = renderCard(p.card)
-      const reply_markup = alertKeyboard(p.card, {
-        ...opts,
-        chatType: row.chat_type,
-        deliveryId: row.id,
+      await opts.images.send(api, {
+        chat,
+        thread,
+        token: p.card.token,
+        imageUrl: p.image ? p.card.imageUrl : null,
+        html: renderCard(p.card),
+        reply_markup: alertKeyboard(p.card, {
+          linksBase: opts.linksBase,
+          botUsername: opts.botUsername,
+          chatType: row.chat_type,
+          deliveryId: row.id,
+        }),
       })
-      const plan = imagePlan(p.card, p.image)
-      if (plan === "photo" && html.length <= 1024) {
-        try {
-          await api.sendPhoto(chat, p.card.imageUrl!, { ...base, caption: html, reply_markup })
-          return { ok: true }
-        } catch (err) {
-          // A chat may allow text but not media, so rights falls back too; the text send decides.
-          const kind = classify(err).kind
-          if (kind !== "media" && kind !== "rights") throw err
-        }
-      }
-      const noPreview = { is_disabled: true }
-      try {
-        await api.sendMessage(chat, html, {
-          ...base,
-          reply_markup,
-          link_preview_options:
-            plan === "preview" ? { url: p.card.imageUrl!, show_above_text: true } : noPreview,
-        })
-      } catch (err) {
-        // A bad preview URL fails the whole message; the alert is worth more than its image.
-        if (plan !== "preview" || classify(err).kind !== "media") throw err
-        await api.sendMessage(chat, html, {
-          ...base,
-          reply_markup,
-          link_preview_options: noPreview,
-        })
-      }
       return { ok: true }
     } catch (err) {
       return { ok: false, ...classify(err) }

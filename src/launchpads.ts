@@ -3,8 +3,6 @@ export type Launchpad = {
   tradeUrl: (ca: string) => string
   refParam: string
   refEnv: string
-  /** Image hosts whose links Telegram previews; other hosts are sent with sendPhoto. */
-  previewHosts: readonly string[]
 }
 
 /** Every launchpad name in user-facing text comes from here. */
@@ -14,7 +12,6 @@ export const LAUNCHPADS = {
     tradeUrl: (ca: string) => `https://inkypump.com/ink/trade/${ca}`,
     refParam: "ref",
     refEnv: "INKYPUMP_REF_CODE",
-    previewHosts: ["images.inkypump.com", "storage.inkypump.com", "inkypump.com"],
   },
 } satisfies Record<string, Launchpad>
 
@@ -48,16 +45,4 @@ export function launchpadNames(list: Record<string, Launchpad> = LAUNCHPADS): st
 export function unknownTokenText(list: Record<string, Launchpad> = LAUNCHPADS): string {
   const n = launchpadNames(list)
   return `Not a token on ${n}. MAKO covers ${n} launches for now.`
-}
-
-export function isPreviewHost(
-  key: string,
-  url: string,
-  list: Record<string, Launchpad> = LAUNCHPADS,
-): boolean {
-  try {
-    return launchpadOf(key, list).previewHosts.includes(new URL(url).hostname)
-  } catch {
-    return false
-  }
 }

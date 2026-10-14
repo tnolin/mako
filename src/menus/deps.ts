@@ -1,5 +1,6 @@
 import type { Sql } from "../db"
 import type { Logger } from "../log"
+import type { Images } from "../platforms/telegram/images"
 import type { Prices } from "../prices"
 
 export type BotDeps = {
@@ -7,6 +8,8 @@ export type BotDeps = {
   prices: Prices
   log: Logger
   report: (err: unknown) => void
+  /** Sends token cards as padded photos or text. */
+  images: Images
   /** Public base URL of the Trade redirect. */
   linksBase: string
   /** Wait between checks for the bot's channel admin rights (tests use 1). */

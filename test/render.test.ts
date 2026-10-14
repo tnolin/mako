@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Card } from "../src/cards/card"
-import { alertKeyboard, imagePlan, renderCard, toKeyboard } from "../src/platforms/telegram/render"
+import { alertKeyboard, renderCard, toKeyboard } from "../src/platforms/telegram/render"
 
 const CA = "0x3c19e7a4b2d0f8c61e95a3b7d4c2e0f19a8b9ab0"
 const card: Card = {
@@ -25,10 +25,11 @@ const card: Card = {
 const ctx = { linksBase: "https://go.makobot.xyz", botUsername: "makoinkbot" }
 
 describe("renderCard", () => {
-  it("matches the alert format: bold header, one code per line, padded labels, CA only", () => {
+  it("matches the alert format: bold alert name, plain ticker, one code per line, padded labels, CA only", () => {
     expect(renderCard(card)).toBe(
       [
-        "<b>BONDING 80% · $GOBLO</b>",
+        "<b>BONDING 80%</b>",
+        "$GOBLO",
         "Goblo · InkyPump",
         "",
         "<code>curve    ■■■■■■■■□□ 80%</code>",
@@ -43,16 +44,32 @@ describe("renderCard", () => {
     )
   })
 
+  it.each([
+    ["new", "NEW TOKEN"],
+    ["bonding", "BONDING 90%"],
+    ["pumping", "PUMPING"],
+    ["bonded", "BONDED"],
+    ["devsell", "DEV SELL"],
+    ["big", "BIG BUY"],
+    ["big", "BIG SELL"],
+  ] as const)("leads the %s alert %s with its bold name, then the plain ticker", (alert, title) => {
+    const [type, ticker, name] = renderCard({ ...card, alert, title }).split("\n")
+    expect(type).toBe(`<b>${title}</b>`)
+    expect(ticker).toBe("$GOBLO")
+    expect(name).toBe("Goblo · InkyPump")
+    expect(type).not.toContain("·")
+  })
+
   it("widens the label column to fit `dev holds`", () => {
     const html = renderCard({
       ...card,
       rows: [
-        ["sold", "12.4M KELP"],
-        ["dev holds", "6.8% of supply"],
+        ["sold", "12.4M (1.2%)"],
+        ["dev holds", "6.8%"],
       ],
     })
-    expect(html).toContain("<code>sold      12.4M KELP</code>")
-    expect(html).toContain("<code>dev holds 6.8% of supply</code>")
+    expect(html).toContain("<code>sold      12.4M (1.2%)</code>")
+    expect(html).toContain("<code>dev holds 6.8%</code>")
   })
 
   it("escapes markup in name and ticker and keeps a quote-breakout URL inside one escaped link", () => {
@@ -63,7 +80,7 @@ describe("renderCard", () => {
       links: [{ label: "X", url: `https://x.com/a"onmouseover="1` }],
     })
     expect(html).toContain("&lt;a href=&quot;https://evil&quot;&gt;x&lt;/a&gt; &amp; co · InkyPump")
-    expect(html).toContain("$&lt;b&gt;P&lt;/b&gt;</b>")
+    expect(html.split("\n")[1]).toBe("$&lt;b&gt;P&lt;/b&gt;")
     expect(html).toContain(`<a href="https://x.com/a&quot;onmouseover=&quot;1">X</a>`)
     expect(html.match(/<a /g)).toHaveLength(1)
   })
@@ -145,16 +162,5 @@ describe("toKeyboard", () => {
         ],
       ],
     })
-  })
-})
-
-describe("imagePlan", () => {
-  it("previews launchpad hosts, uses sendPhoto elsewhere, and nothing when off or missing", () => {
-    expect(imagePlan(card, true)).toBe("preview")
-    expect(imagePlan({ ...card, imageUrl: "https://gateway.pinata.cloud/ipfs/x" }, true)).toBe(
-      "photo",
-    )
-    expect(imagePlan(card, false)).toBe("none")
-    expect(imagePlan({ ...card, imageUrl: null }, true)).toBe("none")
   })
 })

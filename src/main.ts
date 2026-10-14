@@ -9,6 +9,7 @@ import { tradeLink } from "./launchpads"
 import { createLinkServer, logTradeClick } from "./links"
 import { log } from "./log"
 import { createBot } from "./platforms/telegram/bot"
+import { createImages, sqlImageCache } from "./platforms/telegram/images"
 import { createSend } from "./platforms/telegram/send"
 import { createPrices } from "./prices"
 import { DEFAULT_RPC, readDevHolds, rpcBalanceOf } from "./rpc"
@@ -46,7 +47,8 @@ await initCursor(sql, fromId)
 
 const prices = createPrices({ log, report: (m) => reporter.message(m) })
 const stopPrices = prices.start()
-const bot = createBot({ token, sql, prices, log, report, linksBase })
+const images = createImages({ fetch, cache: sqlImageCache(sql), log })
+const bot = createBot({ token, sql, prices, log, report, linksBase, images })
 await bot.init()
 const botUsername = bot.botInfo.username
 
@@ -88,7 +90,7 @@ const stopPoller = startPoller({
 const notify = createNotify({ sql, api: bot.api, botUsername, log })
 const stopSender = startSender({
   sql,
-  send: createSend(bot.api, { linksBase, botUsername }),
+  send: createSend(bot.api, { linksBase, botUsername, images }),
   notify,
   log,
   report,

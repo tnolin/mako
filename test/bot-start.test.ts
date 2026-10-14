@@ -5,6 +5,7 @@ import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { addChat, addUser, subscribe } from "./helpers/bot"
 import { resetDb } from "./helpers/db"
+import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
 const prices: Prices = { usd: () => 2500, symbol: () => "ETH" }
@@ -24,6 +25,7 @@ beforeEach(async () => {
     log: () => {},
     report,
     linksBase: "https://go.makobot.xyz",
+    images: testImages().images,
   })
   h = harness(bot)
 })
@@ -84,14 +86,30 @@ it("shows the main menu to a returning user", async () => {
     "Look up token",
     "Hot now",
     "Near bonding",
-    "Just bonded",
+    "Recently bonded",
     "My watchlist",
     "My alerts",
-    "Groups & channels",
     "Settings",
     "Help",
-    "Community",
   ])
+  expect(
+    h.last("sendMessage")!.reply_markup.inline_keyboard.map((r: unknown[]) => r.length),
+  ).toEqual([2, 2, 2, 2])
+})
+
+it("puts Groups & channels in Settings and Community in Help", async () => {
+  await h.tap("st")
+  const st = h.last("editMessageText")!.reply_markup.inline_keyboard
+  expect(st.map((r: { text: string }[]) => r.map((b) => b.text))).toEqual([
+    ["Groups & channels", "Delete my data"],
+    ["Menu"],
+  ])
+  expect(st[0][0].callback_data).toBe("gc")
+  await h.tap("h")
+  const rows = h.last("editMessageText")!.reply_markup.inline_keyboard
+  const help = rows.flat()
+  expect(help.find((b: { text: string }) => b.text === "Community")?.url).toMatch(/^https:/)
+  expect(rows.every((r: unknown[]) => r.length <= 2)).toBe(true)
 })
 
 it("deletes the user, their subscriptions and DM deliveries after confirming, and keeps group rows", async () => {
@@ -119,6 +137,11 @@ it("tells the truth about storage in the privacy help", async () => {
   expect(text).toContain("deleted after 14 days")
   expect(text).not.toMatch(/encrypt/i)
   expect(text).toContain("Telegram user id")
+})
+
+it("says in /help that alert percentages are shares of total supply", async () => {
+  await h.text("/help")
+  expect(h.last("sendMessage")!.text).toContain("Percentages in alerts are shares of total supply.")
 })
 
 it("offers the Menu button in a DM's help but not in a group's", async () => {
@@ -157,6 +180,7 @@ it("logs every handler failure but reports to Sentry once per window", async () 
     log,
     report,
     linksBase: "https://go.makobot.xyz",
+    images: testImages().images,
   })
   const h2 = harness(bot)
   h2.on("sendMessage", () => ({ error: "Bad Request: something odd" }))
@@ -224,6 +248,7 @@ it("reports a failing command counter as a warning and still handles the command
     log,
     report,
     linksBase: "x",
+    images: testImages().images,
   })
   const h2 = harness(bot)
   await sql`alter table bot.commands_daily rename to commands_daily_x`

@@ -12,4 +12,5 @@
 - Just bonded is now Recently bonded.
 - Token cards use the alert layout. Curve tokens show 24h volume and trades; bonded tokens show when they bonded.
 - Bonded token cards show the current market cap from the token's Uniswap pool.
+- Refresh on a token card works once every 15 seconds per person.
 - Two-column main menu. Groups & channels moved into Settings and Community into Help.

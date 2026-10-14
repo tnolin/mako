@@ -1,10 +1,10 @@
 import { InputFile } from "grammy"
-import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
+import { afterAll, afterEach, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { escapeHtml } from "../src/format"
 import { unknownTokenText } from "../src/launchpads"
 import { EMPTY } from "../src/menus/lists"
-import { LOOKUP_PROMPT } from "../src/menus/token"
+import { LOOKUP_PROMPT, REFRESH_COOLDOWN_MS, refreshCooldown } from "../src/menus/token"
 import { WATCH_PROMPT } from "../src/menus/watchlist"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
@@ -655,5 +655,61 @@ describe("bonded live market cap", () => {
   it("never reads the pool for a curve token", async () => {
     await h.text(`/t ${A}`)
     expect(readSqrtPrice).not.toHaveBeenCalled()
+  })
+})
+
+describe("refreshCooldown", () => {
+  it("allows the first tap, then counts down per key, then allows again", () => {
+    let t = 1_000_000
+    const tap = refreshCooldown(15_000, () => t)
+    expect(tap("100:0xa")).toBe(0)
+    t += 1_000
+    expect(tap("100:0xa")).toBe(14)
+    t += 13_200 // 14.2 s after the first tap
+    expect(tap("100:0xa")).toBe(1)
+    t += 800 // exactly 15 s
+    expect(tap("100:0xa")).toBe(0)
+  })
+
+  it("keeps users and tokens apart", () => {
+    const t = 1_000_000
+    const tap = refreshCooldown(15_000, () => t)
+    expect(tap("100:0xa")).toBe(0)
+    expect(tap("200:0xa")).toBe(0)
+    expect(tap("100:0xb")).toBe(0)
+    expect(tap("100:0xa")).toBe(15)
+  })
+
+  it("is 15 s on the bot", () => {
+    expect(REFRESH_COOLDOWN_MS).toBe(15_000)
+  })
+})
+
+describe("Refresh cooldown on the bot", () => {
+  afterEach(() => vi.restoreAllMocks())
+  const edits = () => h.calls.filter((c) => c.method === "editMessageCaption").length
+
+  it("answers a second tap within 15 s with a pop-up and makes no edit or read", async () => {
+    readSqrtPrice.mockResolvedValue(KRAK_SQRT)
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002", poolId: POOL })])
+    const T = 2_000_000_000_000
+    const now = vi.spyOn(Date, "now").mockReturnValue(T)
+    await h.tap(`tr:${A}`, { photo: true })
+    expect(edits()).toBe(1)
+    const reads = readSqrtPrice.mock.calls.length
+    now.mockReturnValue(T + 4_000)
+    await h.tap(`tr:${A}`, { photo: true })
+    expect(edits()).toBe(1)
+    expect(h.last("answerCallbackQuery")!.text).toBe("Up to date, try again in 11s")
+    expect(readSqrtPrice.mock.calls.length).toBe(reads)
+    now.mockReturnValue(T + 15_000)
+    await h.tap(`tr:${A}`, { photo: true })
+    expect(edits()).toBe(2)
+  })
+
+  it("lets another user refresh the same card at once", async () => {
+    await h.tap(`tr:${A}`, { photo: true, from: 100 })
+    await h.tap(`tr:${A}`, { photo: true, from: 200 })
+    expect(edits()).toBe(2)
   })
 })

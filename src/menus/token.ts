@@ -16,6 +16,28 @@ import { WATCH_PROMPT, watchToken } from "./watchlist"
 
 export const LOOKUP_PROMPT = "Send a token address."
 
+export const REFRESH_COOLDOWN_MS = 15_000
+
+/**
+ * Per-key cooldown. Returns the whole seconds left, or 0 and records the tap.
+ * shortcut: in memory and per process, so a restart clears it; expired keys are swept on every tap
+ * (O(keys)). Move to a shared store only if the bot runs as several processes.
+ */
+export function refreshCooldown(
+  ms: number,
+  now: () => number = () => Date.now(),
+): (key: string) => number {
+  const last = new Map<string, number>()
+  return (key) => {
+    const t = now()
+    for (const [k, at] of last) if (t - at >= ms) last.delete(k)
+    const at = last.get(key)
+    if (at !== undefined) return Math.ceil((ms - (t - at)) / 1000)
+    last.set(key, t)
+    return 0
+  }
+}
+
 /** Time since bonding: whole days from one day, whole hours below that, "<1h" under an hour. */
 function bondedAgo(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -208,7 +230,17 @@ async function refreshTokenCard(ctx: Context, deps: BotDeps, raw: string): Promi
 export function registerToken(bot: Bot, deps: BotDeps): void {
   bot.command("t", (ctx) => sendTokenCard(ctx, deps, ctx.match))
   bot.callbackQuery(/^t:(0x[0-9a-f]{40})$/, (ctx) => sendTokenCard(ctx, deps, ctx.match[1]!))
-  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})$/, (ctx) => refreshTokenCard(ctx, deps, ctx.match[1]!))
+  const cooldown = refreshCooldown(REFRESH_COOLDOWN_MS)
+  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})$/, async (ctx) => {
+    const ca = ctx.match[1]!
+    // Checked before any read: a tap inside the cooldown touches neither the database nor the node.
+    const wait = cooldown(`${ctx.from.id}:${ca}`)
+    if (wait > 0) {
+      await ctx.answerCallbackQuery({ text: `Up to date, try again in ${wait}s` }).catch(() => {})
+      return
+    }
+    await refreshTokenCard(ctx, deps, ca)
+  })
   const pm = bot.chatType("private")
   pm.callbackQuery("look", async (ctx) => {
     await ctx.answerCallbackQuery()

@@ -107,7 +107,7 @@ Buttons are the main interface, and slash commands open the same screens for peo
 
 Settings holds Groups & channels and Delete my data. Help holds Community.
 
-**Token card buttons:** Watch, Holders, Dev history, Chart, Refresh, Open on launchpad, Explorer.
+**Token card buttons:** Watch, Holders, Dev history, Refresh, Open on launchpad, Explorer.
 **NFT card buttons:** Follow collection, Floor, Rarity (v1), Recent sales, Open on marketplace.
 **Group admin panel** (`/setup`): Feeds, Thresholds, Minimum sizes, Quiet hours, Hourly cap, Card layout.
 

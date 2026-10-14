@@ -10,7 +10,7 @@ import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { addUser, subscribe } from "./helpers/bot"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
-import { addr, bond, ETH, hash, launch, trade } from "./helpers/events"
+import { addr, bond, ETH, launch, trade } from "./helpers/events"
 import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -253,12 +253,9 @@ describe("token card", () => {
 })
 
 describe("token card layout", () => {
-  const POOL = hash(0xabc)
   const lines = (caption: string) => caption.split("\n")
-  const bondedCard = async (poolId: string = POOL) => {
-    await insertEvents(sql, [
-      bond({ token: A, poolId: poolId as `0x${string}`, blockNumber: "1002" }),
-    ])
+  const bondedCard = async () => {
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002" })])
     await h.text(`/t ${A}`)
     return h.last("sendPhoto")!
   }
@@ -353,19 +350,18 @@ describe("token card layout", () => {
     expect(lines(m.caption)[6]).toMatch(/^<code>age {6}\d+d \d+h<\/code>$/)
   })
 
-  it("refreshes a bonded card keeping its three-row keyboard", async () => {
-    await insertEvents(sql, [bond({ token: A, poolId: POOL, blockNumber: "1002" })])
+  it("refreshes a bonded card keeping its two-row keyboard", async () => {
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002" })])
     await h.tap(`tr:${A}`, { photo: true })
     const m = h.last("editMessageCaption")!
     expect(m.caption).toMatch(/<code>bonded {3}\d+d ago at \$213K<\/code>/)
     expect(kbOf(m).map((r) => r.map((b) => b.text))).toEqual([
       ["Trade", "Watch"],
-      ["Chart", "Explorer"],
-      ["Refresh"],
+      ["Refresh", "Explorer"],
     ])
   })
 
-  it("adds Chart for a bonded token from its bond event's poolId", async () => {
+  it("gives a bonded token the same buttons as a curve token, with no Chart", async () => {
     const m = await bondedCard()
     expect(kbOf(m)).toEqual([
       [
@@ -373,44 +369,13 @@ describe("token card layout", () => {
         { text: "Watch", callback_data: `w:${A}` },
       ],
       [
-        { text: "Chart", url: `https://www.geckoterminal.com/ink/pools/${POOL}` },
+        { text: "Refresh", callback_data: `tr:${A}` },
         { text: "Explorer", url: `https://explorer.inkonchain.com/token/${A}` },
       ],
-      [{ text: "Refresh", callback_data: `tr:${A}` }],
     ])
   })
 
-  it("lowercases the poolId for the Chart link", async () => {
-    const m = await bondedCard(`0x${"AB".repeat(32)}`)
-    expect(kbOf(m)[1]![0]).toEqual({
-      text: "Chart",
-      url: `https://www.geckoterminal.com/ink/pools/0x${"ab".repeat(32)}`,
-    })
-  })
-
-  it.each([["0xabc"], [`0x${"g".repeat(64)}`], [`${"a".repeat(64)}`], [`0x${"a".repeat(65)}`]])(
-    "omits Chart for a malformed poolId (%s) and joins Explorer and Refresh",
-    async (poolId) => {
-      const m = await bondedCard(poolId)
-      expect(kbOf(m).map((r) => r.map((b) => b.text))).toEqual([
-        ["Trade", "Watch"],
-        ["Explorer", "Refresh"],
-      ])
-    },
-  )
-
-  it("omits Chart, and still renders the card, when the bond event has no poolId", async () => {
-    await insertEvents(sql, [bond({ token: A, poolId: undefined as never, blockNumber: "1002" })])
-    await h.text(`/t ${A}`)
-    const m = h.last("sendPhoto")!
-    expect(m.caption).toContain("<code>bonded ")
-    expect(kbOf(m).map((r) => r.map((b) => b.text))).toEqual([
-      ["Trade", "Watch"],
-      ["Explorer", "Refresh"],
-    ])
-  })
-
-  it("keeps a curve token's two-row keyboard without Chart", async () => {
+  it("keeps a curve token's two-row keyboard", async () => {
     await h.text(`/t ${A}`)
     expect(kbOf(h.last("sendPhoto")).map((r) => r.map((b) => b.text))).toEqual([
       ["Trade", "Watch"],

@@ -14,14 +14,6 @@ import { WATCH_PROMPT, watchToken } from "./watchlist"
 
 export const LOOKUP_PROMPT = "Send a token address."
 
-const CHART_POOL = /^0x[0-9a-f]{64}$/
-
-/** GeckoTerminal's pool page for a bonded token, or null when the bond event's poolId is not a v4 pool id. */
-function chartUrl(poolId: string | undefined): string | null {
-  const id = String(poolId ?? "").toLowerCase()
-  return CHART_POOL.test(id) ? `https://www.geckoterminal.com/ink/pools/${id}` : null
-}
-
 /** Time since bonding: whole days from one day, whole hours below that, "<1h" under an hour. */
 function bondedAgo(seconds: number): string {
   const h = Math.floor(seconds / 3600)
@@ -29,13 +21,7 @@ function bondedAgo(seconds: number): string {
   return h < 24 ? `${h}h` : `${Math.floor(h / 24)}d`
 }
 
-export type TokenCard = {
-  html: string
-  imageUrl: string | null
-  bonded: boolean
-  /** Set for a bonded token whose bond event carries a valid pool id. */
-  chartUrl: string | null
-}
+export type TokenCard = { html: string; imageUrl: string | null }
 
 export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | null> {
   const { sql, prices } = deps
@@ -87,35 +73,25 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   if (card.links.length > 0) {
     lines.push(card.links.map((x) => `<a href="${escapeHtml(x.url)}">${x.label}</a>`).join(" · "))
   }
-  return {
-    html: lines.join("\n"),
-    imageUrl: card.imageUrl,
-    bonded: !!b,
-    chartUrl: b ? chartUrl(b.p.poolId) : null,
-  }
+  return { html: lines.join("\n"), imageUrl: card.imageUrl }
 }
 
-/** Buttons under a token card. A bonded token with a Chart link moves Refresh to a third row; without one, Explorer and Refresh share row 2. */
+/** Buttons under a token card. */
 export function tokenKb(
   deps: Pick<BotDeps, "linksBase">,
   ca: string,
-  o: Pick<TokenCard, "bonded" | "chartUrl"> & {
-    /** In a DM: a Watch button. Elsewhere: a deep link into the bot. */
-    watch: { dm: true; watching: boolean } | { dm: false; botUsername: string }
-  },
+  /** In a DM: a Watch button. Elsewhere: a deep link into the bot. */
+  watch: { dm: true; watching: boolean } | { dm: false; botUsername: string },
 ): Kb {
-  const refresh = btn("Refresh", `tr:${ca}`)
-  const explorer = link("Explorer", `https://explorer.inkonchain.com/token/${ca}`)
-  const top = [
-    link("Trade", tradeUrl(deps.linksBase, ca)),
-    o.watch.dm
-      ? btn(o.watch.watching ? "Watching" : "Watch", `w:${ca}`)
-      : link("Watch", `https://t.me/${o.watch.botUsername}?start=w_${ca}`),
+  return [
+    [
+      link("Trade", tradeUrl(deps.linksBase, ca)),
+      watch.dm
+        ? btn(watch.watching ? "Watching" : "Watch", `w:${ca}`)
+        : link("Watch", `https://t.me/${watch.botUsername}?start=w_${ca}`),
+    ],
+    [btn("Refresh", `tr:${ca}`), link("Explorer", `https://explorer.inkonchain.com/token/${ca}`)],
   ]
-  if (!o.bonded) return [top, [refresh, explorer]]
-  return o.chartUrl
-    ? [top, [link("Chart", o.chartUrl), explorer], [refresh]]
-    : [top, [explorer, refresh]]
 }
 
 async function isWatching(deps: BotDeps, tg: number, ca: string): Promise<boolean> {
@@ -144,10 +120,7 @@ async function loadCard(
   }
   const dm = ctx.chat?.type === "private"
   const watching = dm && ctx.from ? await isWatching(deps, ctx.from.id, ca) : false
-  const kb = tokenKb(deps, ca, {
-    ...card,
-    watch: dm ? { dm, watching } : { dm, botUsername: ctx.me.username },
-  })
+  const kb = tokenKb(deps, ca, dm ? { dm, watching } : { dm, botUsername: ctx.me.username })
   return { ca, ...card, kb }
 }
 

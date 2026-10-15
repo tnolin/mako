@@ -4,19 +4,31 @@ One VPS runs Postgres, the indexer, the bot and Caddy (ADR 0009). Steps marked *
 
 ## 1. Server (owner)
 
-- Hetzner Cloud, location Nuremberg (NBG1) or Falkenstein (FSN1), 2 vCPU and 4 GB RAM, Ubuntu 24.04, with backups enabled.
-- Add your SSH key at creation.
+- A single Ubuntu 24.04 VPS with 2 vCPUs, 4 GB RAM and about 40 GB of disk. Turn on your provider's backups and snapshots if it offers them.
+- A sudo user that logs in with your SSH key. Cloud images usually ship one, such as `ubuntu`. Install your key with `ssh-copy-id <user>@<ip>` and confirm that key login works before going on.
+- Record the connect times to the RPCs and Telegram in your private deploy notes:
+
+```bash
+for h in rpc-qnd.inkonchain.com ink.drpc.org rpc-gel.inkonchain.com api.telegram.org; do
+  curl -s -o /dev/null -w "$h connect=%{time_connect} ttfb=%{time_starttransfer}\n" https://$h
+done
+```
 
 ## 2. Base system
 
-Create a sudo user for yourself before disabling root login.
+Run the rest of this guide as root (`sudo -i` from your sudo user). Keep your current SSH session open until a new key login works after the restart below.
+
+Ubuntu's cloud image ships `/etc/ssh/sshd_config.d/50-cloud-init.conf` with `PasswordAuthentication yes`, and sshd uses the first value it reads, so the hardening goes in a drop-in that sorts before it:
 
 ```bash
-apt update && apt -y upgrade && apt -y install unattended-upgrades ufw git curl ca-certificates
-sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/; s/^#\?PermitRootLogin .*/PermitRootLogin no/' /etc/ssh/sshd_config
+apt update && apt -y upgrade && apt -y install unattended-upgrades ufw git curl ca-certificates rclone
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\n' > /etc/ssh/sshd_config.d/00-hardening.conf
 systemctl restart ssh
+sshd -T | grep -Ei '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin) '   # all three: no
 ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
 ```
+
+`ufw` is the firewall.
 
 ## 3. Software
 
@@ -78,6 +90,12 @@ install -m 0600 -o root -g root /dev/null /etc/ink/mako.env
 
 `/etc/ink/mako.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=mako`, `TELEGRAM_BOT_TOKEN=…`, `INKYPUMP_REF_CODE=…`, `LINKS_BASE_URL=https://go.makobot.xyz`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
 
+`/etc/ink/backup.env`, from `scripts/deploy/backup.env.example`: an S3-compatible bucket, its endpoint, rclone's provider name for the service, and a key that can only read and write that bucket. Give the bucket a lifecycle rule that deletes objects 13 days after upload.
+
+```bash
+install -m 0600 -o root -g root /dev/null /etc/ink/backup.env
+```
+
 postgres.js reads the socket directory and role from `PGHOST` and `PGUSER` when the URL has no host.
 
 ## 7. Indexer
@@ -94,7 +112,7 @@ sudo -u postgres psql ink -f /opt/mako/scripts/deploy/grants.sql
 
 ## 8. Bot, redirect and backups
 
-DNS (owner): in Cloudflare, an `A` record for `go` pointing at the server IP, DNS only (grey cloud).
+DNS (owner): an `A` record for `go` pointing at the server IP, not proxied. Only `go.makobot.xyz` points at this server; the website on `makobot.xyz` is hosted elsewhere.
 
 ```bash
 cd /opt/mako && sudo -u mako git checkout <tag> && sudo -u mako pnpm install --frozen-lockfile
@@ -106,9 +124,13 @@ systemctl daemon-reload && systemctl enable --now mako-bot mako-backup.timer
 
 ## Updating
 
-`sudo /opt/mako/scripts/deploy/update.sh <ink-indexer|mako> <tag>` checks out the tag, installs and restarts.
+1. Take a snapshot of the server at your provider. Delete the previous one first.
+2. `sudo /opt/mako/scripts/deploy/update.sh <ink-indexer|mako> <tag>` asks for the snapshot, then checks out the tag, installs and restarts.
+3. Check `journalctl -u <unit>` and the bot, then delete the snapshot. Never keep it longer than 14 days: it holds user data, and `/help` says backups are deleted after 14 days.
 
 ## Restore drill
+
+From the local dump:
 
 ```bash
 sudo -u postgres createdb scratch && sudo -u postgres pg_restore -d scratch /var/backups/mako/bot-<date>.dump
@@ -116,4 +138,18 @@ sudo -u postgres psql scratch -c "select count(*) from bot.users"   # compare wi
 sudo -u postgres dropdb scratch
 ```
 
-Hetzner backups keep whole-disk images for 7 days. `pg_dump` files are deleted after 14 days, and journald keeps 14 days of logs.
+From the off-site copy, as if the server were lost. The subshell keeps the credentials out of your shell:
+
+```bash
+(set -a; . /etc/ink/backup.env; set +a
+ export RCLONE_S3_PROVIDER="${S3_PROVIDER:-Other}" RCLONE_S3_NO_CHECK_BUCKET=true RCLONE_S3_ENDPOINT="$S3_ENDPOINT" \
+   RCLONE_S3_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID" RCLONE_S3_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
+ rclone lsf ":s3:$S3_BUCKET"                                            # at most 14 bot-<date>.dump files
+ rclone copyto ":s3:$S3_BUCKET/bot-<date>.dump" /tmp/bot-restore.dump)
+chown postgres /tmp/bot-restore.dump
+sudo -u postgres createdb scratch && sudo -u postgres pg_restore -d scratch /tmp/bot-restore.dump
+sudo -u postgres psql scratch -c "select count(*) from bot.users"   # compare with ink
+sudo -u postgres dropdb scratch && rm /tmp/bot-restore.dump
+```
+
+Retention: provider backups and snapshots hold user data too, so keep none longer than 14 days; delete the update snapshot once the update is verified. `pg_dump` files are deleted after 14 days on the server and in the bucket, where the lifecycle rule also expires them. journald keeps 14 days of logs.

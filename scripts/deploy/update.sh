@@ -8,6 +8,9 @@ case "$repo" in
   *) echo "repo must be ink-indexer or mako" >&2; exit 2 ;;
 esac
 [[ "$tag" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "invalid tag: $tag" >&2; exit 1; }
+# The snapshot is the way back if an update goes wrong. Delete it once the update is verified (14 days at most).
+read -r -p "Did you take your provider's snapshot of this server just now? [y/N] " snap
+[[ "$snap" == y ]] || { echo "Take a snapshot at your provider first." >&2; exit 1; }
 cd "/opt/$repo"
 sudo -u "$user" git fetch --tags --force origin
 sudo -u "$user" git -c advice.detachedHead=false checkout "refs/tags/$tag"

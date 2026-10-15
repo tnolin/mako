@@ -36,3 +36,58 @@ it("keeps logs and backups for 14 days, and Caddy writes no access log", () => {
   expect(caddy).toContain("reverse_proxy 127.0.0.1:8080")
   expect(caddy).not.toMatch(/^\s*log\b/m)
 })
+
+it("copies each nightly dump to an S3-compatible bucket and keeps 14 days there too, with credentials from a root-only env file", () => {
+  const b = read("backup.sh")
+  expect(b).toContain('rclone copyto "$dir/$name" ":s3:$S3_BUCKET/$name"')
+  expect(b).toContain('rclone delete --min-age 13d ":s3:$S3_BUCKET"')
+  expect(b).toContain('RCLONE_S3_PROVIDER="${S3_PROVIDER:-Other}"')
+  expect(read("mako-backup.service")).toContain("EnvironmentFile=/etc/ink/backup.env")
+  const example = read("backup.env.example")
+  for (const k of [
+    "S3_PROVIDER",
+    "S3_ENDPOINT",
+    "S3_BUCKET",
+    "S3_ACCESS_KEY_ID",
+    "S3_SECRET_ACCESS_KEY",
+  ]) {
+    expect(example).toMatch(new RegExp(`^${k}=$`, "m"))
+  }
+})
+
+it("update.sh stops unless a snapshot was just taken", () => {
+  const u = read("update.sh")
+  expect(u).toMatch(/read -r -p "[^"]*snapshot[^"]*" snap/)
+  expect(u.indexOf("snapshot")).toBeLessThan(u.indexOf("git fetch"))
+})
+
+it("deploy guide disables password and root SSH login with a drop-in that wins over cloud-init", () => {
+  const guide = readFileSync(new URL("../docs/deploy.md", import.meta.url), "utf8")
+  expect(guide).toContain("/etc/ssh/sshd_config.d/00-hardening.conf")
+  for (const line of [
+    "PasswordAuthentication no",
+    "KbdInteractiveAuthentication no",
+    "PermitRootLogin no",
+  ]) {
+    expect(guide).toContain(line)
+  }
+  expect(guide).toContain("sshd -T")
+  expect(guide).toContain("apt -y install unattended-upgrades ufw git curl ca-certificates rclone")
+})
+
+it("public docs and deploy scripts name no hosting provider or region", () => {
+  const { readdirSync } = require("node:fs") as typeof import("node:fs")
+  const root = new URL("../", import.meta.url)
+  const files = [
+    "README.md",
+    "AGENTS.md",
+    ...readdirSync(new URL("docs/", root), { recursive: true })
+      .map(String)
+      .filter((f) => f.endsWith(".md"))
+      .map((f) => `docs/${f}`),
+    ...readdirSync(new URL("scripts/deploy/", root)).map((f) => `scripts/deploy/${f}`),
+  ]
+  const provider =
+    /\b(ovh\w*|hetzner|nbg1|fsn1|nuremberg|falkenstein|singapore|cloudflare|r2)\b|grey cloud/i
+  for (const f of files) expect(readFileSync(new URL(f, root), "utf8"), f).not.toMatch(provider)
+})

@@ -4,4 +4,5 @@ Description=Dump the MAKO bot schema
 [Service]
 Type=oneshot
 User=postgres
+EnvironmentFile=/etc/ink/backup.env
 ExecStart=/opt/mako/scripts/deploy/backup.sh

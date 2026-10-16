@@ -72,6 +72,7 @@ it("deploy guide disables password and root SSH login with a drop-in that wins o
     expect(guide).toContain(line)
   }
   expect(guide).toContain("sshd -T")
+  expect(guide).toContain("/var/run/reboot-required")
   expect(guide).toContain("apt -y install unattended-upgrades ufw git curl ca-certificates rclone")
 })
 

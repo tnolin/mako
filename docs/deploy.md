@@ -22,6 +22,7 @@ Ubuntu's cloud image ships `/etc/ssh/sshd_config.d/50-cloud-init.conf` with `Pas
 
 ```bash
 apt update && apt -y upgrade && apt -y install unattended-upgrades ufw git curl ca-certificates rclone
+[ -f /var/run/reboot-required ] && reboot   # then reconnect, `sudo -i`, and continue from the next line
 printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\n' > /etc/ssh/sshd_config.d/00-hardening.conf
 systemctl restart ssh
 sshd -T | grep -Ei '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin) '   # all three: no

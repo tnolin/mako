@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.1.0 (2026-10-17)
 
 - Telegram bot: six alerts, onboarding, menus, token cards, watchlist, group and channel feeds.
 - Alert header: the alert name now sits on its own bold line above the ticker.

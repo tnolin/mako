@@ -5,7 +5,7 @@ import { startRetention } from "./delivery/retention"
 import { startSender } from "./delivery/sender"
 import { createHeartbeat } from "./heartbeat"
 import { cursorBlock } from "./history"
-import { tradeLink } from "./launchpads"
+import { LAUNCHPADS, referralLink, tradeLink } from "./launchpads"
 import { createLinkServer, logTradeClick } from "./links"
 import { log } from "./log"
 import { createBot } from "./platforms/telegram/bot"
@@ -54,7 +54,10 @@ const bot = createBot({ token, sql, prices, log, report, linksBase, images, read
 await bot.init()
 const botUsername = bot.botInfo.username
 
-const ABOUT = "Real-time alerts for memecoins, NFTs and DeFi on Ink. Open source."
+const BLURB = "Real-time alerts for memecoins, NFTs and DeFi on Ink. Open source."
+const ABOUT = `${BLURB} Trade on ${LAUNCHPADS.inkypump.name}: ${linksBase}/inkypump`
+// Telegram caps the short description (the profile's About) at 120 characters.
+const SHORT_ABOUT = ABOUT.length <= 120 ? ABOUT : BLURB
 await Promise.all([
   bot.api.setMyCommands(
     [
@@ -78,7 +81,7 @@ await Promise.all([
     { scope: { type: "all_group_chats" } },
   ),
   bot.api.setMyDescription(ABOUT),
-  bot.api.setMyShortDescription(ABOUT),
+  bot.api.setMyShortDescription(SHORT_ABOUT),
 ]).catch((err) => log("warn", "could not set commands or description", { error: String(err) }))
 
 const balanceOf = rpcBalanceOf(env.INK_RPC_URL || DEFAULT_RPC)
@@ -100,6 +103,7 @@ const stopSender = startSender({
 
 const server = createLinkServer({
   target: (ca) => tradeLink("inkypump", ca),
+  join: () => referralLink("inkypump"),
   onClick: (ca, d) => logTradeClick(sql, ca, d),
   log,
 })

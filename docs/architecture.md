@@ -104,6 +104,7 @@ Buttons are the main interface, and slash commands open the same screens for peo
 | 2 | Near bonding · Recently bonded |
 | 3 | My watchlist · My alerts |
 | 4 | Settings · Help |
+| 5 | Trade on InkyPump |
 
 Settings holds Groups & channels and Delete my data. Help holds Community.
 
@@ -165,7 +166,11 @@ The bot owns the `bot` schema in the same Postgres as the indexer. It reads only
 
 ## Links and referrals
 
-Outbound trade and marketplace links carry referral codes where the platform offers one (InkyPump, Nado). The About page lists these partnerships. MAKO is informational; the About page and terms state this once for the whole service.
+Outbound trade and marketplace links carry referral codes where the platform offers one (InkyPump, Nado).
+
+- Trade buttons open `go.makobot.xyz/t/<address>`, which redirects to the token on its launchpad with `?ref=<code>`. InkyPump tags a visitor who arrives with `?ref=`.
+- Trade on InkyPump (main menu and the bot's About text) opens `go.makobot.xyz/inkypump`, which redirects to InkyPump's referral join page, `inkypump.com/ink/join/<code>`.
+- Both redirects log a `trade_click` with no user data. Clicks on the join link have no token and kind `join`. The About page lists these partnerships. MAKO is informational; the About page and terms state this once for the whole service.
 
 ## Brand
 

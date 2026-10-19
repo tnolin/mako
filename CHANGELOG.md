@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Trade on InkyPump: a main menu button and a link in the bot's About text. It opens InkyPump through MAKO's referral link, and clicks are counted like Trade clicks.
+
 ## v0.1.0 (2026-10-17)
 
 - Telegram bot: six alerts, onboarding, menus, token cards, watchlist, group and channel feeds.

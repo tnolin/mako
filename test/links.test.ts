@@ -8,10 +8,11 @@ const CA = "0x5ab27c4e9d1f03b8a6e2c5d7f940b1a8c3d6e3c8"
 const D = "3f2b8a2e-1c4d-4e5f-8a9b-0c1d2e3f4a5b"
 
 describe("redirect server", () => {
-  const clicks: [string, string | null][] = []
+  const clicks: [string | null, string | null][] = []
   let base = ""
   const server = createLinkServer({
     target: (ca) => `https://inkypump.com/ink/trade/${ca}?ref=MAKO`,
+    join: () => "https://inkypump.com/ink/join/MAKO",
     onClick: async (ca, d) => {
       clicks.push([ca, d])
       throw new Error("db stub: the request path must not depend on this")
@@ -49,7 +50,15 @@ describe("redirect server", () => {
     await vi.waitFor(() => expect(clicks).toEqual([[CA, null]]))
   })
 
-  it.each(["/t/0x123", "/t/javascript:alert(1)", "/", "/t/", `/x/${CA}`])(
+  it("302s /inkypump to the referral join link and logs it as a click with no token", async () => {
+    clicks.length = 0
+    const res = await get("/inkypump")
+    expect(res.status).toBe(302)
+    expect(res.headers.get("location")).toBe("https://inkypump.com/ink/join/MAKO")
+    await vi.waitFor(() => expect(clicks).toEqual([[null, null]]))
+  })
+
+  it.each(["/inkypump/x", "/t/0x123", "/t/javascript:alert(1)", "/", "/t/", `/x/${CA}`])(
     "404s %s",
     async (path) => {
       expect((await get(path)).status).toBe(404)
@@ -105,6 +114,7 @@ describe("logTradeClick", () => {
     await logTradeClick(sql, CA, g!.id)
     await logTradeClick(sql, CA, p!.id)
     await logTradeClick(sql, CA, null)
+    await logTradeClick(sql, null, null)
     const rows =
       await sql`select chat_type, chat_id::text, action, token, params from bot.user_actions order by id`
     expect(rows).toEqual([
@@ -128,6 +138,13 @@ describe("logTradeClick", () => {
         action: "trade_click",
         token: CA,
         params: { d: null, kind: null },
+      },
+      {
+        chat_type: "private",
+        chat_id: null,
+        action: "trade_click",
+        token: null,
+        params: { d: null, kind: "join" },
       },
     ])
   })

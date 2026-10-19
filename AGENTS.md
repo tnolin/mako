@@ -29,5 +29,5 @@
 
 ## Adding a launchpad
 
-1. Add an entry to `LAUNCHPADS` in `src/launchpads.ts`: name, trade URL, referral parameter and env var.
+1. Add an entry to `LAUNCHPADS` in `src/launchpads.ts`: name, trade URL, referral parameter, referral page and env var.
 2. The indexer must emit its events with that `launchpad` key. No rendering code changes.

@@ -91,10 +91,11 @@ it("shows the main menu to a returning user", async () => {
     "My alerts",
     "Settings",
     "Help",
+    "Trade on InkyPump",
   ])
-  expect(
-    h.last("sendMessage")!.reply_markup.inline_keyboard.map((r: unknown[]) => r.length),
-  ).toEqual([2, 2, 2, 2])
+  const kb = h.last("sendMessage")!.reply_markup.inline_keyboard
+  expect(kb.map((r: unknown[]) => r.length)).toEqual([2, 2, 2, 2, 1])
+  expect(kb[4][0].url).toBe("https://go.makobot.xyz/inkypump")
 })
 
 it("puts Groups & channels in Settings and Community in Help", async () => {

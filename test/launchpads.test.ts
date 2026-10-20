@@ -3,6 +3,7 @@ import {
   LAUNCHPADS,
   type Launchpad,
   launchpadNames,
+  referralLink,
   tradeLink,
   unknownTokenText,
 } from "../src/launchpads"
@@ -14,6 +15,13 @@ it("builds trade links with and without a referral code", () => {
     `https://inkypump.com/ink/trade/${CA}?ref=MAKO`,
   )
   expect(tradeLink("inkypump", CA, {})).toBe(`https://inkypump.com/ink/trade/${CA}`)
+})
+
+it("builds the referral join link, or the launchpad home without a code", () => {
+  expect(referralLink("inkypump", { INKYPUMP_REF_CODE: "MAKO" })).toBe(
+    "https://inkypump.com/ink/join/MAKO",
+  )
+  expect(referralLink("inkypump", {})).toBe("https://inkypump.com/ink")
 })
 
 it("falls back to the first launchpad for an unknown key", () => {
@@ -28,6 +36,7 @@ it("names launchpads from config only", () => {
       tradeUrl: (ca) => `https://tsunami.example/${ca}`,
       refParam: "r",
       refEnv: "TSUNAMI_REF_CODE",
+      referralUrl: () => "https://tsunami.example",
     },
   }
   expect(unknownTokenText()).toBe("Not a token on InkyPump. MAKO covers InkyPump launches for now.")

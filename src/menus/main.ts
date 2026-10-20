@@ -1,4 +1,5 @@
 import type { Bot, Context } from "grammy"
+import { LAUNCHPADS } from "../launchpads"
 import { btn, COMMUNITY_URL, type Kb, link, show } from "../platforms/telegram/ui"
 import { ALERT_HELP, ALERT_LABEL, ALERTS } from "../settings"
 import type { BotDeps } from "./deps"
@@ -6,12 +7,13 @@ import { deleteUserData } from "./users"
 
 export const MENU_TEXT = "<b>MAKO</b> · real-time alerts for Ink memecoins"
 
-export function menuKb(): Kb {
+export function menuKb(linksBase: string): Kb {
   return [
     [btn("Look up token", "look"), btn("Hot now", "l:hot")],
     [btn("Near bonding", "l:near"), btn("Recently bonded", "l:bonded")],
     [btn("My watchlist", "wl"), btn("My alerts", "al:u")],
     [btn("Settings", "st"), btn("Help", "h")],
+    [link(`Trade on ${LAUNCHPADS.inkypump.name}`, `${linksBase}/inkypump`)],
   ]
 }
 
@@ -58,8 +60,8 @@ const DELETE_CONFIRM =
 
 export function registerMain(bot: Bot, deps: BotDeps): void {
   const pm = bot.chatType("private")
-  pm.command("menu", (ctx) => show(ctx, MENU_TEXT, menuKb()))
-  pm.callbackQuery("m", (ctx) => show(ctx, MENU_TEXT, menuKb()))
+  pm.command("menu", (ctx) => show(ctx, MENU_TEXT, menuKb(deps.linksBase)))
+  pm.callbackQuery("m", (ctx) => show(ctx, MENU_TEXT, menuKb(deps.linksBase)))
   bot.command("help", (ctx) => show(ctx, HELP.index, helpKb(isDm(ctx))))
   bot.callbackQuery("h", (ctx) => show(ctx, HELP.index, helpKb(isDm(ctx))))
   bot.callbackQuery(/^h:(alerts|group|watch|privacy)$/, (ctx) =>

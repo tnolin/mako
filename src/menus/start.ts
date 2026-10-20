@@ -36,7 +36,7 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
     if (created) {
       await sendWelcome(ctx, user.settings)
     } else if (!/^[wts]_/.test(payload)) {
-      await show(ctx, MENU_TEXT, menuKb())
+      await show(ctx, MENU_TEXT, menuKb(deps.linksBase))
     }
   })
   pm.callbackQuery(new RegExp(`^ob:(${ALERT_PATTERN})$`), async (ctx) => {
@@ -61,6 +61,6 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
   })
   pm.callbackQuery("ob:done", async (ctx) => {
     await logAction(deps.sql, { chatType: "private", action: "preset", params: { choice: "done" } })
-    await show(ctx, MENU_TEXT, menuKb())
+    await show(ctx, MENU_TEXT, menuKb(deps.linksBase))
   })
 }

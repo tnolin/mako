@@ -3,6 +3,8 @@ export type Launchpad = {
   tradeUrl: (ca: string) => string
   refParam: string
   refEnv: string
+  /** The page that tags a visitor with a referral code, or the launchpad home without one. */
+  referralUrl: (code?: string) => string
 }
 
 /** Every launchpad name in user-facing text comes from here. */
@@ -12,6 +14,10 @@ export const LAUNCHPADS = {
     tradeUrl: (ca: string) => `https://inkypump.com/ink/trade/${ca}`,
     refParam: "ref",
     refEnv: "INKYPUMP_REF_CODE",
+    referralUrl: (code) =>
+      code
+        ? `https://inkypump.com/ink/join/${encodeURIComponent(code)}`
+        : "https://inkypump.com/ink",
   },
 } satisfies Record<string, Launchpad>
 
@@ -34,6 +40,15 @@ export function tradeLink(
   const code = env[lp.refEnv]
   if (code) url.searchParams.set(lp.refParam, code)
   return url.href
+}
+
+export function referralLink(
+  key: string,
+  env: Record<string, string | undefined> = process.env,
+  list: Record<string, Launchpad> = LAUNCHPADS,
+): string {
+  const lp = launchpadOf(key, list)
+  return lp.referralUrl(env[lp.refEnv] || undefined)
 }
 
 /** "InkyPump", "InkyPump or Tsunami", "A, B or C". */

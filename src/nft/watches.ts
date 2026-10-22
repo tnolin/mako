@@ -74,17 +74,22 @@ export async function mutesOf(sql: Sql, owner: Owner): Promise<string[]> {
   return rows.map((r) => r.contract)
 }
 
-/** Sets a mint reminder. The last explicit tap wins, so it removes the user's mute. */
+/** Sets a mint reminder. The last explicit tap wins, so it removes the user's mute and turns a watch's reminders back on. */
 export async function remind(sql: Sql, userId: string, contract: string): Promise<void> {
   await sql.begin(async (tx) => {
     await tx`delete from bot.collection_mutes where user_id = ${userId} and contract = ${contract}`
     await tx`
       insert into bot.reminders (user_id, contract) values (${userId}, ${contract}) on conflict do nothing`
+    await tx`update bot.nft_watches set reminders_off = false where user_id = ${userId} and contract = ${contract}`
   })
 }
 
+/** Removes the reminder; a watch of the collection stays but stops sending reminders. */
 export async function unremind(sql: Sql, userId: string, contract: string): Promise<void> {
-  await sql`delete from bot.reminders where user_id = ${userId} and contract = ${contract}`
+  await sql.begin(async (tx) => {
+    await tx`delete from bot.reminders where user_id = ${userId} and contract = ${contract}`
+    await tx`update bot.nft_watches set reminders_off = true where user_id = ${userId} and contract = ${contract}`
+  })
 }
 
 export async function remindersOf(sql: Sql, userId: string): Promise<string[]> {

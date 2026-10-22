@@ -8,6 +8,8 @@ import { cursorBlock } from "./history"
 import { LAUNCHPADS, referralLink, tradeLink } from "./launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
+import { startReminders } from "./nft/reminders"
+import type { NftState } from "./nft/state"
 import { createBot } from "./platforms/telegram/bot"
 import { createImages, sqlImageCache } from "./platforms/telegram/images"
 import { createSend } from "./platforms/telegram/send"
@@ -95,6 +97,8 @@ await Promise.all([
 ]).catch((err) => log("warn", "could not set commands or description", { error: String(err) }))
 
 const balanceOf = rpcBalanceOf(env.INK_RPC_URL || DEFAULT_RPC)
+// One NFT collection state, kept by the poller and read by the reminder scheduler.
+const nftState: { current?: NftState } = {}
 const stopPoller = startPoller({
   sql,
   prices,
@@ -102,7 +106,9 @@ const stopPoller = startPoller({
   report,
   readHolds: (r) => readDevHolds(balanceOf, r),
   nftAlertsSince,
+  nftState,
 })
+const stopReminders = startReminders({ sql, nft: () => nftState.current, log })
 const notify = createNotify({ sql, api: bot.api, botUsername, log })
 const stopSender = startSender({
   sql,
@@ -156,6 +162,7 @@ const shutdown = async () => {
   stopping = true
   log("info", "shutting down")
   stopPoller()
+  stopReminders()
   stopSender()
   stopPrices()
   stopRetention()

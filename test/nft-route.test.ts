@@ -9,7 +9,6 @@ import { resetDb } from "./helpers/db"
 import { addr, T0 } from "./helpers/events"
 
 const C = addr(0xc0)
-const ETH = 10n ** 18n
 const wei = (n: number) => BigInt(Math.round(n * 1e9)) * 10n ** 9n
 let seq = 0
 

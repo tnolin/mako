@@ -96,3 +96,21 @@ it("delete my data removes the user's watches, mutes and reminders, and keeps ch
   expect(await sql`select 1 from bot.reminders`).toHaveLength(0)
   expect(await watchesOf(sql, { chatId: "-1001" })).toEqual([C1])
 })
+
+it("unremind stops a watch's reminders, and remind starts them again", async () => {
+  await watch(sql, { userId: u }, C1)
+  const off = async () =>
+    (
+      await sql<
+        { reminders_off: boolean }[]
+      >`select reminders_off from bot.nft_watches where user_id = ${u}`
+    )[0]!.reminders_off
+  expect(await off()).toBe(false)
+  await unremind(sql, u, C1)
+  expect(await off()).toBe(true)
+  await remind(sql, u, C1)
+  expect(await off()).toBe(false)
+  // A collection that is not watched is untouched.
+  await unremind(sql, u, C2)
+  expect(await watchesOf(sql, { userId: u })).toEqual([C1])
+})

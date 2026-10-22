@@ -180,10 +180,11 @@ async function write(
 export async function pollOnce(deps: PollerDeps): Promise<number> {
   const { sql } = deps
   const cursor = await initCursor(sql)
+  const holder = deps.nftState ?? {}
+  // Loaded even when idle: the reminder scheduler reads it too.
+  holder.current ??= await loadNftState(sql, cursor)
   const events = await eventsAfter(sql, cursor, 500, deps.maxId)
   if (events.length === 0) return 0
-  const holder = deps.nftState ?? {}
-  holder.current ??= await loadNftState(sql, cursor)
   try {
     return await processBatch(deps, events, holder.current)
   } catch (err) {
@@ -292,7 +293,7 @@ async function processBatch(
 /** Polls every second, straight away again after a full batch. Returns a stop function. */
 export function startPoller(deps: PollerDeps): () => void {
   const limiter = createFailureLimiter({ report: deps.report, log: deps.log })
-  const shared = { ...deps, limiter, nftState: {} }
+  const shared = { ...deps, limiter, nftState: deps.nftState ?? {} }
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const loop = async () => {

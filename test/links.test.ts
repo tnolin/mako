@@ -1,7 +1,7 @@
 import { type AddressInfo, connect } from "node:net"
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { createLinkServer, logTradeClick } from "../src/links"
+import { createLinkServer, logNftClick, logTradeClick } from "../src/links"
 import { resetDb } from "./helpers/db"
 
 const CA = "0x5ab27c4e9d1f03b8a6e2c5d7f940b1a8c3d6e3c8"
@@ -9,6 +9,7 @@ const D = "3f2b8a2e-1c4d-4e5f-8a9b-0c1d2e3f4a5b"
 
 describe("redirect server", () => {
   const clicks: [string | null, string | null][] = []
+  const nftClicks: [string, string | null][] = []
   let base = ""
   const server = createLinkServer({
     target: (ca) => `https://inkypump.com/ink/trade/${ca}?ref=MAKO`,
@@ -16,6 +17,9 @@ describe("redirect server", () => {
     onClick: async (ca, d) => {
       clicks.push([ca, d])
       throw new Error("db stub: the request path must not depend on this")
+    },
+    onNftClick: async (target, d) => {
+      nftClicks.push([target, d])
     },
     log: () => {},
   })
@@ -90,6 +94,68 @@ describe("redirect server", () => {
     expect((await get(`/t/${CA}`)).status).toBe(302)
   })
 
+  it("302s /n/c/<slug> to the OpenSea collection page and logs the click", async () => {
+    nftClicks.length = 0
+    const res = await get(`/n/c/ink-hornet?d=${D}`)
+    expect(res.status).toBe(302)
+    expect(res.headers.get("location")).toBe("https://opensea.io/collection/ink-hornet")
+    expect(res.headers.get("cache-control")).toBe("no-store")
+    await vi.waitFor(() => expect(nftClicks).toEqual([["ink-hornet", D]]))
+  })
+
+  it("302s /n/i/<ca>/<id> to the OpenSea item page, lowercasing the contract", async () => {
+    nftClicks.length = 0
+    const res = await get(`/n/i/${CA.toUpperCase().replace("0X", "0x")}/1485`)
+    expect(res.headers.get("location")).toBe(`https://opensea.io/item/ink/${CA}/1485`)
+    await vi.waitFor(() => expect(nftClicks).toEqual([[CA, null]]))
+  })
+
+  it("302s /n/s/<slug> to the collection's sales activity", async () => {
+    const res = await get("/n/s/ink-hornet")
+    expect(res.headers.get("location")).toBe(
+      "https://opensea.io/collection/ink-hornet/activity?activityTypes=sale",
+    )
+  })
+
+  it("302s /n/a/<ca> to the collection by contract", async () => {
+    const res = await get(`/n/a/${CA}`)
+    expect(res.status).toBe(302)
+    expect(res.headers.get("location")).toBe(`https://explorer.inkonchain.com/token/${CA}`)
+  })
+
+  it("302s the platform links without logging them", async () => {
+    nftClicks.length = 0
+    expect((await get("/p/opensea")).headers.get("location")).toBe("https://opensea.io")
+    expect((await get("/p/chimera")).headers.get("location")).toBe(
+      "https://www.chimeras.ink/discover",
+    )
+    await new Promise((r) => setTimeout(r, 20))
+    expect(nftClicks).toEqual([])
+  })
+
+  it.each([
+    "/n/c/",
+    "/n/c/Bad_Slug",
+    `/n/c/${"a".repeat(101)}`,
+    "/n/c/ink-hornet/x",
+    "/n/i/0x123/1",
+    `/n/i/${CA}/abc`,
+    `/n/i/${CA}/${"1".repeat(79)}`,
+    `/n/i/${CA}`,
+    "/n/a/0x123",
+    "/n/x/ink-hornet",
+    "/p/other",
+  ])("404s %s", async (path) => {
+    expect((await get(path)).status).toBe(404)
+  })
+
+  it("does not log NFT clicks from bot user agents", async () => {
+    nftClicks.length = 0
+    expect((await get("/n/c/ink-hornet", "TelegramBot (like TwitterBot)")).status).toBe(302)
+    await new Promise((r) => setTimeout(r, 20))
+    expect(nftClicks).toEqual([])
+  })
+
   it("drops a d that is not a uuid", async () => {
     clicks.length = 0
     await get(`/t/${CA}?d=1%27%3Bdrop`)
@@ -145,6 +211,51 @@ describe("logTradeClick", () => {
         action: "trade_click",
         token: null,
         params: { d: null, kind: "join" },
+      },
+    ])
+  })
+})
+
+describe("logNftClick", () => {
+  let sql: Sql
+  beforeAll(async () => {
+    sql = await resetDb(inject("databaseUrl"))
+  })
+  afterAll(() => sql.end())
+
+  it("records nft_click with the alert kind and chat type, and a chat id only for groups", async () => {
+    const [g] = await sql<{ id: string }[]>`
+      insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
+      values (-1001, 'supergroup', 'minted', ${CA}, 'k1', 3, now(), '{}') returning id::text`
+    const [p] = await sql<{ id: string }[]>`
+      insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
+      values (777, 'private', 'sale', ${CA}, 'k2', 5, now(), '{}') returning id::text`
+    await logNftClick(sql, CA, g!.id)
+    await logNftClick(sql, "ink-hornet", p!.id)
+    await logNftClick(sql, CA, null)
+    expect(
+      await sql`select chat_type, chat_id::text, action, token, params from bot.user_actions order by id`,
+    ).toEqual([
+      {
+        chat_type: "supergroup",
+        chat_id: "-1001",
+        action: "nft_click",
+        token: CA,
+        params: { d: g!.id, kind: "minted" },
+      },
+      {
+        chat_type: "private",
+        chat_id: null,
+        action: "nft_click",
+        token: "ink-hornet",
+        params: { d: null, kind: "sale" },
+      },
+      {
+        chat_type: "private",
+        chat_id: null,
+        action: "nft_click",
+        token: CA,
+        params: { d: null, kind: null },
       },
     ])
   })

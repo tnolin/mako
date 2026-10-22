@@ -8,7 +8,7 @@ import { imageResponse, memoryCache, okFetch, photoResult } from "./helpers/imag
 const URL_ = "https://ipfs.io/ipfs/x"
 const msg = {
   chat: 1,
-  token: "0xaa",
+  imageKey: "0xaa",
   imageUrl: URL_,
   html: "hi",
   reply_markup: { inline_keyboard: [] },

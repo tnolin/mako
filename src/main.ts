@@ -6,7 +6,7 @@ import { startSender } from "./delivery/sender"
 import { createHeartbeat } from "./heartbeat"
 import { cursorBlock } from "./history"
 import { LAUNCHPADS, referralLink, tradeLink } from "./launchpads"
-import { createLinkServer, logTradeClick } from "./links"
+import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
 import { createBot } from "./platforms/telegram/bot"
 import { createImages, sqlImageCache } from "./platforms/telegram/images"
@@ -116,6 +116,7 @@ const server = createLinkServer({
   target: (ca) => tradeLink("inkypump", ca),
   join: () => referralLink("inkypump"),
   onClick: (ca, d) => logTradeClick(sql, ca, d),
+  onNftClick: (target, d) => logNftClick(sql, target, d),
   log,
 })
 server.listen(Number(env.LINKS_PORT || 8080), "127.0.0.1")

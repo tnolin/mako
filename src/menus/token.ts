@@ -176,7 +176,7 @@ export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): P
   await deps.images.send(ctx.api, {
     chat: ctx.chat!.id,
     thread: threadOf(ctx),
-    token: card.ca,
+    imageKey: card.ca,
     imageUrl: card.imageUrl,
     html: card.html,
     reply_markup: { inline_keyboard: card.kb },
@@ -203,7 +203,7 @@ async function refreshTokenCard(ctx: Context, deps: BotDeps, raw: string): Promi
     await deps.images.send(ctx.api, {
       chat: ctx.chat!.id,
       thread: threadOf(ctx),
-      token: card.ca,
+      imageKey: card.ca,
       imageUrl: null,
       html: card.html,
       reply_markup,

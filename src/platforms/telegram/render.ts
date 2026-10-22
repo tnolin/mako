@@ -3,6 +3,8 @@ import type { Button, Card, Payload } from "../../cards/card"
 import { BATCH_SHOWN } from "../../delivery/flood"
 import type { ChatType } from "../../delivery/recipients"
 import { escapeHtml, safeUrl } from "../../format"
+import type { NftAlertCard } from "../../nft/card"
+import { btnOn, stateBtn } from "./ui"
 
 /** Data rows: one <code> per line, labels padded to max(9, longest + 1) so values align. */
 export function renderRows(rows: Card["rows"]): string[] {
@@ -30,6 +32,84 @@ export function renderCard(card: Card): string {
     )
   }
   return lines.join("\n")
+}
+
+/** An NFT alert: bold title, `Name ✓ · OpenSea`, one <code> row per line, CA (and any token address), links. */
+export function renderNftAlert(card: NftAlertCard): string {
+  const addrs: [string, string][] = [["CA", card.contract], ...card.extra]
+  // A lone CA keeps the token alerts' three spaces; with more addresses the labels align two columns past the longest.
+  const width = card.extra.length === 0 ? 5 : Math.max(...addrs.map(([l]) => l.length)) + 2
+  const lines = [
+    `<b>${escapeHtml(card.title)}</b>`,
+    `${escapeHtml(card.name)}${card.verified ? " ✓" : ""} · ${escapeHtml(card.marketplace)}`,
+    "",
+    ...renderRows(card.rows),
+    "",
+    ...addrs.map(([l, a]) => `${escapeHtml(l.padEnd(width))}<code>${escapeHtml(a)}</code>`),
+  ]
+  const links = card.links.filter((l) => safeUrl(l.url) !== null)
+  if (links.length > 0) {
+    lines.push(
+      links.map((l) => `<a href="${escapeHtml(l.url)}">${escapeHtml(l.label)}</a>`).join(" · "),
+    )
+  }
+  return lines.join("\n")
+}
+
+/** What the viewer already did with the collection; group keyboards ignore it. */
+export type NftViewerState = { watching?: boolean; muted?: boolean; reminded?: boolean }
+
+const ITEM_PAGE = new Set<NftAlertCard["alert"]>(["under", "rare", "sale", "bigsale"])
+
+export function nftAlertKeyboard(
+  card: NftAlertCard,
+  ctx: {
+    chatType: ChatType
+    deliveryId?: string
+    linksBase: string
+    botUsername: string
+    state?: NftViewerState
+  },
+): InlineKeyboardMarkup {
+  const d = ctx.deliveryId ? `?d=${ctx.deliveryId}` : ""
+  const c = card.contract
+  const item = ITEM_PAGE.has(card.alert) && card.tokenId !== null
+  const path = item ? `/n/i/${c}/${card.tokenId}` : card.slug ? `/n/c/${card.slug}` : `/n/a/${c}`
+  const open: InlineKeyboardButton = {
+    text: card.alert === "under" || card.alert === "rare" ? "Buy" : "View",
+    url: `${ctx.linksBase}${path}${d}`,
+  }
+  const st = ctx.state ?? {}
+  if (ctx.chatType === "private" && card.alert === "reminder") {
+    return { inline_keyboard: [[open, btnOn("Reminder set", `nrr:${c}`)]] }
+  }
+  const deep = (text: string, prefix: string): InlineKeyboardButton => ({
+    text,
+    url: `https://t.me/${ctx.botUsername}?start=${prefix}_${c}`,
+  })
+  if (ctx.chatType !== "private") {
+    const rows = [[open, deep("Watch", "wn")]]
+    if (card.alert === "upcoming") rows.push([deep("Remind me", "rn")])
+    return { inline_keyboard: rows }
+  }
+  const row = [
+    open,
+    stateBtn(
+      { on: !!st.watching, off: "Watch", onText: "Watching" },
+      `${st.watching ? "nws" : "nwa"}:${c}`,
+    ),
+    stateBtn({ on: !!st.muted, off: "Mute", onText: "Muted" }, `${st.muted ? "nmu" : "nm"}:${c}`),
+  ]
+  const rows = [row]
+  if (card.alert === "upcoming") {
+    rows.push([
+      stateBtn(
+        { on: !!st.reminded, off: "Remind me", onText: "Reminder set" },
+        `${st.reminded ? "nrr" : "nrm"}:${c}`,
+      ),
+    ])
+  }
+  return { inline_keyboard: rows }
 }
 
 export function tradeUrl(linksBase: string, ca: string, deliveryId?: string): string {

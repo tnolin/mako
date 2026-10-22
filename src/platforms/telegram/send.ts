@@ -3,7 +3,14 @@ import type { Payload } from "../../cards/card"
 import type { ChatType } from "../../delivery/recipients"
 import { classify, type Failure } from "./errors"
 import type { Images } from "./images"
-import { alertKeyboard, renderCard, renderNewTokens, toKeyboard } from "./render"
+import {
+  alertKeyboard,
+  nftAlertKeyboard,
+  renderCard,
+  renderNewTokens,
+  renderNftAlert,
+  toKeyboard,
+} from "./render"
 
 export type PendingRow = {
   id: string
@@ -45,10 +52,26 @@ export function createSend(
         })
         return { ok: true }
       }
+      if (p.type === "nftalert") {
+        await opts.images.send(api, {
+          chat,
+          thread,
+          imageKey: p.card.imageKey,
+          imageUrl: p.image ? p.card.imageUrl : null,
+          html: renderNftAlert(p.card),
+          reply_markup: nftAlertKeyboard(p.card, {
+            linksBase: opts.linksBase,
+            botUsername: opts.botUsername,
+            chatType: row.chat_type,
+            deliveryId: row.id,
+          }),
+        })
+        return { ok: true }
+      }
       await opts.images.send(api, {
         chat,
         thread,
-        token: p.card.token,
+        imageKey: p.card.token,
         imageUrl: p.image ? p.card.imageUrl : null,
         html: renderCard(p.card),
         reply_markup: alertKeyboard(p.card, {

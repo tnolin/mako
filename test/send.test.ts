@@ -253,3 +253,75 @@ it("sends a NEW TOKENS card as text, rendered with the bot username, without a p
   expect(text).toBe(renderNewTokens(payload, "makoinkbot"))
   expect(o).toMatchObject({ parse_mode: "HTML", link_preview_options: { is_disabled: true } })
 })
+
+const nftCard = {
+  alert: "minted",
+  title: "MINTED 50%",
+  name: "Ink Hornet",
+  verified: false,
+  marketplace: "OpenSea",
+  rows: [["minted", "1,111 / 2,222 in 4h 2m"]],
+  contract: "0x4d243f15743f6df7c832fcd5ee9a3e8453d47a4b",
+  extra: [],
+  tokenId: null,
+  slug: "ink-hornet",
+  imageUrl: "https://i.example/c.png",
+  imageKey: "nft:0x4d243f15743f6df7c832fcd5ee9a3e8453d47a4b",
+  links: [],
+} as const
+const nftRow = (over: Partial<PendingRow> = {}): PendingRow =>
+  row({
+    alert: "minted",
+    token: nftCard.contract,
+    card: {
+      type: "nftalert",
+      card: { ...nftCard, rows: [...nftCard.rows.map((r) => [...r])] } as never,
+      image: true,
+    },
+    ...over,
+  })
+
+it("nftalert uses the nft image key and the NFT keyboard", async () => {
+  const a = api()
+  const s = setup({ [nftCard.imageKey]: "NFTFILE" })
+  expect(await createSend(a, s.opts)(nftRow())).toEqual({ ok: true })
+  const [, photo, o] = photoCall(a)
+  expect(photo).toBe("NFTFILE")
+  expect(o.caption).toContain("<b>MINTED 50%</b>")
+  expect(JSON.stringify(o.reply_markup)).toContain(
+    `https://go.makobot.xyz/n/c/ink-hornet?d=${nftRow().id}`,
+  )
+  expect(s.fetchFn).not.toHaveBeenCalled()
+})
+
+it("nftalert uploads the padded image once and stores it under the nft key", async () => {
+  const a = api()
+  const s = setup()
+  await createSend(a, s.opts)(nftRow())
+  expect(s.rows.get(nftCard.imageKey)).toBe("BIG")
+})
+
+it("an nftalert with the image switch off goes as text", async () => {
+  const a = api()
+  const s = setup()
+  const r = nftRow()
+  await createSend(
+    a,
+    s.opts,
+  )({ ...r, card: { ...(r.card as { type: "nftalert" }), image: false } as never })
+  expect(a.sendPhoto).not.toHaveBeenCalled()
+  expect(textCall(a)[1]).toContain("<b>MINTED 50%</b>")
+})
+
+it("an nftalert caption over 1,024 characters goes as text", async () => {
+  const a = api()
+  const s = setup({ [nftCard.imageKey]: "NFTFILE" })
+  const r = nftRow()
+  const long = { ...(r.card as { card: object }).card, rows: [["minted", "x".repeat(1100)]] }
+  await createSend(
+    a,
+    s.opts,
+  )({ ...r, card: { type: "nftalert", card: long, image: true } as never })
+  expect(a.sendPhoto).not.toHaveBeenCalled()
+  expect(a.sendMessage).toHaveBeenCalledTimes(1)
+})

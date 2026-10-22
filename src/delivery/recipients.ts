@@ -1,7 +1,15 @@
 import type { Payload } from "../cards/card"
 import type { Sql } from "../db"
+import { FLOOR_COOLDOWN_S, LISTING_CAP, LISTING_CAP_WINDOW_S } from "../nft/policy"
 import type { Candidate } from "../rules/index"
-import { type AlertKind, type ChatType, readSettings, type Settings, wantsImage } from "../settings"
+import {
+  type AlertKind,
+  type ChatType,
+  NFT_ALL_ALERTS,
+  readSettings,
+  type Settings,
+  wantsImage,
+} from "../settings"
 
 export type { ChatType }
 
@@ -31,7 +39,17 @@ export type Audience = {
   mute: Map<string, Set<string>>
   /** `${chatId}:${token}` → the PUMPING alerts queued there: event time and dedupe key. */
   lastPump: Map<string, { ts: number; key: string }[]>
+  /** contract → the users (bot.users.id) and chats that watch it. */
+  watches: Map<string, Owners>
+  /** contract → the users and chats that muted it. */
+  nftMutes: Map<string, Owners>
+  /** `${chatId}:${contract}` → the UNDER FLOOR and RARE LISTING alerts queued there: event time and dedupe key. */
+  listingSent: Map<string, { ts: number; key: string }[]>
+  /** `${chatId}:${contract}:${dir}` → the FLOOR alerts queued there. */
+  lastFloor: Map<string, { ts: number; key: string }[]>
 }
+
+export type Owners = { users: Set<string>; chats: Set<string> }
 
 /** Watchers get BIG at the default 5% threshold, whatever their own setting. */
 export const WATCH_BIG_BPS = 500
@@ -48,6 +66,46 @@ export function watchAccepts(c: Candidate): boolean {
   if (c.alert === "new") return false
   if (c.alert === "big") return (c.sizeBps ?? 0) >= WATCH_BIG_BPS
   return true
+}
+
+const isNft = (c: Candidate): boolean => "contract" in c.card
+
+/** The chat's thresholds for an NFT candidate; kinds without one always pass. */
+export function nftAccepts(s: Settings, c: Candidate): boolean {
+  const a = s.alerts
+  switch (c.alert) {
+    case "minted":
+      return c.markBps !== undefined && a.minted.marks.includes(c.markBps)
+    case "under":
+      return (c.discountBps ?? 0) >= a.under.pctBps
+    case "rare":
+      return c.rankBps !== undefined && c.rankBps <= a.rare.topBps
+    case "floor":
+      return (c.floorBps ?? 0) >= a.floor.pctBps
+    case "sweep":
+      return (c.sweepItems ?? 0) >= a.sweep.items
+    case "bigsale":
+      return c.salePriceWei !== undefined && c.salePriceWei >= BigInt(a.bigsale.minWei)
+    case "sale":
+      return c.salePriceWei !== undefined && c.salePriceWei >= BigInt(a.sale.minWei)
+    default:
+      return true
+  }
+}
+
+const ALL_COLLECTIONS: readonly string[] = NFT_ALL_ALERTS
+
+/**
+ * Muted first. An All collections alert reaches an owner through the feed (the collection passes the checks
+ * and the alert is on) or because the owner watches the collection (the switch and the verdict are
+ * ignored, the thresholds are not). A Watched only alert needs the watch, the switch and the thresholds.
+ */
+function nftWants(s: Settings, c: Candidate, watching: boolean): boolean {
+  // MINT REMINDER is clock-driven: the reminder scheduler queues it, not this routing.
+  if (c.alert === "reminder" || !nftAccepts(s, c)) return false
+  if (ALL_COLLECTIONS.includes(c.alert))
+    return watching || (c.feedEligible === true && s.alerts[c.alert].on)
+  return watching && s.alerts[c.alert].on
 }
 
 /** One alert per event per chat: the lowest priority number, then the highest BONDING mark. */
@@ -94,7 +152,69 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
       holds: c.holds,
     })
   }
+  // Earlier rows (a crash re-run) never count against their own candidate; the batch's choices do.
+  const recent = (
+    m: Map<string, { ts: number; key: string }[]>,
+    k: string,
+    c: Candidate,
+    windowS: number,
+  ) =>
+    (m.get(k) ?? []).filter(
+      (p) => p.key !== c.dedupeKey && p.ts <= c.eventTs && p.ts > c.eventTs - windowS,
+    )
+  const capped = (chatId: string, c: Candidate): boolean => {
+    if (c.alert === "under" || c.alert === "rare") {
+      const k = `${chatId}:${c.target}`
+      return recent(aud.listingSent, k, c, LISTING_CAP_WINDOW_S).length >= LISTING_CAP
+    }
+    if (c.alert === "floor") {
+      return (
+        recent(aud.lastFloor, `${chatId}:${c.target}:${c.floorDir}`, c, FLOOR_COOLDOWN_S).length > 0
+      )
+    }
+    return false
+  }
+  const remember = (chatId: string, c: Candidate) => {
+    const floor = c.alert === "floor"
+    if (!floor && c.alert !== "under" && c.alert !== "rare") return
+    const m = floor ? aud.lastFloor : aud.listingSent
+    const k = floor ? `${chatId}:${c.target}:${c.floorDir}` : `${chatId}:${c.target}`
+    m.set(k, [...(m.get(k) ?? []), { ts: c.eventTs, key: c.dedupeKey }])
+  }
   for (const cs of byEvent.values()) {
+    if (isNft(cs[0]!)) {
+      const target = cs[0]!.target
+      const watched = aud.watches.get(target)
+      const muted = aud.nftMutes.get(target)
+      for (const u of aud.users) {
+        if (muted?.users.has(u.userId)) continue
+        const w = watched?.users.has(u.userId) ?? false
+        const c = best(cs.filter((c) => nftWants(u.settings, c, w) && !capped(u.chatId, c)))
+        if (!c) continue
+        remember(u.chatId, c)
+        push(c, u.chatId, "private", null, u.settings)
+      }
+      for (const ch of aud.chats) {
+        if (muted?.chats.has(ch.chatId)) continue
+        const w = watched?.chats.has(ch.chatId) ?? false
+        const c = best(
+          cs.filter(
+            (c) =>
+              nftWants(ch.settings, c, w) &&
+              !ch.settings.pausedRoutes?.includes(c.alert) &&
+              !capped(ch.chatId, c),
+          ),
+        )
+        if (!c) continue
+        remember(ch.chatId, c)
+        const thread =
+          ch.chatType === "channel"
+            ? null
+            : (ch.settings.routes?.[c.alert] ?? ch.settings.thread ?? null)
+        push(c, ch.chatId, ch.chatType, thread, ch.settings)
+      }
+      continue
+    }
     const token = cs[0]!.target
     const watchers = aud.watch.get(token)
     const muters = aud.mute.get(token)
@@ -131,7 +251,11 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
 
 // shortcut: loads every active user and chat per batch; fine to tens of thousands of rows.
 // Index subscriptions by alert type and filter in SQL when that stops being true.
-export async function loadAudience(sql: Sql, tokens: string[]): Promise<Audience> {
+export async function loadAudience(
+  sql: Sql,
+  tokens: string[],
+  nowS: number = Math.floor(Date.now() / 1000),
+): Promise<Audience> {
   const users = await sql<{ userId: string; chatId: string; settings: unknown }[]>`
     select id::text as "userId", platform_user_id::text as "chatId", settings
     from bot.users where blocked_at is null`
@@ -147,6 +271,50 @@ export async function loadAudience(sql: Sql, tokens: string[]): Promise<Audience
         select chat_id::text as "chatId", token, extract(epoch from event_ts)::int as ts, dedupe_key as key
         from bot.deliveries where alert = 'pumping' and token = any(${tokens}) and status <> 'superseded'`
     : []
+  type OwnerRow = { userId: string | null; chatId: string | null; contract: string }
+  type SentRow = { chatId: string; token: string; ts: number; key: string }
+  const [nftWatches, nftMuteRows, listing, floors] = tokens.length
+    ? await Promise.all([
+        sql<OwnerRow[]>`
+          select user_id::text as "userId", chat_id::text as "chatId", contract
+          from bot.nft_watches where contract = any(${tokens})`,
+        sql<OwnerRow[]>`
+          select user_id::text as "userId", chat_id::text as "chatId", contract
+          from bot.collection_mutes where contract = any(${tokens})`,
+        // Two hours reaches back past the one-hour cap for a candidate up to its 30-minute late window.
+        sql<SentRow[]>`
+          select chat_id::text as "chatId", token, extract(epoch from event_ts)::int as ts, dedupe_key as key
+          from bot.deliveries
+          where alert in ('under', 'rare') and token = any(${tokens}) and status <> 'superseded'
+            and event_ts > to_timestamp(${nowS - 2 * 3600})`,
+        sql<SentRow[]>`
+          select chat_id::text as "chatId", token, extract(epoch from event_ts)::int as ts, dedupe_key as key
+          from bot.deliveries
+          where alert = 'floor' and token = any(${tokens}) and status <> 'superseded'
+            and event_ts > to_timestamp(${nowS - 7 * 3600})`,
+      ])
+    : [[] as OwnerRow[], [] as OwnerRow[], [] as SentRow[], [] as SentRow[]]
+  const owners = (rows: OwnerRow[]) => {
+    const m = new Map<string, Owners>()
+    for (const r of rows) {
+      const o = m.get(r.contract) ?? { users: new Set<string>(), chats: new Set<string>() }
+      if (r.userId) o.users.add(r.userId)
+      if (r.chatId) o.chats.add(r.chatId)
+      m.set(r.contract, o)
+    }
+    return m
+  }
+  const listingSent = new Map<string, { ts: number; key: string }[]>()
+  for (const r of listing) {
+    const k = `${r.chatId}:${r.token}`
+    listingSent.set(k, [...(listingSent.get(k) ?? []), { ts: r.ts, key: r.key }])
+  }
+  const lastFloor = new Map<string, { ts: number; key: string }[]>()
+  for (const r of floors) {
+    // The direction is in the dedupe key: floor:<contract>:<up|down>:<bucket>.
+    const k = `${r.chatId}:${r.token}:${r.key.split(":")[2]}`
+    lastFloor.set(k, [...(lastFloor.get(k) ?? []), { ts: r.ts, key: r.key }])
+  }
   const watch = new Map<string, Set<string>>()
   const mute = new Map<string, Set<string>>()
   for (const s of subs) {
@@ -165,6 +333,10 @@ export async function loadAudience(sql: Sql, tokens: string[]): Promise<Audience
     watch,
     mute,
     lastPump,
+    watches: owners(nftWatches),
+    nftMutes: owners(nftMuteRows),
+    listingSent,
+    lastFloor,
   }
 }
 

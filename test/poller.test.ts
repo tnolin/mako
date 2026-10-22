@@ -7,7 +7,19 @@ import type { DevHolds } from "../src/rpc"
 import { allOff, basicPreset } from "../src/settings"
 import { addChat, addUser, listDeliveries, subscribe } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
-import { addr, bond, hash, launch, NATIVE, nftSale, T0, trade } from "./helpers/events"
+import {
+  addr,
+  bond,
+  hash,
+  launch,
+  NATIVE,
+  nftCollection,
+  nftDrop,
+  nftMint,
+  nftSale,
+  T0,
+  trade,
+} from "./helpers/events"
 import { connectAsBotRole } from "./helpers/roles"
 
 const prices: Prices = { usd: () => 2500, symbol: (q) => (q === NATIVE ? "ETH" : "xStock") }
@@ -610,4 +622,115 @@ it("launchpad events ignore the cutoff", async () => {
   await insertEvents(sql, [launch({ blockTimestamp: T0 }), nftSale({ blockTimestamp: T0 })])
   await pollOnce(deps({ now: () => T0 + 100, nftAlertsSince: T0 + 5000, rules: s.rules }))
   expect(s.types).toEqual([`launchpad.launch@${T0}`])
+})
+
+// Task 9: NFT rules run end to end through the poller.
+const NFT = addr(0xc0)
+const nftRows = async () =>
+  (
+    await sql<
+      {
+        chat_id: string
+        alert: string
+        dedupe_key: string
+        priority: number
+        token: string
+        card: { type: string }
+      }[]
+    >`
+      select chat_id::text, alert, dedupe_key, priority, token, card from bot.deliveries order by created_at, dedupe_key`
+  ).map((r) => ({ ...r, type: r.card.type }))
+
+it("poller end to end: nft.drop then nft.mint rows land with the right keys and priorities", async () => {
+  await addUser(sql, 101)
+  await addChat(sql, -1001, "supergroup")
+  await insertEvents(sql, [nftCollection(), nftDrop({ blockTimestamp: T0 + 60 })])
+  expect(await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: 0 }))).toBe(2)
+  await insertEvents(sql, [nftMint({ blockTimestamp: T0 + 3600 })])
+  await pollOnce(deps({ now: () => T0 + 3610, nftAlertsSince: 0 }))
+  const rows = await nftRows()
+  expect(rows).toEqual([
+    expect.objectContaining({
+      chat_id: "101",
+      alert: "upcoming",
+      dedupe_key: `upcoming:${NFT}`,
+      priority: 3,
+      token: NFT,
+      type: "nftalert",
+    }),
+    expect.objectContaining({
+      chat_id: "101",
+      alert: "mintstart",
+      dedupe_key: `mintstart:${NFT}:0`,
+      priority: 2,
+      token: NFT,
+      type: "nftalert",
+    }),
+  ])
+})
+
+it("keeps the NFT state across passes, so a collection turning real is caught up once", async () => {
+  await addUser(sql, 101)
+  const shared = {}
+  const d = (now: number) => deps({ now: () => now, nftAlertsSince: 0, nftState: shared })
+  const pending = nftCollection({
+    verdict: "pending",
+    gates: {
+      page: "pending",
+      structure: "pending",
+      traits: "pending",
+      farm: "n/a",
+      farmShareBps: null,
+    },
+  })
+  await insertEvents(sql, [pending, nftDrop({ blockTimestamp: T0 + 60 })])
+  await pollOnce(d(T0 + 120))
+  expect(await nftRows()).toEqual([])
+  await insertEvents(sql, [nftCollection({ verdict: "real", blockTimestamp: T0 + 130 })])
+  await pollOnce(d(T0 + 140))
+  expect((await nftRows()).map((r) => r.alert)).toEqual(["upcoming"])
+  // Nothing more on a repeat snapshot.
+  await insertEvents(sql, [nftCollection({ verdict: "real", blockTimestamp: T0 + 150 })])
+  await pollOnce(d(T0 + 160))
+  expect(await nftRows()).toHaveLength(1)
+})
+
+it("rebuilds the NFT state from the cursor after a failed pass, so a transition is still seen once", async () => {
+  await addUser(sql, 101)
+  const shared: { current?: unknown } = {}
+  const pending = nftCollection({ verdict: "pending" })
+  await insertEvents(sql, [pending, nftDrop({ blockTimestamp: T0 + 60 })])
+  await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: 0, nftState: shared as never }))
+  await insertEvents(sql, [nftCollection({ verdict: "real", blockTimestamp: T0 + 130 })])
+  const failing = Object.assign(new Error("db down"), { code: "ECONNRESET" })
+  await expect(
+    pollOnce(
+      deps({
+        now: () => T0 + 140,
+        nftAlertsSince: 0,
+        nftState: shared as never,
+        rules: async () => {
+          throw failing
+        },
+      }),
+    ),
+  ).rejects.toThrow("db down")
+  expect(shared.current).toBeUndefined()
+  await pollOnce(deps({ now: () => T0 + 150, nftAlertsSince: 0, nftState: shared as never }))
+  expect((await nftRows()).map((r) => r.alert)).toEqual(["upcoming"])
+})
+
+it("applies backfilled NFT history to the state but sends nothing for it", async () => {
+  await addUser(sql, 101)
+  // Old snapshot and drop (before the cutoff), then a live mint start for the same collection.
+  await insertEvents(sql, [
+    nftCollection({ blockTimestamp: T0 - 5000 }),
+    nftDrop({ blockTimestamp: T0 - 4000 }),
+  ])
+  await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: T0 }))
+  expect(await nftRows()).toEqual([])
+  await insertEvents(sql, [nftMint({ blockTimestamp: T0 + 3600 })])
+  await pollOnce(deps({ now: () => T0 + 3610, nftAlertsSince: T0 }))
+  // The mint start knows the collection is real because the old snapshot built the state.
+  expect(await nftRows()).toEqual([expect.objectContaining({ alert: "mintstart", chat_id: "101" })])
 })

@@ -51,6 +51,13 @@ it("cannot read any other indexer table", async () => {
   await expect(bot`select * from indexer.tokens`).rejects.toThrow(/permission denied/)
 })
 
+it("lets the bot role take from the OpenSea budget and nothing else of it", async () => {
+  expect((await bot`select indexer.opensea_take(0) as wait`)[0]!.wait).toBe(0)
+  await bot`select indexer.opensea_block(0)`
+  await expect(bot`select * from indexer.opensea_budget`).rejects.toThrow(/permission denied/)
+  await expect(bot`select indexer.opensea_configure(10)`).rejects.toThrow(/permission denied/)
+})
+
 it("uses the bot indexes for creator lookups and the latest bonds", async () => {
   // events-v2 adds events_type_entity_id beside events_type_id, so on an empty table the planner may pick
   // either. With rows and statistics the newest-first read must still use events_type_id, as in production.

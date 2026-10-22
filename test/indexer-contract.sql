@@ -32,7 +32,8 @@ create table indexer.cursors (
 );
 
 -- Stubs of 0006_opensea_budget.sql. MAKO reads the budget only through opensea_take and opensea_block;
--- opensea_configure is the indexer's. The bodies are the migration's, minus the comments.
+-- opensea_configure is the indexer's, so its body here is a stand-in that only proves the bot can't run it.
+-- The bodies of the other two are the migration's, minus the comments.
 create table indexer.opensea_budget (
   id int primary key check (id = 1),
   tokens double precision not null,
@@ -42,6 +43,12 @@ create table indexer.opensea_budget (
   blocked_until timestamptz not null default 'epoch'
 );
 insert into indexer.opensea_budget (id, tokens, capacity, refill_per_s) values (1, 500, 500, 500 / 3600.0);
+
+create function indexer.opensea_configure(per_hour int) returns void
+language plpgsql security definer set search_path = indexer, pg_temp as $$
+begin
+  update opensea_budget set capacity = per_hour, refill_per_s = per_hour / 3600.0 where id = 1;
+end $$;
 
 create function indexer.opensea_take(class int) returns int
 language plpgsql security definer set search_path = indexer, pg_temp as $$
@@ -95,4 +102,4 @@ language sql security definer set search_path = indexer, pg_temp as $$
   where id = 1
 $$;
 
-revoke all on function indexer.opensea_take(int), indexer.opensea_block(int) from public;
+revoke all on function indexer.opensea_configure(int), indexer.opensea_take(int), indexer.opensea_block(int) from public;

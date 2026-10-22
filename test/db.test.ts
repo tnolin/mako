@@ -15,11 +15,14 @@ it("creates the bot schema once", async () => {
     select table_name from information_schema.tables where table_schema = 'bot' order by 1`
   expect(tables.map((t) => t.table_name)).toEqual([
     "chats",
+    "collection_mutes",
     "commands_daily",
     "deliveries",
     "delivery_daily",
     "migrations",
+    "nft_watches",
     "notices",
+    "reminders",
     "state",
     "subscriptions",
     "token_images",

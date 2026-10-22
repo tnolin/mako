@@ -19,7 +19,7 @@ const PLATFORMS: Record<string, string> = {
 
 /**
  * The OpenSea page for /n/* paths, with the identifier to log (a slug or a contract), or null for a path
- * that is not one. OpenSea has no referral program, so the URL is plain; a code would go here.
+ * that is not one. OpenSea links carry no referral code. The URL is plain; a code would go here.
  */
 function nftTarget(path: string): { to: string; id: string } | null {
   let m = NFT_COLLECTION.exec(path)

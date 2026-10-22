@@ -75,3 +75,21 @@ export async function salesSince(
     where type = 'nft.sale' and entity = ${contract} and (payload->>'blockTimestamp')::bigint >= ${sinceTs}`
   return { count: r!.count, sumWei: BigInt(r!.sum) }
 }
+
+/** One page of a collection's sales, newest first, and how many sales it has in all. */
+export async function recentSales(
+  sql: Sql,
+  contract: string,
+  offset: number,
+  limit: number,
+): Promise<{ rows: Row<NftSaleEvent>[]; total: number }> {
+  const [rows, [t]] = await Promise.all([
+    sql<Row<NftSaleEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where type = 'nft.sale' and entity = ${contract}
+      order by events.id desc limit ${limit} offset ${offset}`,
+    sql<{ n: number }[]>`
+      select count(*)::int as n from indexer.events where type = 'nft.sale' and entity = ${contract}`,
+  ])
+  return { rows, total: t!.n }
+}

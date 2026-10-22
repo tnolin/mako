@@ -402,8 +402,20 @@ describe("discovery lists", () => {
     expect(m.text.split("\n")[0]).toBe("<b>Hot now (24h)</b>")
     expect(m.text).toContain("1. $GOBLO · Goblo · 1 trade (24h)")
     expect(kbOf(m)).toEqual([
-      [{ text: "$GOBLO", callback_data: `t:${A}` }],
-      [{ text: "Menu", callback_data: "m" }],
+      [{ text: "$GOBLO", callback_data: `t:${A}:hot` }],
+      [{ text: "Back", callback_data: "tk" }],
+    ])
+  })
+
+  it("a token card opened from a list ends with Back to that list, and keeps it on Refresh", async () => {
+    await h.tap(`t:${A}:near`)
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.at(-1)).toEqual([{ text: "Back", callback_data: "l:near" }])
+    expect(kb[1]![0]).toEqual({ text: "Refresh", callback_data: `tr:${A}:near` })
+    h.clear()
+    await h.tap(`tr:${A}:near`, { photo: true })
+    expect(kbOf(h.last("editMessageCaption")).at(-1)).toEqual([
+      { text: "Back", callback_data: "l:near" },
     ])
   })
 
@@ -420,7 +432,7 @@ describe("discovery lists", () => {
     await h.tap("l:hot")
     const m = h.last("editMessageText")!
     expect(m.text).toBe(`<b>Hot now</b>\n${EMPTY.hot}`)
-    expect(kbOf(m)).toEqual([[{ text: "Menu", callback_data: "m" }]])
+    expect(kbOf(m)).toEqual([[{ text: "Back", callback_data: "tk" }]])
   })
 
   it("lists unbonded tokens from 10% by progress, leaving out bonded, 0% and quiet ones", async () => {
@@ -440,7 +452,7 @@ describe("discovery lists", () => {
     await h.tap("l:near")
     const m = h.last("editMessageText")!
     expect(m.text).toBe("<b>Near bonding</b>\n1. $GOBLO · Goblo · 80%\n2. $BEE · Bee · 30%")
-    expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "$BEE", "Menu"])
+    expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "$BEE", "Back"])
   })
 
   it("keeps a token near bonding for 7 days", async () => {
@@ -467,7 +479,7 @@ describe("discovery lists", () => {
     await h.tap(`l:${kind}`)
     const m = h.last("editMessageText")!
     expect(m.text).toContain(EMPTY[kind])
-    expect(kbOf(m)).toEqual([[{ text: "Menu", callback_data: "m" }]])
+    expect(kbOf(m)).toEqual([[{ text: "Back", callback_data: "tk" }]])
   })
 })
 

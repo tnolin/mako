@@ -9,7 +9,7 @@ import type {
 import type { Sql } from "../db"
 import type { Row } from "../history"
 import { findAddress } from "../platforms/telegram/ui"
-import { parseOpenSeaLink } from "./match"
+import { normalise, parseOpenSeaLink } from "./match"
 import { isTeamStage } from "./policy"
 
 /** What the rules and screens know about one collection: the latest event of each kind. */
@@ -50,9 +50,6 @@ const empty = (): CollectionState => ({
   stats: null,
   launch: null,
 })
-
-/** Lowercase letters and digits only. */
-export const normalise = (s: string): string => s.toLowerCase().replace(/[^\p{L}\p{N}]/gu, "")
 
 const verdictRank = (s: CollectionState) => (s.col?.verdict === "real" ? 0 : 1)
 const owners = (s: CollectionState) => s.stats?.owners ?? 0

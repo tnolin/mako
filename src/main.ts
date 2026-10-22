@@ -58,11 +58,23 @@ const nftAlertsSince = nftSince ? Number(nftSince) : undefined
 // Stores the first start time now, so the cutoff is not set by the first NFT event that arrives.
 await nftCutoff(sql, nftAlertsSince)
 
+// One NFT collection state, kept by the poller and read by the bot and the reminder scheduler.
+const nftState: { current?: NftState } = {}
 const prices = createPrices({ log, report: (m) => reporter.message(m) })
 const stopPrices = prices.start()
 const images = createImages({ fetch, cache: sqlImageCache(sql), log })
 const readSqrtPrice = rpcSqrtPrice(env.INK_RPC_URL || DEFAULT_RPC)
-const bot = createBot({ token, sql, prices, log, report, linksBase, images, readSqrtPrice })
+const bot = createBot({
+  token,
+  sql,
+  prices,
+  log,
+  report,
+  linksBase,
+  images,
+  readSqrtPrice,
+  nft: () => nftState.current,
+})
 await bot.init()
 const botUsername = bot.botInfo.username
 
@@ -97,8 +109,6 @@ await Promise.all([
 ]).catch((err) => log("warn", "could not set commands or description", { error: String(err) }))
 
 const balanceOf = rpcBalanceOf(env.INK_RPC_URL || DEFAULT_RPC)
-// One NFT collection state, kept by the poller and read by the reminder scheduler.
-const nftState: { current?: NftState } = {}
 const stopPoller = startPoller({
   sql,
   prices,

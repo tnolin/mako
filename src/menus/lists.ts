@@ -46,7 +46,8 @@ async function entries(deps: BotDeps, kind: Kind): Promise<{ title: string; list
 /** A discovery screen: its HTML and keyboard. Read-only; never touches a user row. */
 export async function listScreen(deps: BotDeps, kind: Kind): Promise<{ html: string; kb: Kb }> {
   const { title, list } = await entries(deps, kind)
-  const menu: Kb = [[btn("Menu", "m")]]
+  // A list ends with Back to the Tokens screen, and its rows open a card with Back to the list.
+  const menu: Kb = [[btn("Back", "tk")]]
   if (list.length === 0) return { html: `<b>${title}</b>\n${EMPTY[kind]}`, kb: menu }
   const meta = await launchesOf(
     deps.sql,
@@ -59,7 +60,7 @@ export async function listScreen(deps: BotDeps, kind: Kind): Promise<{ html: str
   )
   return {
     html: [`<b>${title}</b>`, ...lines].join("\n"),
-    kb: [...list.map((e) => [btn(label(e.token), `t:${e.token}`)]), ...menu],
+    kb: [...list.map((e) => [btn(label(e.token), `t:${e.token}:${kind}`)]), ...menu],
   }
 }
 

@@ -12,6 +12,7 @@ import { isPoolId, poolMcap } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
 import { devCounts, windowStats } from "../rules/stats"
 import type { BotDeps } from "./deps"
+import { tryNftPaste } from "./nft"
 import { WATCH_PROMPT, watchToken } from "./watchlist"
 
 export const LOOKUP_PROMPT = "Send a token address."
@@ -125,16 +126,23 @@ export function tokenKb(
   ca: string,
   /** In a DM: a Watch button. Elsewhere: a deep link into the bot. */
   watch: { dm: true; watching: boolean } | { dm: false; botUsername: string },
+  /** Opened from a list: a Back row to it. */
+  back?: string,
 ): Kb {
-  return [
+  const kb: Kb = [
     [
       link("Trade", tradeUrl(deps.linksBase, ca)),
       watch.dm
         ? btn(watch.watching ? "Watching" : "Watch", `w:${ca}`)
         : link("Watch", `https://t.me/${watch.botUsername}?start=w_${ca}`),
     ],
-    [btn("Refresh", `tr:${ca}`), link("Explorer", `https://explorer.inkonchain.com/token/${ca}`)],
+    [
+      btn("Refresh", `tr:${ca}${back ? `:${back}` : ""}`),
+      link("Explorer", `https://explorer.inkonchain.com/token/${ca}`),
+    ],
   ]
+  if (back) kb.push([btn("Back", `l:${back}`)])
+  return kb
 }
 
 async function isWatching(deps: BotDeps, tg: number, ca: string): Promise<boolean> {
@@ -150,6 +158,7 @@ async function loadCard(
   deps: BotDeps,
   raw: string,
   missing: (text: string) => Promise<void> = (text) => show(ctx, escapeHtml(text)),
+  back?: string,
 ) {
   const ca = findAddress(raw)
   if (!ca) {
@@ -163,13 +172,18 @@ async function loadCard(
   }
   const dm = ctx.chat?.type === "private"
   const watching = dm && ctx.from ? await isWatching(deps, ctx.from.id, ca) : false
-  const kb = tokenKb(deps, ca, dm ? { dm, watching } : { dm, botUsername: ctx.me.username })
+  const kb = tokenKb(deps, ca, dm ? { dm, watching } : { dm, botUsername: ctx.me.username }, back)
   return { ca, ...card, kb }
 }
 
 /** Sends the card as a new message: a padded photo with the card as caption, or text. */
-export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
-  const card = await loadCard(ctx, deps, raw)
+export async function sendTokenCard(
+  ctx: Context,
+  deps: BotDeps,
+  raw: string,
+  back?: string,
+): Promise<void> {
+  const card = await loadCard(ctx, deps, raw, undefined, back)
   if (!card) return
   // Fetching and uploading the image can take seconds; the tap is answered first.
   if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
@@ -184,7 +198,12 @@ export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): P
 }
 
 /** Refresh edits the tapped card in place: the caption of a photo, the text of a text card. */
-async function refreshTokenCard(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
+async function refreshTokenCard(
+  ctx: Context,
+  deps: BotDeps,
+  raw: string,
+  back?: string,
+): Promise<void> {
   const tapped = ctx.callbackQuery?.message
   const isPhoto = !!tapped && "photo" in tapped && !!tapped.photo
   // A photo cannot be edited into the "not a token" text, so that case is answered in place.
@@ -195,6 +214,7 @@ async function refreshTokenCard(ctx: Context, deps: BotDeps, raw: string): Promi
     isPhoto
       ? (text) => ctx.answerCallbackQuery({ text }).then(() => {})
       : (text) => show(ctx, escapeHtml(text)),
+    back,
   )
   if (!card) return
   const reply_markup = { inline_keyboard: card.kb }
@@ -229,9 +249,11 @@ async function refreshTokenCard(ctx: Context, deps: BotDeps, raw: string): Promi
 
 export function registerToken(bot: Bot, deps: BotDeps): void {
   bot.command("t", (ctx) => sendTokenCard(ctx, deps, ctx.match))
-  bot.callbackQuery(/^t:(0x[0-9a-f]{40})$/, (ctx) => sendTokenCard(ctx, deps, ctx.match[1]!))
+  bot.callbackQuery(/^t:(0x[0-9a-f]{40})(?::(hot|near|bonded))?$/, (ctx) =>
+    sendTokenCard(ctx, deps, ctx.match[1]!, ctx.match[2]),
+  )
   const cooldown = refreshCooldown(REFRESH_COOLDOWN_MS)
-  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})$/, async (ctx) => {
+  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})(?::(hot|near|bonded))?$/, async (ctx) => {
     const ca = ctx.match[1]!
     // Checked before any read: a tap inside the cooldown touches neither the database nor the node.
     const wait = cooldown(`${ctx.from.id}:${ca}`)
@@ -239,7 +261,7 @@ export function registerToken(bot: Bot, deps: BotDeps): void {
       await ctx.answerCallbackQuery({ text: `Up to date, try again in ${wait}s` }).catch(() => {})
       return
     }
-    await refreshTokenCard(ctx, deps, ca)
+    await refreshTokenCard(ctx, deps, ca, ctx.match[2])
   })
   const pm = bot.chatType("private")
   pm.callbackQuery("look", async (ctx) => {
@@ -252,8 +274,15 @@ export function registerToken(bot: Bot, deps: BotDeps): void {
     const r = ctx.msg.reply_to_message
     const prompt = r?.from?.id === ctx.me.id ? r.text : undefined
     if (prompt === WATCH_PROMPT) return watchToken(ctx, deps, ctx.msg.text)
-    if (prompt === LOOKUP_PROMPT || findAddress(ctx.msg.text))
-      return sendTokenCard(ctx, deps, ctx.msg.text)
+    const text = ctx.msg.text
+    const ca = findAddress(text)
+    if (ca) {
+      // A launch event match opens the token card first; else a known collection opens its card.
+      if (!(await launchOf(deps.sql, ca)) && (await tryNftPaste(ctx, deps, text))) return
+      return sendTokenCard(ctx, deps, text)
+    }
+    if (prompt === LOOKUP_PROMPT) return sendTokenCard(ctx, deps, text)
+    if (await tryNftPaste(ctx, deps, text)) return
     return next()
   })
 }

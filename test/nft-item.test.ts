@@ -302,7 +302,7 @@ describe("NFT card", () => {
     await boot()
     await h.tap("nl:t24")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>[COPY NEEDED: Trending list title]</b>")
+    expect(m.text).toBe("<b>Trending</b>")
     const kb = kbOf(m)
     expect(kb[0]).toEqual([
       { text: "1h", callback_data: "nl:t1" },
@@ -320,12 +320,12 @@ describe("NFT card", () => {
     await boot()
     await h.tap("nl:t1")
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>[COPY NEEDED: Trending list title]</b>\nNo Ink collections are trending in this timeframe.",
+      "<b>Trending</b>\nNo Ink collections are trending in this timeframe.",
     )
     route = () => json({}, 500)
     await h.tap("nl:t7")
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>[COPY NEEDED: Trending list title]</b>\nTrending isn't available right now. Try again in a few minutes.",
+      "<b>Trending</b>\nTrending isn't available right now. Try again in a few minutes.",
     )
   })
 

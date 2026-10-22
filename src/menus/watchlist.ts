@@ -5,7 +5,7 @@ import { clean } from "../format"
 import { launchesOf, launchOf } from "../history"
 import { classify } from "../platforms/telegram/errors"
 import { btn, findAddress, type Kb, show, stateBtn } from "../platforms/telegram/ui"
-import { dm, LIMIT_GAP, NOT_FOUND, popup } from "./copy"
+import { dm, NOT_FOUND, popup, WATCH_LIMIT, WATCH_USAGE } from "./copy"
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER, type User } from "./users"
 import { sendWelcome } from "./welcome"
@@ -64,7 +64,7 @@ const dmKb = (ca: string): Kb => [
 export async function watchToken(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
   const ca = findAddress(raw)
   if (!ca || !ctx.from) {
-    await ctx.reply("Send /watch followed by a token address.")
+    await ctx.reply(WATCH_USAGE)
     return
   }
   const l = await launchOf(deps.sql, ca)
@@ -76,7 +76,7 @@ export async function watchToken(ctx: Context, deps: BotDeps, raw: string): Prom
   const { user, created } = await ensureUser(deps.sql, ctx.from.id)
   const r = await addWatch(deps, user, ca)
   if (r === "limit") {
-    await ctx.reply(LIMIT_GAP)
+    await ctx.reply(WATCH_LIMIT)
     return
   }
   const name = `$${clean(l.p.ticker, 32)}`
@@ -177,7 +177,7 @@ export function registerWatchlist(bot: Bot, deps: BotDeps): void {
         text = popup.stop(name)
       } else {
         const r = await addWatch(deps, user, ca)
-        if (r === "limit") return void (await ctx.answerCallbackQuery({ text: LIMIT_GAP }))
+        if (r === "limit") return void (await ctx.answerCallbackQuery({ text: WATCH_LIMIT }))
         text = popup.watch(name)
       }
     } else if (await remove(deps, user, "mute", ca)) {

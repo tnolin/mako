@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { dm, LIMIT_GAP, NOT_FOUND, popup } from "../src/menus/copy"
+import { dm, NOT_FOUND, popup, WATCH_LIMIT } from "../src/menus/copy"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { watch } from "../src/nft/watches"
 import { createBot } from "../src/platforms/telegram/bot"
@@ -63,7 +63,10 @@ const rows = (table: "nft_watches" | "collection_mutes" | "reminders") =>
 
 describe("copy", () => {
   it("pop-up copy per action", () => {
-    expect(popup.watch("$TIDE")).toBe("Watching $TIDE. You'll get all its alerts.")
+    expect(popup.watch("$TIDE")).toBe("Watching $TIDE. I'll send you every alert for it.")
+    expect(dm.groupWatching(N)).toBe(
+      "Watching Ink Hornet. I'll send every alert for it to this group.",
+    )
     expect(popup.stop(N)).toBe("Stopped watching Ink Hornet. It can still appear in your feeds.")
     expect(popup.remind()).toBe("Reminder set. I'll message you 15 mins before each mint stage.")
     expect(popup.unremind(N)).toBe("Reminder removed for Ink Hornet.")
@@ -155,7 +158,7 @@ describe("buttons in a DM", () => {
   it("the 51st watch says the limit and adds nothing", async () => {
     for (let i = 0; i < 50; i++) await watch(sql, { userId }, addr(0x7000 + i))
     await h.tap(`nwa:${C}`, { keyboard: alertKb })
-    expect(h.last("answerCallbackQuery")!.text).toBe(LIMIT_GAP)
+    expect(h.last("answerCallbackQuery")!.text).toBe(WATCH_LIMIT)
     expect(await rows("nft_watches")).toHaveLength(50)
     expect(h.last("editMessageReplyMarkup")).toBeUndefined()
   })
@@ -267,7 +270,7 @@ describe("from a group", () => {
     expect(await sql`select contract, chat_id::text from bot.nft_watches`).toEqual([
       { contract: C, chat_id: "-1001" },
     ])
-    expect(h.last("sendMessage")!.text).toBe(popup.watch(N))
+    expect(h.last("sendMessage")!.text).toBe(dm.groupWatching(N))
     await h.text("/watch ink-hornet", { chat: groupFrom, from: 200 })
     expect(h.last("sendMessage")!.text).toBe(dm.alreadyWatching(N))
     await h.text("/watch nothing-here", { chat: groupFrom, from: 200 })
@@ -294,6 +297,13 @@ describe("from a group", () => {
 })
 
 describe("/watch in a DM", () => {
+  it("says what to send when /watch has nothing after it", async () => {
+    await h.text("/watch")
+    expect(h.last("sendMessage")!.text).toBe(
+      "Send /watch followed by a token or NFT collection address.",
+    )
+  })
+
   it("watches a collection by slug and sends the DM message", async () => {
     await h.text("/watch ink-hornet")
     expect(h.last("sendMessage")!.text).toBe(dm.watching(N, "nft"))

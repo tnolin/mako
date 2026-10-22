@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { dm, LIMIT_GAP, NOT_FOUND, popup } from "../src/menus/copy"
+import { dm, NOT_FOUND, popup, WATCH_LIMIT } from "../src/menus/copy"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
@@ -99,7 +99,7 @@ describe("Watch and Mute on a token", () => {
   it("the 51st watch says the limit", async () => {
     for (let i = 0; i < 50; i++) await subscribe(sql, userId, "watch", addr(0x5000 + i))
     await h.tap(`w:${A}`, { keyboard: alertKb })
-    expect(h.last("answerCallbackQuery")!.text).toBe(LIMIT_GAP)
+    expect(h.last("answerCallbackQuery")!.text).toBe(WATCH_LIMIT)
     expect(await sql`select 1 from bot.subscriptions`).toHaveLength(50)
   })
 
@@ -172,7 +172,7 @@ describe("/watch and the w_ deep link", () => {
   it("caps the watchlist at 50", async () => {
     for (let i = 0; i < 50; i++) await subscribe(sql, userId, "watch", addr(0x5000 + i))
     await h.text(`/watch ${A}`)
-    expect(h.last("sendMessage")!.text).toBe(LIMIT_GAP)
+    expect(h.last("sendMessage")!.text).toBe(WATCH_LIMIT)
   })
 })
 

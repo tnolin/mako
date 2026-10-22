@@ -20,7 +20,7 @@ import {
 import { classify } from "../platforms/telegram/errors"
 import { btn, btnOn, findAddress, isAdmin, type Kb, show, stateBtn } from "../platforms/telegram/ui"
 import { NOT_ADMIN } from "./alerts"
-import { dm, LIMIT_GAP, NOT_FOUND, popup } from "./copy"
+import { dm, NOT_FOUND, popup, WATCH_LIMIT, WATCH_USAGE } from "./copy"
 import type { BotDeps } from "./deps"
 import { COPY, openMatch } from "./nft"
 import { ensureUser, findUser, NO_USER, type User } from "./users"
@@ -33,8 +33,6 @@ const WATCHED_EMPTY =
   "You're not watching anything yet. Tap Watch on any alert or card to add it here."
 const MUTED_INTRO = "I won't send you any alerts about these. Tap Unmute to undo."
 const MUTED_EMPTY = "You haven't muted anything."
-/** Shown for /watch with nothing after it, in a group (groups watch collections only). */
-const GROUP_USAGE_GAP = "[COPY NEEDED: /watch with nothing after it, in a group]"
 
 /** A list button: names are cut to 17 characters plus … when longer than 18. */
 export const cutName = (name: string): string => {
@@ -132,7 +130,7 @@ export async function nftDeepLink(
     return
   }
   const r = await watch(deps.sql, { userId: user.id }, contract)
-  if (r === "limit") return void (await ctx.reply(LIMIT_GAP))
+  if (r === "limit") return void (await ctx.reply(WATCH_LIMIT))
   if (r === "added") await log(deps, "watch_nft", contract)
   await send(
     r === "added" ? dm.watching(name, "nft") : dm.alreadyWatching(name),
@@ -193,10 +191,7 @@ async function mutedScreen(ctx: Context, deps: BotDeps, owner: Owner) {
 async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
   const isDm = ctx.chat?.type === "private"
   const text = raw.trim()
-  if (!text)
-    return void (await ctx.reply(
-      isDm ? "Send /watch followed by a token address." : GROUP_USAGE_GAP,
-    ))
+  if (!text) return void (await ctx.reply(WATCH_USAGE))
   if (!isDm && !(await isAdmin(ctx.api, ctx.chat!.id, ctx.from!.id)))
     return void (await ctx.reply(NOT_ADMIN))
   const ca = findAddress(text)
@@ -210,7 +205,7 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
   if (isDm) {
     const { user, created } = await ensureUser(deps.sql, ctx.from!.id)
     const r = await watch(deps.sql, { userId: user.id }, contract)
-    if (r === "limit") return void (await ctx.reply(LIMIT_GAP))
+    if (r === "limit") return void (await ctx.reply(WATCH_LIMIT))
     if (r === "added") await log(deps, "watch_nft", contract)
     await ctx.reply(r === "added" ? dm.watching(name, "nft") : dm.alreadyWatching(name), {
       parse_mode: "HTML",
@@ -222,7 +217,7 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
   }
   const chatId = String(ctx.chat!.id)
   const r = await watch(deps.sql, { chatId }, contract)
-  if (r === "limit") return void (await ctx.reply(LIMIT_GAP))
+  if (r === "limit") return void (await ctx.reply(WATCH_LIMIT))
   if (r === "added")
     await logAction(deps.sql, {
       chatType: ctx.chat!.type as "group",
@@ -230,7 +225,7 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
       action: "watch_nft",
       token: contract,
     })
-  await ctx.reply(r === "added" ? escapeHtml(popup.watch(name)) : dm.alreadyWatching(name), {
+  await ctx.reply(r === "added" ? dm.groupWatching(name) : dm.alreadyWatching(name), {
     parse_mode: "HTML",
     message_thread_id:
       ctx.msg && "is_topic_message" in ctx.msg && ctx.msg.is_topic_message
@@ -246,7 +241,7 @@ export function registerWatches(bot: Bot, deps: BotDeps): void {
     new RegExp(`^nwa:${c}$`),
     tap(deps, async (u, contract, name) => {
       const r = await watch(deps.sql, { userId: u.id }, contract)
-      if (r === "limit") return { text: LIMIT_GAP, edit: false }
+      if (r === "limit") return { text: WATCH_LIMIT, edit: false }
       if (r === "added") await log(deps, "watch_nft", contract)
       return { text: popup.watch(name), edit: true }
     }),

@@ -47,6 +47,8 @@ export const COPY = {
   noMinting: "There are no live mints detected right now.",
   noUpcoming: "No results in the next 7 days.",
   noTrending: "No Ink collections are trending in this timeframe.",
+  // Not supplied: the owner approved the titles Minting now and Upcoming only.
+  trendingTitle: "[COPY NEEDED: Trending list title]",
   trendingDown: "Trending isn't available right now. Try again in a few minutes.",
 } as const
 /** From the approved formats ("NFT card"). */
@@ -523,7 +525,7 @@ async function showTrending(
   code: keyof typeof TIMEFRAME,
 ): Promise<void> {
   const rows = await trendingRows(deps, code)
-  const title = "<b>Trending</b>"
+  const title = `<b>${COPY.trendingTitle}</b>`
   const back: Kb = [[btn("Back", "nfts")]]
   const frames: Kb = [
     (Object.keys(TIMEFRAME) as (keyof typeof TIMEFRAME)[]).map((c) =>

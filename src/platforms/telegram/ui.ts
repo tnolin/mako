@@ -7,6 +7,53 @@ export const btn = (text: string, data: string): InlineKeyboardButton => ({
   text,
   callback_data: data,
 })
+
+/** Bot API button style for an active state. Every screen goes through the helpers below, never `style`. */
+export const btnOn = (text: string, data: string): InlineKeyboardButton => ({
+  text,
+  callback_data: data,
+  style: "success",
+})
+
+// BUTTON_COLOURS=0 is the fallback if a supported Telegram client shows no button colours: one flag, set
+// at startup, for everyone. Toggles then read `: on`/`: off` and chosen values get a `· ` prefix.
+let colours = true
+export function setButtonColours(on: boolean): void {
+  colours = on
+}
+type StateOpts = { textState: boolean }
+const textState = (o?: StateOpts) => o?.textState ?? !colours
+
+/** An alert switch: green when on, plain (grey) when off. */
+export function toggleBtn(
+  label: string,
+  on: boolean,
+  data: string,
+  opts?: StateOpts,
+): InlineKeyboardButton {
+  const text = textState(opts) ? `${label}: ${on ? "on" : "off"}` : label
+  return on ? btnOn(text, data) : btn(text, data)
+}
+
+/** Watch / Watching, Mute / Muted, Remind me / Reminder set. The state word is the label, so no fallback. */
+export function stateBtn(
+  s: { on: boolean; off: string; onText: string },
+  data: string,
+): InlineKeyboardButton {
+  return s.on ? btnOn(s.onText, data) : btn(s.off, data)
+}
+
+/** A chosen value (the active window, a threshold, a selected mark): green, or `· ` in the fallback. */
+export function chosenBtn(
+  label: string,
+  chosen: boolean,
+  data: string,
+  opts?: StateOpts,
+): InlineKeyboardButton {
+  if (!chosen) return btn(label, data)
+  return btnOn(textState(opts) ? `· ${label}` : label, data)
+}
+
 export const link = (text: string, url: string): InlineKeyboardButton => ({ text, url })
 export const COMMUNITY_URL = "https://t.me/MakoOnInk"
 

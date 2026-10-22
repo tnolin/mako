@@ -11,6 +11,7 @@ import { log } from "./log"
 import { createBot } from "./platforms/telegram/bot"
 import { createImages, sqlImageCache } from "./platforms/telegram/images"
 import { createSend } from "./platforms/telegram/send"
+import { setButtonColours } from "./platforms/telegram/ui"
 import { rpcSqrtPrice } from "./pool"
 import { createPrices } from "./prices"
 import { DEFAULT_RPC, readDevHolds, rpcBalanceOf } from "./rpc"
@@ -35,6 +36,7 @@ if (i >= 0 && !/^\d+$/.test(fromId ?? "")) {
   process.exit(2)
 }
 
+setButtonColours(env.BUTTON_COLOURS !== "0")
 const reporter = initSentry(env)
 const report = (err: unknown, extra?: Record<string, unknown>) => reporter.capture(err, extra)
 process.on("unhandledRejection", (err) => {

@@ -1,9 +1,9 @@
 import type { Payload } from "../cards/card"
 import type { Sql } from "../db"
 import type { Candidate } from "../rules/index"
-import { type AlertKind, readSettings, type Settings } from "../settings"
+import { type AlertKind, type ChatType, readSettings, type Settings, wantsImage } from "../settings"
 
-export type ChatType = "private" | "group" | "supergroup" | "channel"
+export type { ChatType }
 
 export type Delivery = {
   eventId: string
@@ -86,7 +86,7 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
       dedupeKey: c.dedupeKey,
       priority: c.priority,
       eventTs: c.eventTs,
-      payload: { type: "card", card: c.card, image: s.alerts[c.alert].image },
+      payload: { type: "card", card: c.card, image: wantsImage(s, c.alert) },
       supersedesBonding: c.supersedesBonding ?? false,
       holds: c.holds,
     })
@@ -157,8 +157,8 @@ export async function loadAudience(sql: Sql, tokens: string[]): Promise<Audience
     lastPump.set(k, [...(lastPump.get(k) ?? []), { ts: p.ts, key: p.key }])
   }
   return {
-    users: users.map((u) => ({ ...u, settings: readSettings(u.settings) })),
-    chats: chats.map((c) => ({ ...c, settings: readSettings(c.settings) })),
+    users: users.map((u) => ({ ...u, settings: readSettings(u.settings, "private") })),
+    chats: chats.map((c) => ({ ...c, settings: readSettings(c.settings, c.chatType) })),
     watch,
     mute,
     lastPump,

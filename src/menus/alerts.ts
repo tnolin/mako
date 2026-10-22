@@ -6,15 +6,16 @@ import { escapeHtml } from "../format"
 import { btn, isAdmin, type Kb, show } from "../platforms/telegram/ui"
 import {
   ALERT_LABEL,
-  ALERT_PATTERN,
   ALERTS,
-  type AlertKind,
   BIG_STEPS,
   basicPreset,
   MARKS,
   type Mark,
   readSettings,
   type Settings,
+  TOKEN_ALERTS,
+  TOKEN_PATTERN,
+  type TokenAlert,
 } from "../settings"
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
@@ -92,7 +93,7 @@ async function scopeFor(
     kind: "chat",
     id,
     chatType: c.kind,
-    settings: readSettings(c.settings),
+    settings: readSettings(c.settings, c.kind),
     active: c.active,
     paused: c.paused_reason,
     // shortcut: saves the whole settings JSON (read-modify-write), so a concurrent sender write to
@@ -133,7 +134,7 @@ async function render(ctx: Context, sc: Scope): Promise<void> {
       }
     }
   }
-  const kb: Kb = ALERTS.map((a) => [
+  const kb: Kb = TOKEN_ALERTS.map((a) => [
     btn(`${ALERT_LABEL[a]} ${s.alerts[a].on ? "on" : "off"}`, `al:${sc.id}:${a}:on`),
     btn(`image ${s.alerts[a].image ? "on" : "off"}`, `al:${sc.id}:${a}:img`),
   ])
@@ -186,10 +187,10 @@ export function registerAlerts(bot: Bot, deps: BotDeps): void {
   const pm = bot.chatType("private")
   pm.command("alerts", (ctx) => alertsScreen(ctx, deps, "u", true))
   pm.callbackQuery(/^al:([^:]+)$/, (ctx) => alertsScreen(ctx, deps, ctx.match[1]!))
-  pm.callbackQuery(new RegExp(`^al:([^:]+):(${ALERT_PATTERN}):(on|img)$`), async (ctx) => {
+  pm.callbackQuery(new RegExp(`^al:([^:]+):(${TOKEN_PATTERN}):(on|img)$`), async (ctx) => {
     const sc = await scopeFor(ctx, deps, ctx.match[1]!)
     if (!sc) return
-    const t = sc.settings.alerts[ctx.match[2] as AlertKind]
+    const t = sc.settings.alerts[ctx.match[2] as TokenAlert]
     if (ctx.match[3] === "on") t.on = !t.on
     else t.image = !t.image
     await sc.save(sc.settings)
@@ -219,7 +220,7 @@ export function registerAlerts(bot: Bot, deps: BotDeps): void {
   pm.callbackQuery(/^al:([^:]+):reset$/, async (ctx) => {
     const sc = await scopeFor(ctx, deps, ctx.match[1]!)
     if (!sc) return
-    const s = basicPreset()
+    const s = basicPreset(sc.kind === "user" ? "private" : sc.chatType)
     if (sc.kind === "chat") {
       // Routing is not an alert preference, so a reset keeps it.
       s.thread = sc.settings.thread

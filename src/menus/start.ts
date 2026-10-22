@@ -1,7 +1,7 @@
 import type { Bot } from "grammy"
 import { logAction } from "../actions"
 import { show } from "../platforms/telegram/ui"
-import { ALERT_PATTERN, type AlertKind, allOff } from "../settings"
+import { allOff, TOKEN_PATTERN, type TokenAlert } from "../settings"
 import { openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
 import { MENU_TEXT, menuKb } from "./main"
@@ -39,10 +39,10 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
       await show(ctx, MENU_TEXT, menuKb(deps.linksBase))
     }
   })
-  pm.callbackQuery(new RegExp(`^ob:(${ALERT_PATTERN})$`), async (ctx) => {
+  pm.callbackQuery(new RegExp(`^ob:(${TOKEN_PATTERN})$`), async (ctx) => {
     const user = await findUser(deps.sql, ctx.from.id)
     if (!user) return show(ctx, NO_USER)
-    const a = ctx.match[1] as AlertKind
+    const a = ctx.match[1] as TokenAlert
     user.settings.alerts[a].on = !user.settings.alerts[a].on
     await saveUserSettings(deps.sql, user.id, user.settings)
     await show(ctx, welcomeText(), welcomeKb(user.settings))

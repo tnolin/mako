@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy"
 import { LAUNCHPADS } from "../launchpads"
 import { btn, COMMUNITY_URL, type Kb, link, show } from "../platforms/telegram/ui"
-import { ALERT_HELP, ALERT_LABEL, ALERTS } from "../settings"
+import { ALERT_HELP, ALERT_LABEL, TOKEN_ALERTS } from "../settings"
 import type { BotDeps } from "./deps"
 import { deleteUserData } from "./users"
 
@@ -22,7 +22,7 @@ export const HELP = {
     "<b>Help</b>\nMAKO posts alerts for Ink memecoins in your DM, your groups and your channels.\nPercentages in alerts are shares of total supply.",
   alerts: [
     "<b>Alerts</b>",
-    ...ALERTS.map((a) => `<b>${ALERT_LABEL[a]}</b>: ${ALERT_HELP[a]}`),
+    ...TOKEN_ALERTS.map((a) => `<b>${ALERT_LABEL[a]}</b>: ${ALERT_HELP[a]}`),
     "",
     "Tokens you watch send every alert except NEW TOKEN to your DM, even for feeds you turned off.",
   ].join("\n"),

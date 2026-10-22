@@ -67,13 +67,17 @@ it("reads no event past maxId and leaves the cursor at the last one it read", as
 
 it("routes to feeds, DM watchers, groups with topics and channels, minus mutes", async () => {
   await addUser(sql, 101)
-  const watcher = await addUser(sql, 102, allOff(basicPreset()))
+  const watcher = await addUser(sql, 102, allOff(basicPreset("private")))
   const muter = await addUser(sql, 103)
   await subscribe(sql, watcher, "watch", L.token)
   await subscribe(sql, muter, "mute", L.token)
-  await addChat(sql, -1001, "supergroup", { ...basicPreset(), thread: 7, routes: { new: 9 } })
+  await addChat(sql, -1001, "supergroup", {
+    ...basicPreset("supergroup"),
+    thread: 7,
+    routes: { new: 9 },
+  })
   await addChat(sql, -1002, "channel")
-  await addChat(sql, -1003, "supergroup", basicPreset(), { active: false })
+  await addChat(sql, -1003, "supergroup", basicPreset("supergroup"), { active: false })
   await insertEvents(sql, [L, trade({ soldBps: 8100, quoteAmount: eth(0.5) })])
   await pollOnce(deps())
   expect(await byChat()).toEqual({
@@ -94,7 +98,7 @@ it("routes to feeds, DM watchers, groups with topics and channels, minus mutes",
 })
 
 it("applies each chat's BIG threshold and keeps the highest BONDING mark it has", async () => {
-  const s = basicPreset()
+  const s = basicPreset("private")
   await addUser(sql, 201, {
     ...s,
     alerts: {
@@ -135,7 +139,7 @@ it("applies each chat's BIG threshold and keeps the highest BONDING mark it has"
 })
 
 it("prefers PUMPING over BIG for one trade, and honours the 60-minute PUMPING cooldown", async () => {
-  const s = basicPreset()
+  const s = basicPreset("private")
   await addUser(sql, 301, {
     ...s,
     alerts: { ...s.alerts, bonding: { ...s.alerts.bonding, on: false } },
@@ -309,7 +313,7 @@ it("runs as the bot role with only the production grants", async () => {
 })
 
 const pumpOnly = () => {
-  const s = basicPreset()
+  const s = basicPreset("private")
   return { ...s, alerts: { ...s.alerts, bonding: { ...s.alerts.bonding, on: false } } }
 }
 const pumpTrade = () => trade({ soldBps: 2000, quoteAmount: eth(0.5), blockTimestamp: T0 + 60 })
@@ -476,7 +480,7 @@ it("leaves a quiet launchpad's NEW TOKEN alerts alone", async () => {
 })
 
 it("routes to the NEW TOKEN topic and skips chats with NEW TOKEN off or paused", async () => {
-  const s = basicPreset()
+  const s = basicPreset("supergroup")
   await addChat(sql, -1001, "supergroup", { ...s, thread: 2, routes: { new: 3 } })
   await addChat(sql, -1002, "supergroup", {
     ...s,

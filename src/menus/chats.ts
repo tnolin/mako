@@ -8,11 +8,12 @@ import { btn, isAdmin, type Kb, link, show, sleep } from "../platforms/telegram/
 import {
   ALERT_LABEL,
   ALERT_PATTERN,
-  ALERTS,
   type AlertKind,
   basicPreset,
+  type ChatType,
   readSettings,
   type Settings,
+  TOKEN_ALERTS,
 } from "../settings"
 import { NOT_ADMIN, openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
@@ -49,9 +50,9 @@ const rights = (extra: { can_promote_members?: boolean }): ChatAdministratorRigh
 
 async function chatSettings(deps: BotDeps, chatId: number | string): Promise<Settings | null> {
   const [c] = await deps.sql<
-    { settings: unknown }[]
-  >`select settings from bot.chats where chat_id = ${chatId} and removed_at is null`
-  return c ? readSettings(c.settings) : null
+    { kind: ChatType; settings: unknown }[]
+  >`select kind, settings from bot.chats where chat_id = ${chatId} and removed_at is null`
+  return c ? readSettings(c.settings, c.kind) : null
 }
 
 /** Creates the chat row (inactive, preset) or revives it. Never deactivates an active row. */
@@ -63,7 +64,7 @@ async function upsertChat(
 ): Promise<void> {
   await deps.sql`
     insert into bot.chats (chat_id, kind, owner, settings, active)
-    values (${chatId}, ${kind}, ${owner}, ${deps.sql.json(json(basicPreset()))}, false)
+    values (${chatId}, ${kind}, ${owner}, ${deps.sql.json(json(basicPreset(kind as ChatType)))}, false)
     on conflict (platform, chat_id) do update set removed_at = null, kind = excluded.kind`
 }
 
@@ -103,7 +104,7 @@ async function linkChannel(
   const { user, created } = await ensureUser(deps.sql, ctx.from!.id)
   await deps.sql`
     insert into bot.chats (chat_id, kind, setup_by, settings, active)
-    values (${chatId}, 'channel', ${user.id}, ${deps.sql.json(json(basicPreset()))}, true)
+    values (${chatId}, 'channel', ${user.id}, ${deps.sql.json(json(basicPreset("channel")))}, true)
     on conflict (platform, chat_id) do update
       set active = true, removed_at = null, paused_reason = null, setup_by = excluded.setup_by, kind = 'channel'`
   await logAction(deps.sql, { chatType: "channel", chatId, action: "setup" })
@@ -117,7 +118,7 @@ async function linkChannel(
 }
 
 function routeKb(s: Settings, thread: number): Kb {
-  return ALERTS.map((a) => [
+  return TOKEN_ALERTS.map((a) => [
     btn(`${s.routes?.[a] === thread ? "✓" : "·"} ${ALERT_LABEL[a]}`, `rt:${a}`),
   ])
 }
@@ -166,7 +167,7 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
       return
     }
     await upsertChat(deps, ctx.chat.id, ctx.chat.type, null)
-    const s = (await chatSettings(deps, ctx.chat.id)) ?? basicPreset()
+    const s = (await chatSettings(deps, ctx.chat.id)) ?? basicPreset(ctx.chat.type as ChatType)
     s.thread = thread
     s.pausedRoutes = []
     const setupBy = (await findUser(deps.sql, ctx.from.id))?.id ?? null
@@ -330,7 +331,7 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
         })
         return
       }
-      const s = readSettings(c.settings)
+      const s = readSettings(c.settings, c.kind as ChatType)
       s.pausedRoutes = []
       // shortcut: writes the whole settings JSON (read-modify-write); a concurrent sender write to
       // pausedRoutes can be overwritten. Upgrade to a targeted jsonb_set update.

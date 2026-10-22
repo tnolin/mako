@@ -127,7 +127,7 @@ it("drops alerts 3 minutes after their event, DEV SELL and BONDED after 30", asy
 })
 
 it("summarises skips once per 10 minutes: neutral in groups, with My alerts in DMs", async () => {
-  await addChat(sql, -1, "supergroup", { ...basicPreset(), thread: 4 })
+  await addChat(sql, -1, "supergroup", { ...basicPreset("supergroup"), thread: 4 })
   await enqueue(-1, "new", { ageMin: 5, thread: 9 })
   await enqueue(-1, "new", { ageMin: 5, thread: 9 })
   await enqueue(42, "new", { ageMin: 5, chatType: "private" })
@@ -202,8 +202,12 @@ it("marks a user blocked and drops their queue", async () => {
 it("handles removal, lost rights and broken topics with a notice", async () => {
   await addChat(sql, -1, "supergroup")
   await addChat(sql, -2, "supergroup")
-  await addChat(sql, -3, "supergroup", { ...basicPreset(), thread: 4, routes: { new: 9 } })
-  await addChat(sql, -4, "supergroup", { ...basicPreset(), thread: 4 })
+  await addChat(sql, -3, "supergroup", {
+    ...basicPreset("supergroup"),
+    thread: 4,
+    routes: { new: 9 },
+  })
+  await addChat(sql, -4, "supergroup", { ...basicPreset("supergroup"), thread: 4 })
   await enqueue(-1, "new")
   await enqueue(-2, "new")
   await enqueue(-3, "new", { thread: 9 })
@@ -291,7 +295,7 @@ it("moves a migrated group onto an already registered supergroup without duplica
 })
 
 it("posts no summary into an inactive, removed or unregistered group, but still into a DM", async () => {
-  await addChat(sql, -1, "supergroup", basicPreset(), { active: false })
+  await addChat(sql, -1, "supergroup", basicPreset("supergroup"), { active: false })
   await addChat(sql, -2, "supergroup")
   await sql`update bot.chats set removed_at = now() where chat_id = -2`
   await enqueue(-1, "new", { ageMin: 5 })
@@ -355,8 +359,8 @@ it("treats a removed or rights failure in a DM as the user blocking the bot", as
 
 it("keeps a configured group's settings when it migrates onto an inactive supergroup row", async () => {
   const me = await addUser(sql, 9)
-  await addChat(sql, -5, "group", { ...basicPreset(), thread: 4 }, { setupBy: me })
-  await addChat(sql, -1005, "supergroup", basicPreset(), { active: false })
+  await addChat(sql, -5, "group", { ...basicPreset("supergroup"), thread: 4 }, { setupBy: me })
+  await addChat(sql, -1005, "supergroup", basicPreset("supergroup"), { active: false })
   await enqueue(-5, "new", { chatType: "group" })
   respond = (r) =>
     r.chat_id === "-5"

@@ -128,7 +128,7 @@ describe("groups", () => {
   })
 
   it("routes chosen alerts to a topic with /route", async () => {
-    await addChat(sql, G.id, "supergroup", { ...basicPreset(), thread: 5 })
+    await addChat(sql, G.id, "supergroup", { ...basicPreset("supergroup"), thread: 5 })
     await h.text("/route", { chat: G, thread: 9 })
     expect(h.last("sendMessage")!.message_thread_id).toBe(9)
     await h.tap("rt:new", { chat: G, thread: 9 })
@@ -209,7 +209,7 @@ describe("chat settings in the DM", () => {
     expect(s.alerts.big.pctBps).toBe(1000)
     expect(s.alerts.pumping.image).toBe(false)
     await h.tap("al:u:reset")
-    expect((await sql`select settings from bot.users`)[0]!.settings).toEqual(basicPreset())
+    expect((await sql`select settings from bot.users`)[0]!.settings).toEqual(basicPreset("private"))
   })
 
   it("drops the chat's queued alerts when it is paused", async () => {
@@ -236,7 +236,7 @@ describe("chat settings in the DM", () => {
 
   it("lists the user's chats after a live admin check", async () => {
     const me = await addUser(sql, 100)
-    await addChat(sql, G.id, "supergroup", basicPreset(), { setupBy: me })
+    await addChat(sql, G.id, "supergroup", basicPreset("supergroup"), { setupBy: me })
     await h.tap("gc")
     const kb = h.last("editMessageText")!.reply_markup.inline_keyboard
     expect(kb[0]).toEqual([{ text: "Test Group", callback_data: `gc:${G.id}` }])
@@ -368,7 +368,7 @@ describe("chat settings details", () => {
 
   it("offers Resume for paused topics and clears them after the rights check", async () => {
     await addChat(sql, G.id, "supergroup", {
-      ...basicPreset(),
+      ...basicPreset("supergroup"),
       thread: 5,
       routes: { new: 9 },
       pausedRoutes: ["new"],
@@ -392,7 +392,7 @@ describe("chat settings details", () => {
   })
 
   it("refuses to resume while MAKO cannot post", async () => {
-    await addChat(sql, G.id, "supergroup", basicPreset(), { active: false })
+    await addChat(sql, G.id, "supergroup", basicPreset("supergroup"), { active: false })
     h.on("getChatMember", (p) => ({
       status: p.user_id === BOT_INFO.id ? "left" : "administrator",
       user: { id: p.user_id, is_bot: false, first_name: "A" },
@@ -411,8 +411,8 @@ describe("chat settings details", () => {
   })
 
   it("merges into the supergroup row when it already exists at migration", async () => {
-    await addChat(sql, -6, "group", { ...basicPreset(), thread: 4 })
-    await addChat(sql, -1006, "supergroup", basicPreset(), { active: false })
+    await addChat(sql, -6, "group", { ...basicPreset("supergroup"), thread: 4 })
+    await addChat(sql, -1006, "supergroup", basicPreset("supergroup"), { active: false })
     await h.update({
       message: {
         message_id: 3,

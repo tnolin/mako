@@ -6,7 +6,7 @@ import { basicPreset, type Settings } from "../../src/settings"
 export async function addUser(
   sql: Sql,
   tgId: number,
-  settings: Settings = basicPreset(),
+  settings: Settings = basicPreset("private"),
 ): Promise<string> {
   const [r] = await sql<{ id: string }[]>`
     insert into bot.users (platform_user_id, settings)
@@ -18,7 +18,7 @@ export async function addChat(
   sql: Sql,
   chatId: number,
   kind: "group" | "supergroup" | "channel",
-  settings: Settings = basicPreset(),
+  settings: Settings = basicPreset(kind),
   opts: { active?: boolean; setupBy?: string | null } = {},
 ): Promise<void> {
   await sql`

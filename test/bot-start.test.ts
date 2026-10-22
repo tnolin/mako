@@ -42,9 +42,10 @@ const actions = () =>
 const buttons = (p: Payload | undefined) =>
   (p?.reply_markup?.inline_keyboard ?? []).flat().map((b: { text: string }) => b.text)
 
-it("creates a new user with every alert on and shows the welcome card", async () => {
+it("creates a new user with every alert on except SOLD and shows the welcome card", async () => {
   await h.text("/start")
-  expect(Object.values((await settingsOf(100))!.alerts).every((a) => a.on)).toBe(true)
+  const alerts = (await settingsOf(100))!.alerts
+  for (const [k, a] of Object.entries(alerts)) expect(a.on).toBe(k !== "sale")
   const msg = h.last("sendMessage")!
   expect(msg.text).toContain("NEW TOKEN")
   expect(msg.text).toContain("curve jumps 15%+ in 10 min")

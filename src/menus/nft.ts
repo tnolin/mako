@@ -2,7 +2,7 @@ import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { age, clean, count, escapeHtml, inText, utcDate, utcTime } from "../format"
 import { creatorRow, ethText, makeNftAlertCard, shortAddr } from "../nft/card"
-import { floorAt, recentSales, salesSince } from "../nft/history"
+import { floorAt, lastSaleOf, recentSales, salesSince } from "../nft/history"
 import {
   type Match,
   matchCollection,
@@ -12,6 +12,7 @@ import {
   WINDOWS,
   type Window,
 } from "../nft/match"
+import type { ItemData } from "../nft/opensea"
 import { isTeamStage } from "../nft/policy"
 import type { CollectionState } from "../nft/state"
 import { classify } from "../platforms/telegram/errors"
@@ -28,6 +29,7 @@ import {
   threadOf,
 } from "../platforms/telegram/ui"
 import { NATIVE } from "../prices"
+import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import type { BotDeps } from "./deps"
 import { findUser } from "./users"
 
@@ -40,7 +42,12 @@ export const GAP = {
   noSales: "[COPY NEEDED: a collection with no sales yet]",
   noMinting: "[COPY NEEDED: no collection is minting now]",
   noUpcoming: "[COPY NEEDED: no mint is scheduled in the next 7 days]",
+  noTrending: "[COPY NEEDED: no trending collections]",
+  trendingDown: "[COPY NEEDED: trending is unavailable right now]",
 } as const
+/** From the approved formats ("NFT card"). */
+const NO_RANK = "No rarity rank on OpenSea for this collection."
+const PARTIAL = "Some details are unavailable right now."
 /** From the approved spec ("Closest-match rule"). */
 export const SHORT = "Send at least 3 characters"
 
@@ -313,6 +320,100 @@ async function salesPage(
   await editCard(ctx, deps, html, kb)
 }
 
+export type ItemCard = { html: string; imageUrl: string | null; imageKey: string; kb: Kb }
+
+/** The NFT card. `data` is what OpenSea gave; "unavailable" (or none) shows only what MAKO has. */
+export async function itemCard(
+  deps: BotDeps,
+  contract: string,
+  tokenId: string,
+  data: ItemData | "unavailable" | undefined,
+): Promise<ItemCard> {
+  const st = deps.nft?.()?.get(contract)
+  const base = makeNftAlertCard("minted", "", st?.col ?? null, [], { contract })
+  const rate = deps.prices.usd(NATIVE)
+  const rows: [string, string][] = []
+  let noRank = false
+  const got = data && data !== "unavailable" ? data : null
+  if (got) {
+    if (got.rank === null) noRank = true
+    else {
+      const max = st?.col?.maxRank
+      rows.push(["rank", max ? `${count(got.rank)} / ${count(max)}` : count(got.rank)])
+    }
+    if (got.bestOffer !== null) rows.push(["best offer", ethText(got.bestOffer, rate)])
+    if (got.listed !== null) rows.push(["listed", ethText(got.listed, rate)])
+  }
+  const sold = await lastSaleOf(deps.sql, contract, tokenId)
+  if (sold)
+    rows.push([
+      "last sold",
+      `${ethText(BigInt(sold.p.priceWei), null)} · ${utcDate(sold.p.blockTimestamp)}`,
+    ])
+  for (const t of got?.traits ?? [])
+    rows.push([clean(t.type, 24).toLowerCase(), clean(t.value, 40)])
+  // The sample pads to two past the longest label.
+  const w = Math.max(9, ...rows.map(([l]) => l.length + 2))
+  const lines = [
+    `<b>${escapeHtml(base.name)}${base.verified ? " ✓" : ""} #${escapeHtml(tokenId)} · OpenSea</b>`,
+    "",
+    ...(noRank ? [NO_RANK] : []),
+    ...rows.map(([l, v]) => `<code>${escapeHtml(l.padEnd(w))}${escapeHtml(v)}</code>`),
+    ...(!got || got.partial ? [PARTIAL] : []),
+    "",
+    `CA   <code>${contract}</code>`,
+  ]
+  const item = got?.imageUrl ?? null
+  return {
+    html: lines.join("\n"),
+    imageUrl: item ?? base.imageUrl,
+    imageKey: item ? `nft:${contract}:${tokenId}` : base.imageKey,
+    kb: [
+      [
+        link("View", `${deps.linksBase}/n/i/${contract}/${tokenId}`),
+        btn("Collection", `nc:${contract}`),
+      ],
+    ],
+  }
+}
+
+// One cooldown per bot, so the tests (and a restart) start clean.
+const cooldowns = new WeakMap<BotDeps, (key: string) => number>()
+function itemCooldown(deps: BotDeps, key: string): number {
+  const c = cooldowns.get(deps) ?? refreshCooldown(REFRESH_COOLDOWN_MS)
+  cooldowns.set(deps, c)
+  return c(key)
+}
+
+/** Opens the NFT card: the cooldown first (a tap inside it reads nothing), then one live OpenSea read. */
+async function sendItemCard(
+  ctx: Context,
+  deps: BotDeps,
+  contract: string,
+  tokenId: string,
+): Promise<void> {
+  const wait = ctx.from ? itemCooldown(deps, `${ctx.from.id}:${contract}:${tokenId}`) : 0
+  if (wait > 0) {
+    const text = `Up to date, try again in ${wait}s`
+    if (ctx.callbackQuery) return void (await ctx.answerCallbackQuery({ text }).catch(() => {}))
+    return void (await show(ctx, text))
+  }
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+  const calc = deps.nft?.()?.get(contract)?.col?.rarityCalculatedAt
+  const data = deps.items
+    ? await deps.items.get(contract, tokenId, calc == null ? null : String(calc))
+    : undefined
+  const card = await itemCard(deps, contract, tokenId, data)
+  await deps.images.send(ctx.api, {
+    chat: ctx.chat!.id,
+    thread: threadOf(ctx),
+    imageKey: card.imageKey,
+    imageUrl: card.imageUrl,
+    html: card.html,
+    reply_markup: { inline_keyboard: card.kb },
+  })
+}
+
 /** The collections the viewer watches, so a list can include them whatever their verdict. */
 async function watchedBy(deps: BotDeps, ctx: Context): Promise<Set<string>> {
   const u = ctx.from ? await findUser(deps.sql, ctx.from.id) : null
@@ -327,6 +428,30 @@ const withTail = (name: string, tail: string, max: number) =>
   `${clean(name, Math.max(6, max - tail.length))}${tail}`
 
 type ListRow = { contract: string; label: string }
+const TIMEFRAME = { t1: "one_hour", t24: "one_day", t7: "seven_days" } as const
+const TREND_LABEL = { t1: "1h", t24: "24h", t7: "7d" } as const
+
+/** OpenSea's trending Ink collections that MAKO knows, with their floor from its own stats. */
+async function trendingRows(
+  deps: BotDeps,
+  code: keyof typeof TIMEFRAME,
+): Promise<ListRow[] | "down" | null> {
+  const state = deps.nft?.()
+  if (!state) return null
+  const trending = deps.items ? await deps.items.trending(TIMEFRAME[code]) : "unavailable"
+  if (trending === "unavailable") return "down"
+  const rows: ListRow[] = []
+  for (const t of trending) {
+    const hit = state.matches(t.slug).find((m) => m.tier === 1)?.state
+    const contract = hit?.col?.contract
+    if (!hit || !contract) continue
+    const floor = hit.stats?.floorWei ? ` · ${ethText(BigInt(hit.stats.floorWei), null)} floor` : ""
+    rows.push({ contract, label: withTail(clean(t.name, 64), floor, 30) })
+    if (rows.length === 10) break
+  }
+  return rows
+}
+
 async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<ListRow[] | null> {
   const state = deps.nft?.()
   if (!state) return null
@@ -386,7 +511,33 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
 const LIST_TITLE: Record<string, string> = { m: "Minting now", u: "Upcoming" }
 const LIST_EMPTY: Record<string, string> = { m: GAP.noMinting, u: GAP.noUpcoming }
 
+async function showTrending(
+  ctx: Context,
+  deps: BotDeps,
+  code: keyof typeof TIMEFRAME,
+): Promise<void> {
+  const rows = await trendingRows(deps, code)
+  const title = "<b>Trending</b>"
+  const back: Kb = [[btn("Back", "nfts")]]
+  const frames: Kb = [
+    (Object.keys(TIMEFRAME) as (keyof typeof TIMEFRAME)[]).map((c) =>
+      chosenBtn(TREND_LABEL[c], c === code, `nl:${c}`),
+    ),
+  ]
+  if (rows === null) return void (await show(ctx, GAP.loading, back))
+  if (rows === "down")
+    return void (await show(ctx, `${title}\n${GAP.trendingDown}`, [...frames, ...back]))
+  if (rows.length === 0)
+    return void (await show(ctx, `${title}\n${GAP.noTrending}`, [...frames, ...back]))
+  await show(ctx, title, [
+    ...frames,
+    ...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]),
+    ...back,
+  ])
+}
+
 async function showList(ctx: Context, deps: BotDeps, code: string): Promise<void> {
+  if (code in TIMEFRAME) return showTrending(ctx, deps, code as keyof typeof TIMEFRAME)
   const rows = await listRows(deps, ctx, code)
   const title = `<b>${LIST_TITLE[code] ?? "NFTs"}</b>`
   if (rows === null) return void (await show(ctx, GAP.loading, [[btn("Back", "nfts")]]))
@@ -401,6 +552,8 @@ async function nftCommand(ctx: Context, deps: BotDeps, text: string): Promise<vo
   if (!state) return void (await show(ctx, GAP.loading))
   if (!text.trim()) return void (await show(ctx, GAP.nfts))
   const q = parseNftQuery(state, text)
+  if (q.tokenId !== null && q.contract.kind === "one")
+    return sendItemCard(ctx, deps, q.contract.contract, q.tokenId)
   await openMatch(ctx, deps, state, q.contract, text, q.window ?? "24h")
 }
 
@@ -438,7 +591,12 @@ export async function tryNftPaste(ctx: Context, deps: BotDeps, text: string): Pr
   const state = deps.nft?.()
   if (!state) return false
   const lnk = parseOpenSeaLink(text)
-  if (lnk && "contract" in lnk) return false
+  if (lnk && "contract" in lnk) {
+    // An item link: MAKO may not know the collection, but OpenSea does.
+    if (!state.get(lnk.contract) && !deps.items) return false
+    await sendItemCard(ctx, deps, lnk.contract, lnk.tokenId)
+    return true
+  }
   let contract: string | null = null
   if (lnk) {
     const m = matchCollection(state, text)
@@ -467,5 +625,8 @@ export function registerNft(bot: Bot, deps: BotDeps): void {
   bot.callbackQuery(/^nr:(0x[0-9a-f]{40}):([0-9]{1,4})(?::([a-z0-9]+))?$/, (ctx) =>
     salesPage(ctx, deps, ctx.match[1]!, Math.max(1, Number(ctx.match[2])), ctx.match[3]),
   )
-  bot.callbackQuery(/^nl:(m|u)$/, (ctx) => showList(ctx, deps, ctx.match[1]!))
+  bot.callbackQuery(/^ni:(0x[0-9a-f]{40}):([0-9]{1,78})$/, (ctx) =>
+    sendItemCard(ctx, deps, ctx.match[1]!, ctx.match[2]!),
+  )
+  bot.callbackQuery(/^nl:(m|u|t1|t24|t7)$/, (ctx) => showList(ctx, deps, ctx.match[1]!))
 }

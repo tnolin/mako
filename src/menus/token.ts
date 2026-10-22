@@ -11,33 +11,14 @@ import { btn, findAddress, type Kb, link, show, threadOf } from "../platforms/te
 import { isPoolId, poolMcap } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
 import { devCounts, windowStats } from "../rules/stats"
+import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import type { BotDeps } from "./deps"
 import { tryNftPaste } from "./nft"
 import { WATCH_PROMPT, watchToken } from "./watchlist"
 
 export const LOOKUP_PROMPT = "Send a token address."
 
-export const REFRESH_COOLDOWN_MS = 15_000
-
-/**
- * Per-key cooldown. Returns the whole seconds left, or 0 and records the tap.
- * shortcut: in memory and per process, so a restart clears it; expired keys are swept on every tap
- * (O(keys)). Move to a shared store only if the bot runs as several processes.
- */
-export function refreshCooldown(
-  ms: number,
-  now: () => number = () => Date.now(),
-): (key: string) => number {
-  const last = new Map<string, number>()
-  return (key) => {
-    const t = now()
-    for (const [k, at] of last) if (t - at >= ms) last.delete(k)
-    const at = last.get(key)
-    if (at !== undefined) return Math.ceil((ms - (t - at)) / 1000)
-    last.set(key, t)
-    return 0
-  }
-}
+export { REFRESH_COOLDOWN_MS, refreshCooldown }
 
 /** Time since bonding: whole days from one day, whole hours below that, "<1h" under an hour. */
 function bondedAgo(seconds: number): string {

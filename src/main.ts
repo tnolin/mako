@@ -8,6 +8,7 @@ import { cursorBlock } from "./history"
 import { LAUNCHPADS, referralLink, tradeLink } from "./launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
+import { createItemReader } from "./nft/opensea"
 import { startReminders } from "./nft/reminders"
 import type { NftState } from "./nft/state"
 import { createBot } from "./platforms/telegram/bot"
@@ -64,6 +65,10 @@ const prices = createPrices({ log, report: (m) => reporter.message(m) })
 const stopPrices = prices.start()
 const images = createImages({ fetch, cache: sqlImageCache(sql), log })
 const readSqrtPrice = rpcSqrtPrice(env.INK_RPC_URL || DEFAULT_RPC)
+// Without a key the NFT card and Trending say details are unavailable.
+const items = env.OPENSEA_API_KEY
+  ? createItemReader({ key: env.OPENSEA_API_KEY, sql, log })
+  : undefined
 const bot = createBot({
   token,
   sql,
@@ -74,6 +79,7 @@ const bot = createBot({
   images,
   readSqrtPrice,
   nft: () => nftState.current,
+  ...(items ? { items } : {}),
 })
 await bot.init()
 const botUsername = bot.botInfo.username

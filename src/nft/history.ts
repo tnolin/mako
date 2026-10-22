@@ -76,6 +76,19 @@ export async function salesSince(
   return { count: r!.count, sumWei: BigInt(r!.sum) }
 }
 
+/** The newest sale of one item, or null. */
+export async function lastSaleOf(
+  sql: Sql,
+  contract: string,
+  tokenId: string,
+): Promise<Row<NftSaleEvent> | null> {
+  const [r] = await sql<Row<NftSaleEvent>[]>`
+    select id::text, payload as p from indexer.events
+    where type = 'nft.sale' and entity = ${contract} and payload->>'tokenId' = ${tokenId}
+    order by events.id desc limit 1`
+  return r ?? null
+}
+
 /** One page of a collection's sales, newest first, and how many sales it has in all. */
 export async function recentSales(
   sql: Sql,

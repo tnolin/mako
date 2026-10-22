@@ -34,7 +34,7 @@ export function bonded(
   return {
     alert: "bonded",
     eventId: ev.id,
-    token: b.token,
+    target: b.token,
     dedupeKey: `bonded:${b.token}`,
     priority: PRIORITY.bonded,
     eventTs: b.blockTimestamp,

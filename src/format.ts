@@ -80,3 +80,30 @@ export function bar(soldBps: number): string {
 export function bpsChange(delta: number): string {
   return delta >= 0 ? `(+${Math.floor(delta / 100)}%)` : `(−${Math.floor(-delta / 100)}%)`
 }
+
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"]
+const two = (n: number) => String(n).padStart(2, "0")
+
+/** `Sep 6` (UTC). */
+export function utcDate(ts: number): string {
+  const d = new Date(ts * 1000)
+  return `${MONTHS[d.getUTCMonth()]} ${d.getUTCDate()}`
+}
+
+/** `17:00 UTC`, or `Sep 6 17:00 UTC` with the date (UTC). */
+export function utcTime(ts: number, withDate = false): string {
+  const d = new Date(ts * 1000)
+  const t = `${two(d.getUTCHours())}:${two(d.getUTCMinutes())} UTC`
+  return withDate ? `${utcDate(ts)} ${t}` : t
+}
+
+/** A countdown without the zero parts: 15m, 3h, 4h 12m, 21d, 2d 4h. */
+export function inText(seconds: number): string {
+  const m = Math.max(1, Math.round(seconds / 60))
+  if (m < 60) return `${m}m`
+  const h = Math.floor(m / 60)
+  if (h < 24) return m % 60 ? `${h}h ${m % 60}m` : `${h}h`
+  return h % 24 ? `${Math.floor(h / 24)}d ${h % 24}h` : `${Math.floor(h / 24)}d`
+}
+
+export const wallets = (n: number): string => `${count(n)} wallet${n === 1 ? "" : "s"}`

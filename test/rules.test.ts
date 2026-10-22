@@ -1,6 +1,8 @@
 import { afterAll, beforeEach, describe, expect, inject, it } from "vitest"
+import type { Card } from "../src/cards/card"
 import type { Sql } from "../src/db"
 import { eventsAfter } from "../src/history"
+import { createNftState } from "../src/nft/state"
 import type { Prices } from "../src/prices"
 import { type Candidate, rulesFor, withDevHolds } from "../src/rules/index"
 import { insertEvents, resetDb } from "./helpers/db"
@@ -16,6 +18,8 @@ const ctx = (sql: Sql) => ({
   sql,
   prices,
   log: (_l: string, msg: string) => void warnings.push(msg),
+  nft: createNftState(),
+  now: () => T0,
 })
 const eth = (n: number) => String(BigInt(Math.round(n * 1000)) * 10n ** 15n)
 const C = addr(0xc1)
@@ -181,10 +185,13 @@ describe("trade rules", () => {
       ["mcap", "$164K"],
     ])
     expect(d.holds).toMatchObject({ token: L.token, holder: C, totalSupply: L.totalSupply })
-    const filled = withDevHolds(d.card, { pct: 6.8, now: true })
+    const filled = withDevHolds(d.card as Card, { pct: 6.8, now: true })
     expect(filled.rows[3]).toEqual(["dev holds", "6.8% (now)"])
-    expect(withDevHolds(d.card, { pct: 6.8, now: false }).rows[3]).toEqual(["dev holds", "6.8%"])
-    expect(withDevHolds(d.card, null)).toBe(d.card)
+    expect(withDevHolds(d.card as Card, { pct: 6.8, now: false }).rows[3]).toEqual([
+      "dev holds",
+      "6.8%",
+    ])
+    expect(withDevHolds(d.card as Card, null)).toBe(d.card)
   })
 })
 

@@ -25,7 +25,7 @@ export function bonding(t: TradeCtx): Candidate[] {
   return crossed.map((mark) => ({
     alert: "bonding",
     eventId: t.ev.id,
-    token: p.token,
+    target: p.token,
     dedupeKey: `bonding:${mark}:${p.token}`,
     priority: PRIORITY.bonding,
     eventTs: p.blockTimestamp,

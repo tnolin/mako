@@ -36,7 +36,7 @@ export function newToken(
   return {
     alert: "new",
     eventId: ev.id,
-    token: l.token,
+    target: l.token,
     dedupeKey: `new:${l.token}`,
     priority: PRIORITY.new,
     eventTs: l.blockTimestamp,

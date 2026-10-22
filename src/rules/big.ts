@@ -20,7 +20,7 @@ export function big(t: TradeCtx): Candidate[] {
     {
       alert: "big",
       eventId: t.ev.id,
-      token: p.token,
+      target: p.token,
       dedupeKey: `big:${p.txHash}:${p.logIndex}`,
       priority: PRIORITY.big,
       eventTs: p.blockTimestamp,

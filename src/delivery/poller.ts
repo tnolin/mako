@@ -3,6 +3,7 @@ import type postgres from "postgres"
 import type { Sql } from "../db"
 import { eventsAfter, launchesAround, maxEventId, type Row } from "../history"
 import type { Logger } from "../log"
+import { createNftState } from "../nft/state"
 import type { Prices } from "../prices"
 import type { DevHolds, HoldsReq } from "../rpc"
 import { type Candidate, rulesFor, withDevHolds } from "../rules/index"
@@ -195,6 +196,9 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
     }
   }
   const rules = deps.rules ?? rulesFor
+  // shortcut: an empty collection state until the NFT wiring lands with the NFT rules.
+  const nft = createNftState()
+  const now = deps.now ?? nowS
   const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log })
   const cands: Candidate[] = []
   let skipped = 0
@@ -207,7 +211,7 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
     // Backfilled NFT history: the cursor moves past it and nothing is sent.
     if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue
     try {
-      cands.push(...(await rules(ev, { sql, prices: deps.prices, log })))
+      cands.push(...(await rules(ev, { sql, prices: deps.prices, log, nft, now })))
     } catch (err) {
       // Database and connection errors fail the whole batch: the cursor stays and the loop retries.
       // Anything else is a bad event; skip it so one poison event cannot stall every chat.
@@ -219,7 +223,7 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
   }
   if (skipped === 0) limiter.ok("rule")
   const flooded = launches.filter((l) => starts.has(l.id))
-  const aud = await loadAudience(sql, [...new Set(cands.map((c) => c.token))])
+  const aud = await loadAudience(sql, [...new Set(cands.map((c) => c.target))])
   const deliveries = route(cands, aud)
   const floods = flooded.length === 0 ? [] : floodRows(flooded, starts, newTokenChats(aud))
   const dev = deliveries.filter((d) => d.alert === "devsell")

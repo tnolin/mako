@@ -61,9 +61,11 @@ const sales = (s: CollectionState) => s.stats?.sales24h ?? 0
 export function createNftState(initial: Map<string, CollectionState> = new Map()): NftState {
   const byContract = initial
   const entry = (c: string) => {
-    let s = byContract.get(c)
-    if (!s) byContract.set(c, (s = empty()))
-    return s
+    const have = byContract.get(c)
+    if (have) return have
+    const fresh = empty()
+    byContract.set(c, fresh)
+    return fresh
   }
   const compare = (a: CollectionState, b: CollectionState) =>
     verdictRank(a) - verdictRank(b) || owners(b) - owners(a) || sales(b) - sales(a)

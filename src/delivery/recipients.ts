@@ -62,7 +62,7 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
   // A candidate's own earlier row (crash re-run, reorg re-insert) and later pumps never cool it.
   const cooling = (chatId: string, c: Candidate) =>
     c.alert === "pumping" &&
-    (aud.lastPump.get(`${chatId}:${c.token}`) ?? []).some(
+    (aud.lastPump.get(`${chatId}:${c.target}`) ?? []).some(
       (p) => p.key !== c.dedupeKey && p.ts <= c.eventTs && p.ts > c.eventTs - 3600,
     )
   const push = (
@@ -73,7 +73,7 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
     s: Settings,
   ) => {
     if (c.alert === "pumping") {
-      const k = `${chatId}:${c.token}`
+      const k = `${chatId}:${c.target}`
       aud.lastPump.set(k, [...(aud.lastPump.get(k) ?? []), { ts: c.eventTs, key: c.dedupeKey }])
     }
     out.push({
@@ -82,17 +82,20 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
       chatType,
       threadId,
       alert: c.alert,
-      token: c.token,
+      token: c.target,
       dedupeKey: c.dedupeKey,
       priority: c.priority,
       eventTs: c.eventTs,
-      payload: { type: "card", card: c.card, image: wantsImage(s, c.alert) },
+      payload:
+        "contract" in c.card
+          ? { type: "nftalert", card: c.card, image: wantsImage(s, c.alert) }
+          : { type: "card", card: c.card, image: wantsImage(s, c.alert) },
       supersedesBonding: c.supersedesBonding ?? false,
       holds: c.holds,
     })
   }
   for (const cs of byEvent.values()) {
-    const token = cs[0]!.token
+    const token = cs[0]!.target
     const watchers = aud.watch.get(token)
     const muters = aud.mute.get(token)
     for (const u of aud.users) {

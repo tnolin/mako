@@ -100,7 +100,7 @@ postgres.js reads the socket directory and role from `PGHOST` and `PGUSER` when 
 
 ## 7. Indexer
 
-Check out the latest `indexer-v*` release tag of ink-indexer. `events-v1` is the event schema version mako builds against, not a deploy tag.
+Check out the latest `indexer-v*` release tag of ink-indexer. `events-v2` is the event schema version mako builds against, not a deploy tag.
 
 ```bash
 cd /opt/ink-indexer && sudo -u ink-indexer git checkout <indexer tag> && sudo -u ink-indexer pnpm install --frozen-lockfile

@@ -7,7 +7,7 @@ import type { DevHolds } from "../src/rpc"
 import { allOff, basicPreset } from "../src/settings"
 import { addChat, addUser, listDeliveries, subscribe } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
-import { addr, bond, hash, launch, NATIVE, T0, trade } from "./helpers/events"
+import { addr, bond, hash, launch, NATIVE, nftSale, T0, trade } from "./helpers/events"
 import { connectAsBotRole } from "./helpers/roles"
 
 const prices: Prices = { usd: () => 2500, symbol: (q) => (q === NATIVE ? "ETH" : "xStock") }
@@ -534,4 +534,21 @@ it("queues the notice after individual alerts that share its second", async () =
   const [notice] = await sql<{ ts: Date }[]>`
     select event_ts as ts from bot.deliveries where dedupe_key like 'flood:%'`
   expect(notice!.ts.getTime()).toBeGreaterThan(last!.ts.getTime())
+})
+
+it("skips nft events without rules and advances the cursor", async () => {
+  await addUser(sql, 101)
+  // A sweep: one log, two sales, told apart by the events-v2 `sub` column.
+  const tx = hash(0x5e)
+  const ids = await insertEvents(
+    sql,
+    [nftSale({ txHash: tx, logIndex: 7 }), nftSale({ txHash: tx, logIndex: 7 })],
+    {
+      subs: ["0", "1"],
+    },
+  )
+  expect(await pollOnce(deps())).toBe(2)
+  expect(await cursor()).toBe(ids[1])
+  expect(await listDeliveries(sql)).toEqual([])
+  expect(report).not.toHaveBeenCalled()
 })

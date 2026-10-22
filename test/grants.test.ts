@@ -52,6 +52,14 @@ it("cannot read any other indexer table", async () => {
 })
 
 it("uses the bot indexes for creator lookups and the latest bonds", async () => {
+  // events-v2 adds events_type_entity_id beside events_type_id, so on an empty table the planner may pick
+  // either. With rows and statistics the newest-first read must still use events_type_id, as in production.
+  await admin`
+    insert into indexer.events (type, entity, payload, block, block_hash, tx_hash, log_index, confirmed)
+    select case when g % 100 = 0 then 'launchpad.bond' else 'launchpad.trade' end, '0xfill' || g, '{}',
+      g, '0x00', '0xfill' || g, 0, true
+    from generate_series(1, 5000) g`
+  await admin`analyze indexer.events`
   const plan = (q: string) =>
     bot.begin(async (tx) => {
       await tx`set local enable_seqscan = off`
@@ -67,4 +75,5 @@ it("uses the bot indexes for creator lookups and the latest bonds", async () => 
       `select id, payload from indexer.events where type = 'launchpad.bond' order by id desc limit 5`,
     ),
   ).toContain("events_type_id")
+  await admin`delete from indexer.events where tx_hash like '0xfill%'`
 })

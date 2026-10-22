@@ -1,4 +1,11 @@
-import type { Address, BondEvent, Hash, LaunchEvent, TradeEvent } from "@ink-indexer/events"
+import type {
+  Address,
+  BondEvent,
+  Hash,
+  LaunchEvent,
+  NftSaleEvent,
+  TradeEvent,
+} from "@ink-indexer/events"
 
 export const NATIVE: Address = "0x0000000000000000000000000000000000000000"
 export const T0 = 1_790_000_000
@@ -85,6 +92,34 @@ export function bond(o: Partial<BondEvent> = {}): BondEvent {
     liquidityQuote: String(21n * 10n ** 17n),
     liquidityTokens: String(214n * 10n ** 24n),
     quoteAsset: NATIVE,
+    ...o,
+  }
+}
+
+/** Defaults: a 0.05 ETH OpenSea sale of item 1 in collection 0xc0, bought by 0xb1 from 0x51. */
+export function nftSale(o: Partial<NftSaleEvent> = {}): NftSaleEvent {
+  const n = next()
+  return {
+    v: 1,
+    type: "nft.sale",
+    chainId: 57073,
+    contract: addr(0xc0),
+    source: "chain",
+    txHash: hash(n),
+    logIndex: n,
+    blockNumber: String(1000 + n),
+    blockTimestamp: T0 + 60,
+    tokenId: "1",
+    priceWei: String(5n * 10n ** 16n),
+    currency: "ETH",
+    buyer: addr(0xb1),
+    seller: addr(0x51),
+    orderHash: hash(0x0d),
+    itemName: null,
+    imageUrl: null,
+    rank: null,
+    maxRank: null,
+    floorWei: null,
     ...o,
   }
 }

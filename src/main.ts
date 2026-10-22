@@ -1,6 +1,6 @@
 import { connect, migrate } from "./db"
 import { createNotify } from "./delivery/notices"
-import { initCursor, startPoller } from "./delivery/poller"
+import { initCursor, nftCutoff, startPoller } from "./delivery/poller"
 import { startRetention } from "./delivery/retention"
 import { startSender } from "./delivery/sender"
 import { createHeartbeat } from "./heartbeat"
@@ -45,6 +45,14 @@ process.on("unhandledRejection", (err) => {
 const sql = connect(databaseUrl)
 await migrate(sql)
 await initCursor(sql, fromId)
+const nftSince = env.NFT_ALERTS_SINCE
+if (nftSince && !/^\d+$/.test(nftSince)) {
+  console.error("NFT_ALERTS_SINCE must be unix seconds")
+  process.exit(2)
+}
+const nftAlertsSince = nftSince ? Number(nftSince) : undefined
+// Stores the first start time now, so the cutoff is not set by the first NFT event that arrives.
+await nftCutoff(sql, nftAlertsSince)
 
 const prices = createPrices({ log, report: (m) => reporter.message(m) })
 const stopPrices = prices.start()
@@ -91,6 +99,7 @@ const stopPoller = startPoller({
   log,
   report,
   readHolds: (r) => readDevHolds(balanceOf, r),
+  nftAlertsSince,
 })
 const notify = createNotify({ sql, api: bot.api, botUsername, log })
 const stopSender = startSender({

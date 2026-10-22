@@ -552,3 +552,58 @@ it("skips nft events without rules and advances the cursor", async () => {
   expect(await listDeliveries(sql)).toEqual([])
   expect(report).not.toHaveBeenCalled()
 })
+
+// Task 2b: the indexer's NFT backfill writes old nft.* events as new rows; the bot must not alert on them.
+const seen = () => {
+  const types: string[] = []
+  const rules: PollerDeps["rules"] = async (ev) => {
+    types.push(`${ev.p.type}@${ev.p.blockTimestamp}`)
+    return []
+  }
+  return { types, rules }
+}
+const storedSince = async () =>
+  (await sql<{ value: string }[]>`select value from bot.state where key = 'nft_alerts_since'`)[0]
+    ?.value
+
+it("skips an nft event older than the cutoff, and the cursor advances", async () => {
+  const s = seen()
+  const ids = await insertEvents(sql, [
+    nftSale({ blockTimestamp: T0 }),
+    nftSale({ blockTimestamp: T0 + 200 }),
+  ])
+  expect(await pollOnce(deps({ now: () => T0 + 100, rules: s.rules }))).toBe(2)
+  expect(s.types).toEqual([`nft.sale@${T0 + 200}`])
+  expect(await cursor()).toBe(ids[1])
+})
+
+it("NFT_ALERTS_SINCE overrides the stored start time", async () => {
+  const s = seen()
+  await insertEvents(sql, [
+    nftSale({ blockTimestamp: T0 + 40 }),
+    nftSale({ blockTimestamp: T0 + 60 }),
+  ])
+  await pollOnce(deps({ now: () => T0 + 1000, nftAlertsSince: T0 + 50, rules: s.rules }))
+  expect(s.types).toEqual([`nft.sale@${T0 + 60}`])
+  expect(await storedSince()).toBeUndefined()
+})
+
+it("a restart keeps the first stored start time", async () => {
+  const first = seen()
+  await insertEvents(sql, [nftSale({ blockTimestamp: T0 + 150 })])
+  await pollOnce(deps({ now: () => T0 + 100, rules: first.rules }))
+  expect(await storedSince()).toBe(String(T0 + 100))
+  // The bot was down; the next start's clock is far later, but the stored time stands.
+  const second = seen()
+  await insertEvents(sql, [nftSale({ blockTimestamp: T0 + 500 })])
+  await pollOnce(deps({ now: () => T0 + 9999, rules: second.rules }))
+  expect(second.types).toEqual([`nft.sale@${T0 + 500}`])
+  expect(await storedSince()).toBe(String(T0 + 100))
+})
+
+it("launchpad events ignore the cutoff", async () => {
+  const s = seen()
+  await insertEvents(sql, [launch({ blockTimestamp: T0 }), nftSale({ blockTimestamp: T0 })])
+  await pollOnce(deps({ now: () => T0 + 100, nftAlertsSince: T0 + 5000, rules: s.rules }))
+  expect(s.types).toEqual([`launchpad.launch@${T0}`])
+})

@@ -27,6 +27,10 @@ export type PollerDeps = {
   rules?: typeof rulesFor
   /** Shared by startPoller so rule-failure reports are rate-limited across batches. */
   limiter?: ReturnType<typeof createFailureLimiter>
+  /** Unix seconds. NFT_ALERTS_SINCE, when set: it replaces the stored start time below. */
+  nftAlertsSince?: number
+  /** Unix seconds; tests set it. */
+  now?: () => number
   /** Upper bound (inclusive) on the event ids read. Set only by the replay script; unset in production. */
   maxId?: string
 }
@@ -57,6 +61,24 @@ export async function initCursor(sql: Sql, fromId?: string): Promise<string> {
   const max = await maxEventId(sql)
   await setCursor(sql, max)
   return max
+}
+
+const nowS = () => Math.floor(Date.now() / 1000)
+
+/**
+ * The time before which nft.* events never alert (unix seconds): `override` (NFT_ALERTS_SINCE) when set,
+ * else the time the bot first ran with NFT rules, stored once so a restart reuses it. The indexer's NFT
+ * backfill writes old events as new rows; their `blockTimestamp` is below this time. Events from while the
+ * bot was down are above it and still get the rules' normal late windows.
+ */
+export async function nftCutoff(sql: Sql, override?: number, now = nowS): Promise<number> {
+  if (override !== undefined) return override
+  const read = async () =>
+    (await sql<{ value: string }[]>`select value from bot.state where key = 'nft_alerts_since'`)[0]
+  const [ins] = await sql<{ value: string }[]>`
+    insert into bot.state (key, value) values ('nft_alerts_since', ${String(now())})
+    on conflict (key) do nothing returning value`
+  return Number((ins ?? (await read()))!.value)
 }
 
 /** Inserts deliveries and moves the cursor in one short transaction. No network calls inside. */
@@ -176,9 +198,14 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
   const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log })
   const cands: Candidate[] = []
   let skipped = 0
+  const cutoff = events.some((e) => e.p.type.startsWith("nft."))
+    ? await nftCutoff(sql, deps.nftAlertsSince, deps.now)
+    : 0
   for (const ev of events) {
     // A launch in flood would only yield the NEW TOKEN alert that flood mode replaces.
     if (starts.has(ev.id)) continue
+    // Backfilled NFT history: the cursor moves past it and nothing is sent.
+    if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue
     try {
       cands.push(...(await rules(ev, { sql, prices: deps.prices, log })))
     } catch (err) {

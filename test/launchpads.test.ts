@@ -5,7 +5,6 @@ import {
   launchpadNames,
   referralLink,
   tradeLink,
-  unknownTokenText,
 } from "../src/launchpads"
 
 const CA = "0x5ab27c4e9d1f03b8a6e2c5d7f940b1a8c3d6e3c8"
@@ -39,9 +38,5 @@ it("names launchpads from config only", () => {
       referralUrl: () => "https://tsunami.example",
     },
   }
-  expect(unknownTokenText()).toBe("Not a token on InkyPump. MAKO covers InkyPump launches for now.")
   expect(launchpadNames(two)).toBe("InkyPump or Tsunami")
-  expect(unknownTokenText(two)).toBe(
-    "Not a token on InkyPump or Tsunami. MAKO covers InkyPump or Tsunami launches for now.",
-  )
 })

@@ -30,20 +30,24 @@ import {
 } from "../platforms/telegram/ui"
 import { NATIVE } from "../prices"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
+import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
 import { findUser } from "./users"
 
-// Words the owner has not supplied. They are marked gaps, never filled in by the build; the final report
-// lists them and the owner's wording replaces these strings.
-export const GAP = {
-  nfts: "[COPY NEEDED: /nft with no collection]",
-  none: "[COPY NEEDED: no collection matches the query]",
-  loading: "[COPY NEEDED: NFT data is not loaded yet]",
-  noSales: "[COPY NEEDED: a collection with no sales yet]",
-  noMinting: "[COPY NEEDED: no collection is minting now]",
-  noUpcoming: "[COPY NEEDED: no mint is scheduled in the next 7 days]",
-  noTrending: "[COPY NEEDED: no trending collections]",
-  trendingDown: "[COPY NEEDED: trending is unavailable right now]",
+// Owner copy, 2026-10-23.
+export const COPY = {
+  nfts: [
+    "Look up NFTs by providing a name or contract address.",
+    "/nft wired",
+    "/nft 0x7c701c0148e0e965065aa05e008ac9341e6efc6c",
+  ].join("\n"),
+  none: NOT_FOUND,
+  loading: "I'm still loading NFT data. Try again in a minute.",
+  noSales: "No sales yet.",
+  noMinting: "There are no live mints detected right now.",
+  noUpcoming: "No results in the next 7 days.",
+  noTrending: "No Ink collections are trending in this timeframe.",
+  trendingDown: "Trending isn't available right now. Try again in a few minutes.",
 } as const
 /** From the approved formats ("NFT card"). */
 const NO_RANK = "No rarity rank on OpenSea for this collection."
@@ -182,6 +186,8 @@ async function isWatching(deps: BotDeps, ctx: Context, contract: string): Promis
 }
 
 const suffix = (code?: string) => (code ? `:${code}` : "")
+/** Back from a card opened in a list: w is Watched NFTs and x is Muted NFTs, the rest are the lists. */
+const backTo = (code: string) => (code === "w" ? "nwl" : code === "x" ? "nml" : `nl:${code}`)
 const viewUrl = (deps: BotDeps, contract: string, slug: string | null) =>
   slug ? `${deps.linksBase}/n/c/${slug}` : `${deps.linksBase}/n/a/${contract}`
 
@@ -209,7 +215,7 @@ function cardKb(
       link("View", viewUrl(deps, contract, card.slug)),
     ],
   ]
-  if (code) kb.push([btn("Back", `nl:${code}`)])
+  if (code) kb.push([btn("Back", backTo(code))])
   return kb
 }
 
@@ -222,7 +228,7 @@ async function sendCard(
   code?: string,
 ): Promise<void> {
   const card = await collectionCard(deps, contract, win)
-  if (!card) return void (await show(ctx, GAP.none))
+  if (!card) return void (await show(ctx, COPY.none))
   if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
   const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract), code)
   await deps.images.send(ctx.api, {
@@ -274,7 +280,7 @@ async function windowCard(
   code?: string,
 ): Promise<void> {
   const card = await collectionCard(deps, contract, win)
-  if (!card) return void (await ctx.answerCallbackQuery({ text: GAP.none }).catch(() => {}))
+  if (!card) return void (await ctx.answerCallbackQuery({ text: COPY.none }).catch(() => {}))
   const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract), code)
   await editCard(ctx, deps, card.html, kb)
 }
@@ -288,7 +294,7 @@ async function salesPage(
   code?: string,
 ): Promise<void> {
   const st = deps.nft?.()?.get(contract)
-  if (!st) return void (await ctx.answerCallbackQuery({ text: GAP.none }).catch(() => {}))
+  if (!st) return void (await ctx.answerCallbackQuery({ text: COPY.none }).catch(() => {}))
   const name = makeNftAlertCard("minted", "", st.col, [], { contract }).name
   const slug = st.col?.slug ?? null
   const { rows, total } = await recentSales(deps.sql, contract, (page - 1) * PAGE, PAGE)
@@ -297,7 +303,7 @@ async function salesPage(
   const idw = Math.max(0, ...rows.map((r) => r.p.tokenId.length)) + 1
   const lines =
     rows.length === 0
-      ? [GAP.noSales]
+      ? [COPY.noSales]
       : rows.map(
           (r) =>
             `<code>${`#${r.p.tokenId}`.padEnd(idw + 3)}${escapeHtml(ethText(BigInt(r.p.priceWei), null))}   ${inText(now - r.p.blockTimestamp)} ago</code>`,
@@ -509,7 +515,7 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
 }
 
 const LIST_TITLE: Record<string, string> = { m: "Minting now", u: "Upcoming" }
-const LIST_EMPTY: Record<string, string> = { m: GAP.noMinting, u: GAP.noUpcoming }
+const LIST_EMPTY: Record<string, string> = { m: COPY.noMinting, u: COPY.noUpcoming }
 
 async function showTrending(
   ctx: Context,
@@ -524,11 +530,11 @@ async function showTrending(
       chosenBtn(TREND_LABEL[c], c === code, `nl:${c}`),
     ),
   ]
-  if (rows === null) return void (await show(ctx, GAP.loading, back))
+  if (rows === null) return void (await show(ctx, COPY.loading, back))
   if (rows === "down")
-    return void (await show(ctx, `${title}\n${GAP.trendingDown}`, [...frames, ...back]))
+    return void (await show(ctx, `${title}\n${COPY.trendingDown}`, [...frames, ...back]))
   if (rows.length === 0)
-    return void (await show(ctx, `${title}\n${GAP.noTrending}`, [...frames, ...back]))
+    return void (await show(ctx, `${title}\n${COPY.noTrending}`, [...frames, ...back]))
   await show(ctx, title, [
     ...frames,
     ...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]),
@@ -540,7 +546,7 @@ async function showList(ctx: Context, deps: BotDeps, code: string): Promise<void
   if (code in TIMEFRAME) return showTrending(ctx, deps, code as keyof typeof TIMEFRAME)
   const rows = await listRows(deps, ctx, code)
   const title = `<b>${LIST_TITLE[code] ?? "NFTs"}</b>`
-  if (rows === null) return void (await show(ctx, GAP.loading, [[btn("Back", "nfts")]]))
+  if (rows === null) return void (await show(ctx, COPY.loading, [[btn("Back", "nfts")]]))
   const back: Kb = [[btn("Back", "nfts")]]
   if (rows.length === 0) return void (await show(ctx, `${title}\n${LIST_EMPTY[code]}`, back))
   await show(ctx, title, [...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]), ...back])
@@ -549,15 +555,15 @@ async function showList(ctx: Context, deps: BotDeps, code: string): Promise<void
 /** `/nft <collection> [window]` and the pick list: sends the card, the pick list or the reason there is none. */
 async function nftCommand(ctx: Context, deps: BotDeps, text: string): Promise<void> {
   const state = deps.nft?.()
-  if (!state) return void (await show(ctx, GAP.loading))
-  if (!text.trim()) return void (await show(ctx, GAP.nfts))
+  if (!state) return void (await show(ctx, COPY.loading))
+  if (!text.trim()) return void (await show(ctx, COPY.nfts))
   const q = parseNftQuery(state, text)
   if (q.tokenId !== null && q.contract.kind === "one")
     return sendItemCard(ctx, deps, q.contract.contract, q.tokenId)
   await openMatch(ctx, deps, state, q.contract, text, q.window ?? "24h")
 }
 
-async function openMatch(
+export async function openMatch(
   ctx: Context,
   deps: BotDeps,
   state: NonNullable<ReturnType<NonNullable<BotDeps["nft"]>>>,
@@ -566,7 +572,7 @@ async function openMatch(
   win: Window,
 ): Promise<void> {
   if (m.kind === "short") return void (await show(ctx, SHORT))
-  if (m.kind === "none") return void (await show(ctx, GAP.none))
+  if (m.kind === "none") return void (await show(ctx, COPY.none))
   if (m.kind === "one") return sendCard(ctx, deps, m.contract, win)
   const kb: Kb = m.contracts.map((c) => {
     const s = state.get(c)!

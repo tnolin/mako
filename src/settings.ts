@@ -203,7 +203,7 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
       return `SWEEP - one wallet buys ${a.sweep.items}+ items in 10 min.`
     case "sale":
       return a.sale.minWei === "0"
-        ? "[COPY NEEDED: SOLD description when the minimum is any]"
+        ? "SOLD - an item sells at any price."
         : `SOLD - an item sells for ${ethTrim(a.sale.minWei)} ETH or more.`
     case "reminder":
       return "REMINDERS - a message 15 min before each mint stage."

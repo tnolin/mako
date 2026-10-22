@@ -117,6 +117,12 @@ async function linkChannel(
   if (created) await sendWelcome(ctx, user.settings)
 }
 
+const setupText = (hasSettings: boolean) =>
+  `MAKO will post alerts here.${hasSettings ? "" : " Start a chat with MAKO to get settings and admin notices."}`
+const setupKb = (bot: string, chatId: number): Kb => [
+  [link("Open settings", `https://t.me/${bot}?start=s_${chatId}`), btn("Watched NFTs", "nwl")],
+]
+
 function routeKb(s: Settings, thread: number): Kb {
   return TOKEN_ALERTS.map((a) => [
     btn(`${s.routes?.[a] === thread ? "✓" : "·"} ${ALERT_LABEL[a]}`, `rt:${a}`),
@@ -178,10 +184,13 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
         setup_by = coalesce(${setupBy}::bigint, setup_by)
       where chat_id = ${ctx.chat.id}`
     await logAction(deps.sql, { chatType: ctx.chat.type, chatId: ctx.chat.id, action: "setup" })
-    await reply(
-      `MAKO will post alerts here.${setupBy ? "" : " Start a chat with MAKO to get settings and admin notices."}`,
-      [[link("Open settings", `https://t.me/${ctx.me.username}?start=s_${ctx.chat.id}`)]],
-    )
+    await reply(setupText(!!setupBy), setupKb(ctx.me.username, ctx.chat.id))
+  })
+  // Back from Watched NFTs.
+  groups.callbackQuery("gs", async (ctx) => {
+    const [c] = await deps.sql<{ set: boolean }[]>`
+      select setup_by is not null as set from bot.chats where chat_id = ${ctx.chat.id}`
+    await show(ctx, setupText(c?.set ?? false), setupKb(ctx.me.username, ctx.chat.id))
   })
   groups.command("route", async (ctx) => {
     const thread = ctx.msg.is_topic_message ? ctx.msg.message_thread_id : undefined

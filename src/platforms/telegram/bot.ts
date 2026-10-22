@@ -9,6 +9,7 @@ import { registerMain } from "../../menus/main"
 import { registerNft } from "../../menus/nft"
 import { registerStart } from "../../menus/start"
 import { registerToken } from "../../menus/token"
+import { registerWatches } from "../../menus/watches"
 import { registerWatchlist } from "../../menus/watchlist"
 
 export const KNOWN_COMMANDS = [
@@ -48,6 +49,7 @@ export function createBot(deps: BotDeps & { token: string; botInfo?: UserFromGet
   registerLists(bot, deps)
   registerNft(bot, deps)
   registerWatchlist(bot, deps)
+  registerWatches(bot, deps)
   registerAlerts(bot, deps)
   registerChats(bot, deps)
   // Last: it catches plain text (pasted addresses and ForceReply answers).

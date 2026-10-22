@@ -97,3 +97,17 @@ export async function remindersOf(sql: Sql, userId: string): Promise<string[]> {
     select contract from bot.reminders where user_id = ${userId} order by created_at desc, contract`
   return rows.map((r) => r.contract)
 }
+
+/** What a user already did with a collection, for the state of the buttons they see. */
+export async function viewerState(
+  sql: Sql,
+  userId: string,
+  contract: string,
+): Promise<{ watching: boolean; muted: boolean; reminded: boolean }> {
+  const [r] = await sql<{ watching: boolean; muted: boolean; reminded: boolean }[]>`
+    select
+      exists (select 1 from bot.nft_watches where user_id = ${userId} and contract = ${contract}) as watching,
+      exists (select 1 from bot.collection_mutes where user_id = ${userId} and contract = ${contract}) as muted,
+      exists (select 1 from bot.reminders where user_id = ${userId} and contract = ${contract}) as reminded`
+  return r!
+}

@@ -56,8 +56,3 @@ export function launchpadNames(list: Record<string, Launchpad> = LAUNCHPADS): st
   const names = Object.values(list).map((l) => l.name)
   return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`
 }
-
-export function unknownTokenText(list: Record<string, Launchpad> = LAUNCHPADS): string {
-  const n = launchpadNames(list)
-  return `Not a token on ${n}. MAKO covers ${n} launches for now.`
-}

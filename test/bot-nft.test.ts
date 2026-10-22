@@ -1,5 +1,6 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
+import { NOT_FOUND } from "../src/menus/copy"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { watch } from "../src/nft/watches"
 import { createBot } from "../src/platforms/telegram/bot"
@@ -235,20 +236,20 @@ describe("finding a collection", () => {
     expect(h.calls).toEqual([])
   })
 
-  it("keeps the unknown-address answer for an address that is no token and no collection", async () => {
+  it("says it could not find an address that is no token and no collection", async () => {
     await boot(hornet())
     mkBot()
     await h.text(addr(0x77))
-    expect(h.last("sendMessage")!.text).toMatch(/^Not a token on/)
+    expect(h.last("sendMessage")!.text).toBe(NOT_FOUND)
   })
 
-  it("asks for 3 characters, and has no word for a name nothing matches", async () => {
+  it("asks for 3 characters, and says it found nothing for a name nothing matches", async () => {
     await boot(hornet())
     mkBot()
     await h.text("/nft ab")
     expect(h.last("sendMessage")!.text).toBe("Send at least 3 characters")
     await h.text("/nft zzzzzz")
-    expect(h.last("sendMessage")!.text).toMatch(/COPY NEEDED/)
+    expect(h.last("sendMessage")!.text).toBe(NOT_FOUND)
   })
 
   it("gives a pick list of full-width buttons when several collections match", async () => {
@@ -346,10 +347,10 @@ describe("lists", () => {
     expect(texts(m)).toEqual([["Sooner · Nov 2 17:00 UTC"], ["Later · Nov 3 10:00 UTC"], ["Back"]])
   })
 
-  it("says nothing it was not given words for when a list is empty", async () => {
+  it("says so when a list is empty", async () => {
     await boot(hornet())
     mkBot()
     await h.tap("nl:u")
-    expect(h.last("editMessageText")!.text).toMatch(/COPY NEEDED/)
+    expect(h.last("editMessageText")!.text).toBe("<b>Upcoming</b>\nNo results in the next 7 days.")
   })
 })

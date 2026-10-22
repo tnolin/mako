@@ -118,7 +118,13 @@ export function tradeUrl(linksBase: string, ca: string, deliveryId?: string): st
 
 export function alertKeyboard(
   card: Card,
-  ctx: { chatType: ChatType; deliveryId?: string; linksBase: string; botUsername: string },
+  ctx: {
+    chatType: ChatType
+    deliveryId?: string
+    linksBase: string
+    botUsername: string
+    state?: { watching?: boolean; muted?: boolean }
+  },
 ): InlineKeyboardMarkup {
   const trade: InlineKeyboardButton = {
     text: "Trade",
@@ -135,8 +141,11 @@ export function alertKeyboard(
     inline_keyboard: [
       [
         trade,
-        { text: "Watch", callback_data: `w:${card.token}` },
-        { text: "Mute", callback_data: `m:${card.token}` },
+        stateBtn(
+          { on: !!ctx.state?.watching, off: "Watch", onText: "Watching" },
+          `w:${card.token}`,
+        ),
+        stateBtn({ on: !!ctx.state?.muted, off: "Mute", onText: "Muted" }, `m:${card.token}`),
       ],
     ],
   }

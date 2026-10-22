@@ -3,18 +3,17 @@ import type { Bot, Context } from "grammy"
 import { valueText } from "../cards/money"
 import { age, bar, buysSells, clean, escapeHtml } from "../format"
 import { bondOf, cursorBlock, DAY_BLOCKS, launchOf, tradesOf } from "../history"
-import { unknownTokenText } from "../launchpads"
 import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
-import { btn, findAddress, type Kb, link, show, threadOf } from "../platforms/telegram/ui"
+import { btn, findAddress, type Kb, link, show, stateBtn, threadOf } from "../platforms/telegram/ui"
 import { isPoolId, poolMcap } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
 import { devCounts, windowStats } from "../rules/stats"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
+import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
 import { tryNftPaste } from "./nft"
-import { WATCH_PROMPT, watchToken } from "./watchlist"
 
 export const LOOKUP_PROMPT = "Send a token address."
 
@@ -114,7 +113,7 @@ export function tokenKb(
     [
       link("Trade", tradeUrl(deps.linksBase, ca)),
       watch.dm
-        ? btn(watch.watching ? "Watching" : "Watch", `w:${ca}`)
+        ? stateBtn({ on: watch.watching, off: "Watch", onText: "Watching" }, `w:${ca}`)
         : link("Watch", `https://t.me/${watch.botUsername}?start=w_${ca}`),
     ],
     [
@@ -122,7 +121,7 @@ export function tokenKb(
       link("Explorer", `https://explorer.inkonchain.com/token/${ca}`),
     ],
   ]
-  if (back) kb.push([btn("Back", `l:${back}`)])
+  if (back) kb.push([btn("Back", back === "wl" || back === "mu" ? back : `l:${back}`)])
   return kb
 }
 
@@ -148,7 +147,7 @@ async function loadCard(
   }
   const card = await tokenCard(deps, ca)
   if (!card) {
-    await missing(unknownTokenText())
+    await missing(NOT_FOUND)
     return null
   }
   const dm = ctx.chat?.type === "private"
@@ -230,11 +229,11 @@ async function refreshTokenCard(
 
 export function registerToken(bot: Bot, deps: BotDeps): void {
   bot.command("t", (ctx) => sendTokenCard(ctx, deps, ctx.match))
-  bot.callbackQuery(/^t:(0x[0-9a-f]{40})(?::(hot|near|bonded))?$/, (ctx) =>
+  bot.callbackQuery(/^t:(0x[0-9a-f]{40})(?::(hot|near|bonded|wl|mu))?$/, (ctx) =>
     sendTokenCard(ctx, deps, ctx.match[1]!, ctx.match[2]),
   )
   const cooldown = refreshCooldown(REFRESH_COOLDOWN_MS)
-  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})(?::(hot|near|bonded))?$/, async (ctx) => {
+  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})(?::(hot|near|bonded|wl|mu))?$/, async (ctx) => {
     const ca = ctx.match[1]!
     // Checked before any read: a tap inside the cooldown touches neither the database nor the node.
     const wait = cooldown(`${ctx.from.id}:${ca}`)
@@ -254,7 +253,6 @@ export function registerToken(bot: Bot, deps: BotDeps): void {
   pm.on("message:text", async (ctx, next) => {
     const r = ctx.msg.reply_to_message
     const prompt = r?.from?.id === ctx.me.id ? r.text : undefined
-    if (prompt === WATCH_PROMPT) return watchToken(ctx, deps, ctx.msg.text)
     const text = ctx.msg.text
     const ca = findAddress(text)
     if (ca) {

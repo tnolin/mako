@@ -3,6 +3,7 @@ import { createNotify } from "./delivery/notices"
 import { initCursor, nftCutoff, startPoller } from "./delivery/poller"
 import { startRetention } from "./delivery/retention"
 import { startSender } from "./delivery/sender"
+import { createViewer } from "./delivery/viewer"
 import { createHeartbeat } from "./heartbeat"
 import { cursorBlock } from "./history"
 import { LAUNCHPADS, referralLink, tradeLink } from "./launchpads"
@@ -128,7 +129,7 @@ const stopReminders = startReminders({ sql, nft: () => nftState.current, log })
 const notify = createNotify({ sql, api: bot.api, botUsername, log })
 const stopSender = startSender({
   sql,
-  send: createSend(bot.api, { linksBase, botUsername, images }),
+  send: createSend(bot.api, { linksBase, botUsername, images, viewer: createViewer(sql) }),
   notify,
   log,
   report,

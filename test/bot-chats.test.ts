@@ -118,7 +118,10 @@ describe("groups", () => {
       message_thread_id: 5,
       reply_markup: {
         inline_keyboard: [
-          [{ text: "Open settings", url: `https://t.me/makoinkbot?start=s_${G.id}` }],
+          [
+            { text: "Open settings", url: `https://t.me/makoinkbot?start=s_${G.id}` },
+            { text: "Watched NFTs", callback_data: "nwl" },
+          ],
         ],
       },
     })

@@ -298,4 +298,42 @@ describe("NFT card", () => {
     const [after] = await sql<{ tokens: number }[]>`select tokens from indexer.opensea_budget`
     expect(after!.tokens).toBeGreaterThanOrEqual(tokens)
   })
+  it("lists trending collections that MAKO knows, with the timeframe buttons and Back", async () => {
+    await boot()
+    await h.tap("nl:t24")
+    const m = h.last("editMessageText")!
+    expect(m.text).toBe("<b>Trending</b>")
+    const kb = kbOf(m)
+    expect(kb[0]).toEqual([
+      { text: "1h", callback_data: "nl:t1" },
+      { text: "24h", callback_data: "nl:t24", style: "success" },
+      { text: "7d", callback_data: "nl:t7" },
+    ])
+    expect(kb[1]![0]!.text).toMatch(/^WIRED · .* floor$/)
+    expect(kb[1]![0]!.callback_data).toBe(`nc:${WIRED}:t24`)
+    expect(kb.at(-1)).toEqual([{ text: "Back", callback_data: "nfts" }])
+    expect(kb).toHaveLength(3)
+  })
+
+  it("says so when nothing is trending or OpenSea cannot be reached", async () => {
+    route = () => json({ collections: [] })
+    await boot()
+    await h.tap("nl:t1")
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Trending</b>\nNo Ink collections are trending in this timeframe.",
+    )
+    route = () => json({}, 500)
+    await h.tap("nl:t7")
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Trending</b>\nTrending isn't available right now. Try again in a few minutes.",
+    )
+  })
+
+  it("explains /nft with nothing after it", async () => {
+    await boot()
+    await h.text("/nft")
+    expect(h.last("sendMessage")!.text).toBe(
+      "Look up NFTs by providing a name or contract address.\n/nft wired\n/nft 0x7c701c0148e0e965065aa05e008ac9341e6efc6c",
+    )
+  })
 })

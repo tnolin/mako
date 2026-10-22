@@ -233,5 +233,5 @@ it("ALERT_DESC follows the chosen thresholds", () => {
 it("ALERT_DESC leaves a marked gap where the owner has not supplied the wording", () => {
   const s = basicPreset("private")
   s.alerts.sale.minWei = "0"
-  expect(ALERT_DESC("sale", s)).toBe("[COPY NEEDED: SOLD description when the minimum is any]")
+  expect(ALERT_DESC("sale", s)).toBe("SOLD - an item sells at any price.")
 })

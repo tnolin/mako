@@ -325,3 +325,42 @@ it("an nftalert caption over 1,024 characters goes as text", async () => {
   expect(a.sendPhoto).not.toHaveBeenCalled()
   expect(a.sendMessage).toHaveBeenCalledTimes(1)
 })
+
+it("opens a DM alert with the buttons in the state the user already set", async () => {
+  const a = api()
+  const s = setup({ [card.token]: "CACHED" })
+  const viewer = {
+    token: vi.fn(async () => ({ watching: true, muted: false })),
+    nft: vi.fn(async () => ({ watching: false, muted: false, reminded: false })),
+  }
+  await createSend(a, { ...s.opts, viewer })(row({ chat_id: "100", chat_type: "private" }))
+  expect(viewer.token).toHaveBeenCalledWith(100, card.token)
+  expect(photoCall(a)[2]!.reply_markup).toMatchObject({
+    inline_keyboard: [
+      [
+        { text: "Trade" },
+        { text: "Watching", callback_data: `w:${card.token}`, style: "success" },
+        { text: "Mute", callback_data: `m:${card.token}` },
+      ],
+    ],
+  })
+})
+
+it("sends the alert with inactive buttons when the state lookup fails, and never asks for a group", async () => {
+  const a = api()
+  const s = setup({ [card.token]: "CACHED" })
+  const viewer = {
+    token: vi.fn(async () => {
+      throw new Error("db down")
+    }),
+    nft: vi.fn(),
+  }
+  expect(
+    await createSend(a, { ...s.opts, viewer })(row({ chat_id: "100", chat_type: "private" })),
+  ).toEqual({ ok: true })
+  expect(photoCall(a)[2]!.reply_markup).toMatchObject({
+    inline_keyboard: [[{ text: "Trade" }, { text: "Watch" }, { text: "Mute" }]],
+  })
+  await createSend(a, { ...s.opts, viewer })(row())
+  expect(viewer.token).toHaveBeenCalledTimes(1)
+})

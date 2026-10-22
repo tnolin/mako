@@ -7,13 +7,14 @@ import type { BotDeps } from "./deps"
 import { MENU_TEXT, menuKb } from "./main"
 import { sendTokenCard } from "./token"
 import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
+import { nftDeepLink } from "./watches"
 import { watchToken } from "./watchlist"
 import { sendWelcome, welcomeKb, welcomeText } from "./welcome"
 
 /** Analytics source for /start: a kind letter for our own links, a plain campaign tag, never free text or ids. */
 export function startSource(payload: string): string {
   if (!payload) return "none"
-  const kind = /^([wts])_/.exec(payload)?.[1]
+  const kind = /^(wn|rn|[wts])_/.exec(payload)?.[1]
   if (kind) return kind
   // A bare address or chat id is an identifier, not a campaign tag.
   if (/^0x[0-9a-fA-F]{40}$/.test(payload) || /^-?\d+$/.test(payload)) return "other"
@@ -33,9 +34,17 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
     if (payload.startsWith("w_")) await watchToken(ctx, deps, payload.slice(2))
     else if (payload.startsWith("t_")) await sendTokenCard(ctx, deps, payload.slice(2))
     else if (payload.startsWith("s_")) await openChatSettings(ctx, deps, payload.slice(2))
+    else if (/^(wn|rn)_0x[0-9a-fA-F]{40}$/.test(payload))
+      await nftDeepLink(
+        ctx,
+        deps,
+        user,
+        payload.slice(0, 2) as "wn" | "rn",
+        payload.slice(3).toLowerCase(),
+      )
     if (created) {
       await sendWelcome(ctx, user.settings)
-    } else if (!/^[wts]_/.test(payload)) {
+    } else if (!/^(wn|rn|[wts])_/.test(payload)) {
       await show(ctx, MENU_TEXT, menuKb(deps.linksBase))
     }
   })

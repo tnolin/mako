@@ -13,6 +13,7 @@ import {
   creatorRow,
   ethText,
   makeNftAlertCard,
+  multiple,
   type NftAlertCard,
   type NftAlertKind,
   shortAddr,
@@ -179,12 +180,6 @@ function minted(b: Base, st: CollectionState, ev: NftMintEvent): Candidate | nul
       markBps: ev.markBps,
     },
   )
-}
-
-/** 11x, 1.3x: a whole number from 10, else one decimal. */
-function multiple(floor: bigint, top: bigint): string {
-  const x = Number((floor * 100n) / top) / 100
-  return `${x >= 10 ? Math.round(x) : Number(x.toFixed(1))}x`
 }
 
 function soldOut(b: Base, st: CollectionState, ev: NftMintEvent): Candidate {

@@ -108,3 +108,9 @@ export function makeNftAlertCard(
     links,
   }
 }
+
+/** 11x, 1.3x: one number over another, a whole number from 10, else one decimal. */
+export function multiple(over: bigint, under: bigint): string {
+  const x = Number((over * 100n) / under) / 100
+  return `${x >= 10 ? Math.round(x) : Number(x.toFixed(1))}x`
+}

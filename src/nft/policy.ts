@@ -57,3 +57,11 @@ export function ethTrim(weiStr: string): string {
   const frac = (w % ETH).toString().padStart(18, "0").replace(/0+$/, "")
   return frac ? `${w / ETH}.${frac}` : String(w / ETH)
 }
+
+/** A Team stage gets no MINT STARTING or MINT REMINDER and isn't listed on UPCOMING MINT. */
+export function isTeamStage(s: { label: string; allowlistCount: number | null }): boolean {
+  return (
+    TEAM_STAGE_RE.test(s.label) ||
+    (s.allowlistCount !== null && s.allowlistCount <= TEAM_ALLOWLIST_MAX)
+  )
+}

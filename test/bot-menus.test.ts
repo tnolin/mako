@@ -391,7 +391,7 @@ describe("Help", () => {
 })
 
 describe("label lengths", () => {
-  // About 20 characters with 2 buttons per row, 13 with 3, 30 full width (design/alert-formats.md).
+  // About 20 characters with 2 buttons per row, 13 with 3, 30 full width.
   const limit = (perRow: number) => (perRow >= 3 ? 13 : perRow === 2 ? 20 : 30)
   const fits = (p: Payload | undefined) => {
     for (const r of rows(p))

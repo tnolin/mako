@@ -1,8 +1,7 @@
 import { escapeHtml } from "../format"
 
 /**
- * Owner copy for the Watch, Mute and Remind me buttons ("Button states" in the design notes), one function
- * each, shared by tokens and NFTs. `name` is a token's `$TICKER` or a collection's cleaned name.
+ * Copy for the Watch, Mute and Remind me buttons, one function each, shared by tokens and NFTs. `name` is a token's `$TICKER` or a collection's cleaned name.
  * `popup.*` is plain text (a callback answer); `dm.*` is HTML for a message.
  */
 export const popup = {
@@ -26,7 +25,6 @@ export const dm = {
     `Watching ${escapeHtml(name)}. I'll send every alert for it to this group.`,
 }
 
-/** Owner copy, 2026-10-23. */
 export const NOT_FOUND =
   "I couldn't find a token or NFT with that name or address. Please confirm you have the right details and try again."
 

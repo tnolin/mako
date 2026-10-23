@@ -247,7 +247,7 @@ const PICKERS: Record<string, Picker> = {
   },
 }
 const PICKER_PATTERN = Object.keys(PICKERS).join("|")
-/** Owner copy (2026-10-23): one line on each picker screen. BONDING keeps the text it already had. */
+/** One line on each picker screen. */
 const PICKER_TEXT: Record<string, string> = {
   bonding: "<b>BONDING marks</b>\nAlert when a curve passes:",
   big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target.",

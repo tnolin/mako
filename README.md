@@ -113,8 +113,6 @@ You can delete your data in Settings → Delete my data. Server backups are dele
 - [Decision records](docs/adr)
 - [AGENTS.md](AGENTS.md), for coding agents
 
-<!-- Privacy policy: add the link at https://makobot.xyz once the site is live. -->
-
 ## Quick start
 
     pnpm install

@@ -247,7 +247,7 @@ function newCollection(
 
 /**
  * Candidates for a mint, drop, collection or launch event. The state already holds the event, and `prev` is
- * the collection snapshot it replaced. A collection that turns `real` (or first passes gates 1 and 2) after
+ * the collection snapshot it replaced. A collection that turns `real` (or first passes the page and structure gates) after
  * its mint started gets one catch-up alert for the current state, stamped with the receipt time.
  */
 export function mintRules(

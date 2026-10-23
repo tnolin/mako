@@ -13,7 +13,7 @@ import {
 import type { BotDeps } from "./deps"
 import { deleteUserData } from "./users"
 
-/** The bot profile's About (short description) and description, owner copy. Neither names a launchpad. */
+/** The bot profile's About (short description) and description. Neither names a launchpad. */
 export const SHORT_ABOUT =
   "The only bot for real-time alerts of memecoins and NFTs on Ink. Open source. Join the community: @MakoOnInk"
 export const ABOUT = [
@@ -28,7 +28,7 @@ const WATCH_COMMAND = {
   command: "watch",
   description: "Watch a token or NFT: /watch <address or name>",
 }
-/** The command menus, owner copy. */
+/** The command menus. */
 export const PRIVATE_COMMANDS = [
   { command: "start", description: "Start MAKO" },
   { command: "menu", description: "Main menu" },

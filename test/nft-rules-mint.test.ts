@@ -120,7 +120,7 @@ describe("UPCOMING MINT", () => {
     ).toBe(false)
     state = createNftState()
     process(gates({ traits: "pending", farm: "pending" }))
-    // Gates 1 and 2 passed and the verdict isn't filtered: eligible before the mint proves the rest.
+    // The page and structure gates passed and the verdict isn't filtered: eligible before the mint proves the rest.
     expect(
       only(process(nftDrop({ stages: HORNET_STAGES, blockTimestamp: now }))).feedEligible,
     ).toBe(true)

@@ -11,7 +11,7 @@ const NFT_SALES = /^\/n\/s\/([a-z0-9-]{1,100})$/
 const NFT_ITEM = /^\/n\/i\/(0x[0-9a-fA-F]{40})\/([0-9]{1,78})$/
 const NFT_CONTRACT = /^\/n\/a\/(0x[0-9a-fA-F]{40})$/
 const OPENSEA = "https://opensea.io"
-/** The platform links on the NFTs screen (owner, 2026-10-21). They are not logged. */
+/** The platform links on the NFTs screen. They are not logged. */
 const PLATFORMS: Record<string, string> = {
   "/p/opensea": OPENSEA,
   "/p/chimera": "https://www.chimeras.ink/discover",

@@ -416,7 +416,7 @@ describe("colour fallback and label lengths", () => {
   })
 
   it("every settings label fits", async () => {
-    // About 20 characters with 2 buttons per row, 13 with 3, 30 full width (design/alert-formats.md).
+    // About 20 characters with 2 buttons per row, 13 with 3, 30 full width.
     const limit = (n: number) => (n >= 3 ? 13 : n === 2 ? 20 : 30)
     await addUser(sql, 100)
     for (const data of [

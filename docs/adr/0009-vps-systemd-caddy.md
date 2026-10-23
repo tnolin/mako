@@ -1,6 +1,6 @@
 # 0009. One VPS with systemd and Caddy
 
-Date: 2026-10-12, amended 2026-10-15
+Date: 2026-10-12
 Status: Accepted
 
 Extends ADR 0004.
@@ -9,7 +9,7 @@ Extends ADR 0004.
 
 The indexer, the bot, Postgres and the Trade redirect are small enough for one machine. The bot talks to Telegram's Bot API and to Ink RPC endpoints over the internet.
 
-Amended 2026-10-15: the hosting provider and region are deployment details, kept out of the public docs. The setup below works on any Ubuntu 24.04 VPS.
+The setup below works on any Ubuntu 24.04 VPS.
 
 ## Decision
 

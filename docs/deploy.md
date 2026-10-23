@@ -6,7 +6,7 @@ One VPS runs Postgres, the indexer, the bot and Caddy (ADR 0009). Steps marked *
 
 - A single Ubuntu 24.04 VPS with 2 vCPUs, 4 GB RAM and about 40 GB of disk. Turn on your provider's backups and snapshots if it offers them.
 - A sudo user that logs in with your SSH key. Cloud images usually ship one, such as `ubuntu`. Install your key with `ssh-copy-id <user>@<ip>` and confirm that key login works before going on.
-- Record the connect times to the RPCs and Telegram in your private deploy notes:
+- Note the connect times to the RPCs and Telegram:
 
 ```bash
 for h in rpc-qnd.inkonchain.com ink.drpc.org rpc-gel.inkonchain.com api.telegram.org; do

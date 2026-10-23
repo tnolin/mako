@@ -35,7 +35,6 @@ import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
 import { findUser } from "./users"
 
-// Owner copy, 2026-10-23.
 export const COPY = {
   nfts: [
     "Look up NFTs by providing a name or contract address.",
@@ -51,10 +50,8 @@ export const COPY = {
   trendingTitle: "Trending",
   trendingDown: "Trending isn't available right now. Try again in a few minutes.",
 } as const
-/** From the approved formats ("NFT card"). */
 const NO_RANK = "No rarity rank on OpenSea for this collection."
 const PARTIAL = "Some details are unavailable right now."
-/** From the approved spec ("Closest-match rule"). */
 export const SHORT = "Send at least 3 characters"
 
 const nowS = (deps: BotDeps) => deps.now?.() ?? Math.floor(Date.now() / 1000)
@@ -370,7 +367,7 @@ export async function itemCard(
     ])
   for (const t of got?.traits ?? [])
     rows.push([clean(t.type, 24).toLowerCase(), clean(t.value, 40)])
-  // The sample pads to two past the longest label.
+  // Labels pad to two past the longest.
   const w = Math.max(9, ...rows.map(([l]) => l.length + 2))
   const lines = [
     `<b>${escapeHtml(base.name)}${base.verified ? " ✓" : ""} #${escapeHtml(tokenId)} · OpenSea</b>`,

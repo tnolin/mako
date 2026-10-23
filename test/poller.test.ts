@@ -569,7 +569,7 @@ it("skips nft events without rules and advances the cursor", async () => {
   expect(report).not.toHaveBeenCalled()
 })
 
-// Task 2b: the indexer's NFT backfill writes old nft.* events as new rows; the bot must not alert on them.
+// The indexer's NFT backfill writes old nft.* events as new rows; the bot must not alert on them.
 const seen = () => {
   const types: string[] = []
   const rules: PollerDeps["rules"] = async (ev) => {
@@ -624,7 +624,7 @@ it("launchpad events ignore the cutoff", async () => {
   expect(s.types).toEqual([`launchpad.launch@${T0}`])
 })
 
-// Task 9: NFT rules run end to end through the poller.
+// NFT rules run end to end through the poller.
 const NFT = addr(0xc0)
 const nftRows = async () =>
   (

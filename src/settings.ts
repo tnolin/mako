@@ -160,10 +160,7 @@ export function wantsImage(s: Settings, kind: AlertKind): boolean {
 
 const pct = (bps: number): string => String(bps / 100)
 
-/**
- * The line on the alert-settings screens (owner copy, design/alert-formats.md), with the current
- * thresholds. Wording the owner has not supplied is a marked gap, never filled in here.
- */
+/** The line on the alert-settings screens, with the current thresholds. */
 export function ALERT_DESC(kind: AlertKind, s: Settings): string {
   const a = s.alerts
   switch (kind) {

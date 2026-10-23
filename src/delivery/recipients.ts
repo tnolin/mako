@@ -36,6 +36,8 @@ export type Audience = {
   chats: ChatT[]
   /** token → user ids */
   watch: Map<string, Set<string>>
+  /** token → the chats (Telegram chat ids) whose admins watch it. */
+  chatWatch: Map<string, Set<string>>
   mute: Map<string, Set<string>>
   /** `${chatId}:${token}` → the PUMPING alerts queued there: event time and dedupe key. */
   lastPump: Map<string, { ts: number; key: string }[]>
@@ -65,6 +67,17 @@ export function feedAccepts(s: Settings, c: Candidate): boolean {
 export function watchAccepts(c: Candidate): boolean {
   if (c.alert === "new") return false
   if (c.alert === "big") return (c.sizeBps ?? 0) >= WATCH_BIG_BPS
+  return true
+}
+
+/**
+ * A group that watches a token gets every alert for it except NEW TOKEN, whatever its switches say.
+ * BONDING uses the group's marks and BIG BUY/SELL the group's percentage.
+ */
+export function chatWatchAccepts(s: Settings, c: Candidate): boolean {
+  if (c.alert === "new") return false
+  if (c.alert === "bonding") return c.mark !== undefined && s.alerts.bonding.marks.includes(c.mark)
+  if (c.alert === "big") return (c.sizeBps ?? 0) >= s.alerts.big.pctBps
   return true
 }
 
@@ -218,6 +231,7 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
     const token = cs[0]!.target
     const watchers = aud.watch.get(token)
     const muters = aud.mute.get(token)
+    const chatWatchers = aud.chatWatch.get(token)
     for (const u of aud.users) {
       if (muters?.has(u.userId)) continue
       const watching = watchers?.has(u.userId) ?? false
@@ -230,10 +244,11 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
       if (c) push(c, u.chatId, "private", null, u.settings)
     }
     for (const ch of aud.chats) {
+      const watching = chatWatchers?.has(ch.chatId) ?? false
       const c = best(
         cs.filter(
           (c) =>
-            feedAccepts(ch.settings, c) &&
+            (feedAccepts(ch.settings, c) || (watching && chatWatchAccepts(ch.settings, c))) &&
             !ch.settings.pausedRoutes?.includes(c.alert) &&
             !cooling(ch.chatId, c),
         ),
@@ -265,6 +280,10 @@ export async function loadAudience(
   const subs = tokens.length
     ? await sql<{ userId: string; kind: "watch" | "mute"; target: string }[]>`
         select user_id::text as "userId", kind, target from bot.subscriptions where target = any(${tokens})`
+    : []
+  const chatSubs = tokens.length
+    ? await sql<{ chatId: string; target: string }[]>`
+        select chat_id::text as "chatId", target from bot.chat_token_watches where target = any(${tokens})`
     : []
   const pumps = tokens.length
     ? await sql<{ chatId: string; token: string; ts: number; key: string }[]>`
@@ -322,6 +341,11 @@ export async function loadAudience(
     if (!m.has(s.target)) m.set(s.target, new Set())
     m.get(s.target)!.add(s.userId)
   }
+  const chatWatch = new Map<string, Set<string>>()
+  for (const s of chatSubs) {
+    if (!chatWatch.has(s.target)) chatWatch.set(s.target, new Set())
+    chatWatch.get(s.target)!.add(s.chatId)
+  }
   const lastPump = new Map<string, { ts: number; key: string }[]>()
   for (const p of pumps) {
     const k = `${p.chatId}:${p.token}`
@@ -331,6 +355,7 @@ export async function loadAudience(
     users: users.map((u) => ({ ...u, settings: readSettings(u.settings, "private") })),
     chats: chats.map((c) => ({ ...c, settings: readSettings(c.settings, c.chatType) })),
     watch,
+    chatWatch,
     mute,
     lastPump,
     watches: owners(nftWatches),

@@ -1,11 +1,11 @@
-import { afterAll, beforeEach, expect, inject, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { initCursor, type PollerDeps, pollOnce, startPoller } from "../src/delivery/poller"
 import { deleteUserData } from "../src/menus/users"
 import type { Prices } from "../src/prices"
 import type { DevHolds } from "../src/rpc"
 import { allOff, basicPreset } from "../src/settings"
-import { addChat, addUser, listDeliveries, subscribe } from "./helpers/bot"
+import { addChat, addUser, listDeliveries, subscribe, watchToken } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
 import {
   addr,
@@ -733,4 +733,110 @@ it("applies backfilled NFT history to the state but sends nothing for it", async
   await pollOnce(deps({ now: () => T0 + 3610, nftAlertsSince: T0 }))
   // The mint start knows the collection is real because the old snapshot built the state.
   expect(await nftRows()).toEqual([expect.objectContaining({ alert: "mintstart", chat_id: "101" })])
+})
+
+describe("a group that watches a token", () => {
+  const off = (mod: (s: ReturnType<typeof basicPreset>) => void = () => {}) => {
+    const s = allOff(basicPreset("supergroup"))
+    mod(s)
+    return s
+  }
+  const alertsOf = async (chat: string) =>
+    (await listDeliveries(sql))
+      .filter((r) => r.chat_id === chat)
+      .map((r) => r.dedupe_key.split(":")[0])
+
+  it("gets every alert type for it except NEW TOKEN, even with the switches off", async () => {
+    await addChat(sql, -1001, "supergroup", off())
+    await addChat(sql, -1002, "supergroup", off())
+    await watchToken(sql, -1001, L.token)
+    await insertEvents(sql, [
+      L,
+      trade({ soldBps: 8100, quoteAmount: eth(0.01), blockTimestamp: T0 + 2100 }),
+      bond({ token: L.token, blockTimestamp: T0 + 2200 }),
+    ])
+    await pollOnce(deps())
+    expect((await alertsOf("-1001")).sort()).toEqual(["bonded", "bonding"])
+    expect(await alertsOf("-1002")).toEqual([])
+  })
+
+  it("uses the group's BONDING marks", async () => {
+    await addChat(
+      sql,
+      -1001,
+      "supergroup",
+      off((s) => {
+        s.alerts.bonding.marks = [9000]
+      }),
+    )
+    await watchToken(sql, -1001, L.token)
+    await insertEvents(sql, [L, trade({ soldBps: 8100, blockTimestamp: T0 + 2100 })])
+    await pollOnce(deps())
+    // A watching group also gets PUMPING for the jump; only BONDING follows its marks.
+    expect(await alertsOf("-1001")).not.toContain("bonding")
+    await insertEvents(sql, [trade({ soldBps: 9100, blockTimestamp: T0 + 2200 })])
+    await pollOnce(deps())
+    expect(
+      (await listDeliveries(sql)).map((r) => r.dedupe_key).filter((k) => k.startsWith("bonding")),
+    ).toEqual([`bonding:9000:${L.token}`])
+  })
+
+  it("uses the group's BIG BUY/SELL percentage", async () => {
+    await addChat(sql, -1001, "supergroup", off())
+    await addChat(
+      sql,
+      -1002,
+      "supergroup",
+      off((s) => {
+        s.alerts.big.pctBps = 1000
+      }),
+    )
+    await watchToken(sql, -1001, L.token)
+    await watchToken(sql, -1002, L.token)
+    await insertEvents(sql, [
+      L,
+      trade({ soldBps: 4000, blockTimestamp: T0 + 2000 }),
+      trade({ soldBps: 4100, quoteAmount: eth(0.15), blockTimestamp: T0 + 2100 }),
+    ])
+    await pollOnce(deps())
+    expect(await alertsOf("-1001")).toContain("big")
+    expect(await alertsOf("-1002")).not.toContain("big")
+  })
+
+  it("keeps topic routes and paused routes", async () => {
+    await addChat(
+      sql,
+      -1001,
+      "supergroup",
+      off((s) => {
+        s.thread = 7
+        s.routes = { bonding: 9 }
+        s.pausedRoutes = ["bonded"]
+      }),
+    )
+    await watchToken(sql, -1001, L.token)
+    await insertEvents(sql, [
+      L,
+      trade({ soldBps: 8100, quoteAmount: eth(0.01), blockTimestamp: T0 + 2100 }),
+      bond({ token: L.token, blockTimestamp: T0 + 2200 }),
+    ])
+    await pollOnce(deps())
+    const rows = await listDeliveries(sql)
+    expect(rows.map((r) => `${r.alert}:${r.thread_id}`)).toEqual(["bonding:9"])
+  })
+
+  it("never sends NEW TOKEN, whatever the group's switch says", async () => {
+    await addChat(
+      sql,
+      -1001,
+      "supergroup",
+      off((s) => {
+        s.alerts.new.on = false
+      }),
+    )
+    await watchToken(sql, -1001, L.token)
+    await insertEvents(sql, [L])
+    await pollOnce(deps())
+    expect(await alertsOf("-1001")).toEqual([])
+  })
 })

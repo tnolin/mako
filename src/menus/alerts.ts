@@ -122,6 +122,12 @@ export const chatTitle = (ctx: Context, chatId: string | number): Promise<string
     .then((c) => clean("title" in c ? c.title : undefined, 64) || "this chat")
     .catch(() => "this chat")
 
+/** The chat's type for the action log; a chat MAKO has no row for logs as a supergroup. */
+export async function chatKind(sql: BotDeps["sql"], chatId: string): Promise<ChatType> {
+  const [c] = await sql<{ kind: ChatType }[]>`select kind from bot.chats where chat_id = ${chatId}`
+  return c?.kind ?? "supergroup"
+}
+
 const pct = (bps: number) => `${bps / 100}%`
 const where = (thread: number | null | undefined) =>
   thread == null ? "General" : `topic ${thread}`

@@ -14,6 +14,7 @@ it("creates the bot schema once", async () => {
   const tables = await sql<{ table_name: string }[]>`
     select table_name from information_schema.tables where table_schema = 'bot' order by 1`
   expect(tables.map((t) => t.table_name)).toEqual([
+    "chat_token_watches",
     "chats",
     "collection_mutes",
     "commands_daily",
@@ -29,6 +30,21 @@ it("creates the bot schema once", async () => {
     "user_actions",
     "users",
   ])
+})
+
+it("keeps chat token watches without a foreign key on chat_id", async () => {
+  const fks = await sql`
+    select 1 from information_schema.table_constraints
+    where table_schema = 'bot' and table_name = 'chat_token_watches' and constraint_type = 'FOREIGN KEY'`
+  expect(fks).toHaveLength(0)
+  const idx = await sql<{ indexdef: string }[]>`
+    select indexdef from pg_indexes where schemaname = 'bot' and tablename = 'chat_token_watches'`
+  expect(idx.some((i) => i.indexdef.includes("(target)"))).toBe(true)
+  await sql`insert into bot.chat_token_watches (chat_id, target) values (-1, '0xaa')`
+  await expect(
+    sql`insert into bot.chat_token_watches (chat_id, target) values (-1, '0xaa')`,
+  ).rejects.toThrow()
+  await sql`delete from bot.chat_token_watches`
 })
 
 it("stores one file_id per token and ignores a second insert", async () => {

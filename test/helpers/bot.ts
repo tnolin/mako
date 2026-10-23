@@ -47,3 +47,8 @@ export function listDeliveries(sql: Sql): Promise<DeliveryRow[]> {
     select id::text, chat_id::text, chat_type, thread_id, alert, dedupe_key, status, priority, card
     from bot.deliveries order by created_at, chat_id, dedupe_key`
 }
+
+/** A group or channel watches a token. */
+export async function watchToken(sql: Sql, chatId: number, token: string) {
+  await sql`insert into bot.chat_token_watches (chat_id, target) values (${chatId}, ${token})`
+}

@@ -1,10 +1,11 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { dm, NOT_FOUND, popup, WATCH_LIMIT } from "../src/menus/copy"
+import { NOT_ADMIN } from "../src/menus/alerts"
+import { dm, NOT_FOUND, popup, WATCH_LIMIT, WATCH_USAGE } from "../src/menus/copy"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
-import { addUser, subscribe } from "./helpers/bot"
+import { addChat, addUser, subscribe } from "./helpers/bot"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, launch } from "./helpers/events"
 import { testImages } from "./helpers/images"
@@ -244,5 +245,134 @@ describe("Watched tokens and Muted tokens", () => {
     }
     expect(await sql`select 1 from bot.users`).toHaveLength(0)
     expect(await sql`select 1 from bot.subscriptions`).toHaveLength(0)
+  })
+})
+
+describe("a group watches tokens", () => {
+  const group = { id: -1001, type: "supergroup" as const, title: "Alpha" }
+  const nonAdmin = () =>
+    h.on("getChatMember", (p) => ({
+      status: "member",
+      user: { id: p.user_id, is_bot: false, first_name: "A" },
+    }))
+  const groupWatches = async () =>
+    (await sql`select chat_id::text, target from bot.chat_token_watches order by target`).map(
+      (r) => `${r.chat_id}:${r.target}`,
+    )
+
+  beforeEach(async () => {
+    await addChat(sql, group.id, "supergroup")
+  })
+
+  it("an admin's /watch in a group watches a token for the chat", async () => {
+    await h.text(`/watch ${CHECKSUMMED}`, { chat: group, from: 200, thread: 5 })
+    expect(await groupWatches()).toEqual([`-1001:${A}`])
+    expect(h.last("sendMessage")).toMatchObject({
+      text: dm.groupWatching("$GOBLO"),
+      message_thread_id: 5,
+    })
+    expect(await sql`select 1 from bot.subscriptions`).toHaveLength(0)
+    expect(await sql`select chat_type, chat_id::text, action, token from bot.user_actions`).toEqual(
+      [{ chat_type: "supergroup", chat_id: "-1001", action: "watch", token: A }],
+    )
+  })
+
+  it("a non-admin is refused", async () => {
+    nonAdmin()
+    await h.text(`/watch ${A}`, { chat: group, from: 200 })
+    expect(h.last("sendMessage")!.text).toBe(NOT_ADMIN)
+    expect(await groupWatches()).toEqual([])
+  })
+
+  it("says not found for anything that is neither a known token nor a collection", async () => {
+    await h.text(`/watch ${addr(0x99)}`, { chat: group, from: 200 })
+    expect(h.last("sendMessage")!.text).toBe(NOT_FOUND)
+    await h.text("/watch zzzzzz", { chat: group, from: 200 })
+    expect(h.last("sendMessage")!.text).toBe(NOT_FOUND)
+    expect(await groupWatches()).toEqual([])
+  })
+
+  it("says what to send when /watch has nothing after it", async () => {
+    await h.text("/watch", { chat: group, from: 200 })
+    expect(h.last("sendMessage")!.text).toBe(WATCH_USAGE)
+  })
+
+  it("a repeat /watch answers the already-watching line", async () => {
+    await h.text(`/watch ${A}`, { chat: group, from: 200 })
+    await h.text(`/watch ${A}`, { chat: group, from: 200 })
+    expect(h.last("sendMessage")!.text).toBe(dm.alreadyWatching("$GOBLO"))
+    expect(await groupWatches()).toEqual([`-1001:${A}`])
+  })
+
+  it("the 51st token watch says the limit, and collections are counted apart", async () => {
+    for (let i = 0; i < 50; i++)
+      await sql`insert into bot.chat_token_watches (chat_id, target) values (-1001, ${addr(0x5000 + i)})`
+    await h.text(`/watch ${A}`, { chat: group, from: 200 })
+    expect(h.last("sendMessage")!.text).toBe(WATCH_LIMIT)
+    expect(await sql`select 1 from bot.chat_token_watches`).toHaveLength(50)
+    for (let i = 0; i < 50; i++)
+      await sql`insert into bot.nft_watches (chat_id, contract) values (-1001, ${addr(0x6000 + i)})`
+    // 50 collections do not stop a token, and 50 tokens do not stop a collection (see the NFT tests).
+    await sql`delete from bot.chat_token_watches where target = ${addr(0x5000)}`
+    await h.text(`/watch ${A}`, { chat: group, from: 200 })
+    expect(h.last("sendMessage")!.text).toBe(dm.groupWatching("$GOBLO"))
+  })
+
+  it("Watched tokens for a group opens in the DM with the chat name, Back to the group's settings", async () => {
+    await sql`insert into bot.chat_token_watches (chat_id, target) values (-1001, ${A})`
+    await h.tap("gl:-1001:t")
+    const m = h.last("editMessageText")!
+    expect(m.text).toBe(
+      "<b>Watched tokens for Test Group</b>\nThese are all the tokens you are currently watching. If you no longer wish to receive alerts for these, simply click Remove next to each token.",
+    )
+    expect(kbOf(m)).toEqual([
+      [
+        { text: "$GOBLO", callback_data: `t:${A}:ys1` },
+        { text: "Remove", callback_data: `gl:-1001:t:${A}` },
+      ],
+      [{ text: "Back", callback_data: "al:-1001" }],
+    ])
+  })
+
+  it("Watched tokens for a group is admin-only", async () => {
+    await sql`insert into bot.chat_token_watches (chat_id, target) values (-1001, ${A})`
+    nonAdmin()
+    await h.tap("gl:-1001:t")
+    expect(h.last("answerCallbackQuery")).toMatchObject({ text: NOT_ADMIN, show_alert: true })
+    await h.tap(`gl:-1001:t:${A}`)
+    expect(await groupWatches()).toEqual([`-1001:${A}`])
+  })
+
+  it("Remove answers the stop pop-up and redraws", async () => {
+    await sql`insert into bot.chat_token_watches (chat_id, target) values (-1001, ${A})`
+    await h.tap(`gl:-1001:t:${A}`)
+    expect(popupText()).toBe(popup.stop("$GOBLO"))
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Watched tokens for Test Group</b>\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
+    )
+    expect(await groupWatches()).toEqual([])
+  })
+
+  it("a token opened from the group's list has Back to that list", async () => {
+    await h.tap(`t:${A}:ys1`)
+    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
+    expect(back).toEqual([{ text: "Back", callback_data: "gl:-1001:t" }])
+  })
+
+  it("the user's own Watched tokens never open in a group", async () => {
+    h.clear()
+    await h.tap("wl", { chat: group, from: 200 })
+    await h.tap(`wl:rm:${A}`, { chat: group, from: 200 })
+    await h.tap("gl:-1001:t", { chat: group, from: 200 })
+    expect(h.calls.filter((c) => c.method === "editMessageText")).toHaveLength(0)
+  })
+
+  it("the Watch button on a group alert opens the DM and changes nothing", async () => {
+    await h.text(`/start w_${A}`)
+    expect(await subs()).toEqual(["watch"])
+    expect(await groupWatches()).toEqual([])
+    h.clear()
+    await h.tap(`w:${A}`, { chat: group, from: 200, keyboard: alertKb })
+    expect(await groupWatches()).toEqual([])
   })
 })

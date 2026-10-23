@@ -443,6 +443,50 @@ describe("chat settings details", () => {
     expect(h.last("answerCallbackQuery")!.text).toBe("Only group admins can change routing.")
   })
 
+  it("carries token and collection watches and collection mutes to the new chat id", async () => {
+    await addChat(sql, -6, "group")
+    await sql`insert into bot.chat_token_watches (chat_id, target) values (-6, '0xa1'), (-6, '0xa2')`
+    await sql`insert into bot.nft_watches (chat_id, contract) values (-6, '0xc1')`
+    await sql`insert into bot.collection_mutes (chat_id, contract) values (-6, '0xc2')`
+    await sql`insert into bot.nft_watches (chat_id, contract) values (-7, '0xc9')`
+    await h.update({
+      message: {
+        message_id: 3,
+        date: 0,
+        chat: { id: -6, type: "group", title: "x" },
+        migrate_to_chat_id: -1006,
+      },
+    })
+    const ids = (t: string) => sql.unsafe(`select chat_id::text as c from bot.${t} order by 1`)
+    expect((await ids("chat_token_watches")).map((r) => r.c)).toEqual(["-1006", "-1006"])
+    expect((await ids("nft_watches")).map((r) => r.c)).toEqual(["-1006", "-7"])
+    expect((await ids("collection_mutes")).map((r) => r.c)).toEqual(["-1006"])
+  })
+
+  it("merges the old chat's watches into a supergroup row that already exists", async () => {
+    await addChat(sql, -6, "group")
+    await addChat(sql, -1006, "supergroup")
+    await sql`insert into bot.chat_token_watches (chat_id, target) values (-6, '0xa1'), (-6, '0xa2'), (-1006, '0xa2')`
+    await sql`insert into bot.nft_watches (chat_id, contract) values (-6, '0xc1'), (-1006, '0xc1')`
+    await h.update({
+      message: {
+        message_id: 3,
+        date: 0,
+        chat: { id: -6, type: "group", title: "x" },
+        migrate_to_chat_id: -1006,
+      },
+    })
+    expect(
+      await sql`select chat_id::text, target from bot.chat_token_watches order by target`,
+    ).toEqual([
+      { chat_id: "-1006", target: "0xa1" },
+      { chat_id: "-1006", target: "0xa2" },
+    ])
+    expect(await sql`select chat_id::text, contract from bot.nft_watches`).toEqual([
+      { chat_id: "-1006", contract: "0xc1" },
+    ])
+  })
+
   it("merges into the supergroup row when it already exists at migration", async () => {
     await addChat(sql, -6, "group", { ...basicPreset("supergroup"), thread: 4 })
     await addChat(sql, -1006, "supergroup", basicPreset("supergroup"), { active: false })

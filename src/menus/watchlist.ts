@@ -1,10 +1,12 @@
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { logAction } from "../actions"
-import { clean } from "../format"
+import { clean, escapeHtml } from "../format"
 import { launchesOf, launchOf } from "../history"
 import { classify } from "../platforms/telegram/errors"
-import { btn, findAddress, type Kb, show, stateBtn } from "../platforms/telegram/ui"
+import { btn, findAddress, isAdmin, type Kb, show, stateBtn } from "../platforms/telegram/ui"
+import { chatKind, chatTitle, NOT_ADMIN } from "./alerts"
+import { chatCode } from "./chat-code"
 import { dm, NOT_FOUND, popup, WATCH_LIMIT, WATCH_USAGE } from "./copy"
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER, type User } from "./users"
@@ -88,6 +90,81 @@ export async function watchToken(ctx: Context, deps: BotDeps, raw: string): Prom
   if (created) await sendWelcome(ctx, user.settings)
 }
 
+/**
+ * An admin's /watch in a group: the chat watches the token, up to WATCH_CAP, counted apart from collections.
+ * shortcut: the cap is checked before the insert without a lock, so two commands at once can pass 50 by one.
+ */
+export async function watchTokenForChat(ctx: Context, deps: BotDeps, ca: string): Promise<void> {
+  const chatId = String(ctx.chat!.id)
+  const name = await tickerOf(deps, ca)
+  const reply = (text: string) =>
+    ctx.reply(text, {
+      parse_mode: "HTML",
+      message_thread_id:
+        ctx.msg && "is_topic_message" in ctx.msg && ctx.msg.is_topic_message
+          ? ctx.msg.message_thread_id
+          : undefined,
+    })
+  const [have] = await deps.sql`
+    select 1 from bot.chat_token_watches where chat_id = ${chatId} and target = ${ca}`
+  if (have) return void (await reply(dm.alreadyWatching(name)))
+  const [n] = await deps.sql<{ n: number }[]>`
+    select count(*)::int as n from bot.chat_token_watches where chat_id = ${chatId}`
+  if ((n?.n ?? 0) >= WATCH_CAP) return void (await reply(WATCH_LIMIT))
+  await deps.sql`insert into bot.chat_token_watches (chat_id, target) values (${chatId}, ${ca}) on conflict do nothing`
+  await logAction(deps.sql, {
+    chatType: await chatKind(deps.sql, chatId),
+    chatId,
+    action: "watch",
+    token: ca,
+  })
+  await reply(dm.groupWatching(name))
+}
+
+/** A group's Watched tokens, shown in an admin's DM (never in the group). Live admin check on every tap. */
+async function groupTokensScreen(
+  ctx: Context,
+  deps: BotDeps,
+  chatId: string,
+  remove?: string,
+): Promise<void> {
+  if (!(await isAdmin(ctx.api, chatId, ctx.from!.id))) {
+    await ctx.answerCallbackQuery({ text: NOT_ADMIN, show_alert: true }).catch(() => {})
+    return
+  }
+  if (remove) {
+    const gone = await deps.sql`
+      delete from bot.chat_token_watches where chat_id = ${chatId} and target = ${remove} returning 1`
+    if (gone.length > 0)
+      await logAction(deps.sql, {
+        chatType: await chatKind(deps.sql, chatId),
+        chatId,
+        action: "unwatch",
+        token: remove,
+      })
+    await ctx
+      .answerCallbackQuery({ text: popup.stop(await tickerOf(deps, remove)) })
+      .catch(() => {})
+  }
+  const rows = await deps.sql<{ target: string }[]>`
+    select target from bot.chat_token_watches where chat_id = ${chatId} order by created_at, target`
+  const meta = await launchesOf(
+    deps.sql,
+    rows.map((r) => r.target),
+  )
+  const label = (t: string) => `$${clean(meta.get(t)?.ticker, 32) || "?"}`
+  const title = `<b>Watched tokens for ${escapeHtml(await chatTitle(ctx, chatId))}</b>`
+  const back = [btn("Back", `al:${chatId}`)]
+  if (rows.length === 0) return show(ctx, `${title}\n${WATCHED_EMPTY}`, [back])
+  await show(ctx, `${title}\n${WATCHED_INTRO}`, [
+    ...rows.map((r) => [
+      btn(cutName(label(r.target)), `t:${r.target}:y${chatCode(chatId)}`),
+      btn("Remove", `gl:${chatId}:t:${r.target}`),
+    ]),
+    back,
+  ])
+}
+
 /** Redraws the Watch and Mute buttons of the tapped message from the user's state. */
 async function restyle(ctx: Context, ca: string, watching: boolean, muted: boolean): Promise<void> {
   const kb = ctx.callbackQuery?.message?.reply_markup?.inline_keyboard
@@ -146,6 +223,10 @@ export function registerWatchlist(bot: Bot, deps: BotDeps): void {
       }
       await listScreen(ctx, deps, user, kind)
     }
+  pm.callbackQuery(/^gl:(-?\d+):t$/, (ctx) => groupTokensScreen(ctx, deps, ctx.match[1]!))
+  pm.callbackQuery(/^gl:(-?\d+):t:(0x[0-9a-f]{40})$/, (ctx) =>
+    groupTokensScreen(ctx, deps, ctx.match[1]!, ctx.match[2]),
+  )
   pm.callbackQuery("wl", listTap("watch"))
   pm.callbackQuery("mu", listTap("mute"))
   pm.callbackQuery(

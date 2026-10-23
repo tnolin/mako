@@ -10,6 +10,7 @@ import { btn, findAddress, type Kb, link, show, stateBtn, threadOf } from "../pl
 import { isPoolId, poolMcap } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
 import { devCounts, windowStats } from "../rules/stats"
+import { chatFromCode } from "./chat-code"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
@@ -119,7 +120,16 @@ export function tokenKb(
       link("Explorer", `https://explorer.inkonchain.com/token/${ca}`),
     ],
   ]
-  if (back) kb.push([btn("Back", back === "wl" || back === "mu" ? back : `l:${back}`)])
+  if (back) {
+    // y<chat code> is a group's Watched tokens, shown in the DM.
+    const target =
+      back === "wl" || back === "mu"
+        ? back
+        : back.startsWith("y")
+          ? `gl:${chatFromCode(back.slice(1))}:t`
+          : `l:${back}`
+    kb.push([btn("Back", target)])
+  }
   return kb
 }
 
@@ -227,20 +237,23 @@ async function refreshTokenCard(
 
 export function registerToken(bot: Bot, deps: BotDeps): void {
   bot.command("t", (ctx) => sendTokenCard(ctx, deps, ctx.match))
-  bot.callbackQuery(/^t:(0x[0-9a-f]{40})(?::(hot|near|bonded|wl|mu))?$/, (ctx) =>
+  bot.callbackQuery(/^t:(0x[0-9a-f]{40})(?::(hot|near|bonded|wl|mu|y[sg][0-9]{1,14}))?$/, (ctx) =>
     sendTokenCard(ctx, deps, ctx.match[1]!, ctx.match[2]),
   )
   const cooldown = refreshCooldown(REFRESH_COOLDOWN_MS)
-  bot.callbackQuery(/^tr:(0x[0-9a-f]{40})(?::(hot|near|bonded|wl|mu))?$/, async (ctx) => {
-    const ca = ctx.match[1]!
-    // Checked before any read: a tap inside the cooldown touches neither the database nor the node.
-    const wait = cooldown(`${ctx.from.id}:${ca}`)
-    if (wait > 0) {
-      await ctx.answerCallbackQuery({ text: `Up to date, try again in ${wait}s` }).catch(() => {})
-      return
-    }
-    await refreshTokenCard(ctx, deps, ca, ctx.match[2])
-  })
+  bot.callbackQuery(
+    /^tr:(0x[0-9a-f]{40})(?::(hot|near|bonded|wl|mu|y[sg][0-9]{1,14}))?$/,
+    async (ctx) => {
+      const ca = ctx.match[1]!
+      // Checked before any read: a tap inside the cooldown touches neither the database nor the node.
+      const wait = cooldown(`${ctx.from.id}:${ca}`)
+      if (wait > 0) {
+        await ctx.answerCallbackQuery({ text: `Up to date, try again in ${wait}s` }).catch(() => {})
+        return
+      }
+      await refreshTokenCard(ctx, deps, ca, ctx.match[2])
+    },
+  )
   const pm = bot.chatType("private")
   pm.on("message:text", async (ctx, next) => {
     const text = ctx.msg.text

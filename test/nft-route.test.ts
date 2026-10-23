@@ -51,6 +51,7 @@ function audience(o: Partial<Audience> = {}): Audience {
     users: [],
     chats: [],
     watch: new Map(),
+    chatWatch: new Map(),
     mute: new Map(),
     lastPump: new Map(),
     watches: new Map(),

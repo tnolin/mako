@@ -19,13 +19,13 @@ import {
 } from "../nft/watches"
 import { classify } from "../platforms/telegram/errors"
 import { btn, btnOn, findAddress, isAdmin, type Kb, show, stateBtn } from "../platforms/telegram/ui"
-import { chatTitle, NOT_ADMIN } from "./alerts"
+import { chatKind, chatTitle, NOT_ADMIN } from "./alerts"
 import { chatCode } from "./chat-code"
 import { dm, NOT_FOUND, popup, WATCH_LIMIT, WATCH_USAGE } from "./copy"
 import type { BotDeps } from "./deps"
 import { COPY, openMatch } from "./nft"
 import { ensureUser, findUser, NO_USER, type User } from "./users"
-import { watchToken } from "./watchlist"
+import { watchToken, watchTokenForChat } from "./watchlist"
 import { sendWelcome } from "./welcome"
 
 const WATCHED_INTRO =
@@ -176,7 +176,7 @@ async function groupWatchedScreen(
   if (remove) {
     await unwatch(deps.sql, owner, remove)
     await logAction(deps.sql, {
-      chatType: "supergroup",
+      chatType: await chatKind(deps.sql, chatId),
       chatId,
       action: "unwatch_nft",
       token: remove,
@@ -218,7 +218,8 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
   if (!isDm && !(await isAdmin(ctx.api, ctx.chat!.id, ctx.from!.id)))
     return void (await ctx.reply(NOT_ADMIN))
   const ca = findAddress(text)
-  if (isDm && ca && (await launchOf(deps.sql, ca))) return watchToken(ctx, deps, text)
+  if (ca && (await launchOf(deps.sql, ca)))
+    return isDm ? watchToken(ctx, deps, text) : watchTokenForChat(ctx, deps, ca)
   const state = deps.nft?.()
   if (!state) return void (await ctx.reply(COPY.loading))
   const m = matchCollection(state, text)

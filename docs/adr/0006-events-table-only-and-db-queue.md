@@ -3,6 +3,8 @@
 Date: 2026-10-12
 Status: Accepted
 
+Amended by ADR 0014: the bot also calls the indexer's OpenSea budget functions, with `EXECUTE` only.
+
 ## Context
 
 The bot needs alert data and a durable send queue with per-chat throttles. The indexer's events table is the contract between the two repos.

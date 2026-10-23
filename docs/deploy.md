@@ -88,7 +88,9 @@ install -m 0600 -o root -g root /dev/null /etc/ink/mako.env
 
 `/etc/ink/indexer.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=indexer`, `INK_RPC_WS_URLS=`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
 
-`/etc/ink/mako.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=mako`, `TELEGRAM_BOT_TOKEN=…`, `INKYPUMP_REF_CODE=…`, `LINKS_BASE_URL=https://go.makobot.xyz`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
+`/etc/ink/mako.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=mako`, `TELEGRAM_BOT_TOKEN=…`, `INKYPUMP_REF_CODE=…`, `LINKS_BASE_URL=https://go.makobot.xyz`, `OPENSEA_API_KEY=…`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
+
+`OPENSEA_API_KEY` is the same key as the indexer's: the bot's NFT card and Trending list spend the indexer's shared request budget through `indexer.opensea_take` and `indexer.opensea_block`, which `grants.sql` (step 7) grants to the `mako` role with `EXECUTE` only. Without a key those screens say details are unavailable. Optional: `NFT_ALERTS_SINCE` (Unix seconds; NFT events with an earlier block time never alert, and the default is the time the bot first ran with NFT rules) and `BUTTON_COLOURS=0` (alert switches read `: on` and `: off` instead of showing green).
 
 `/etc/ink/backup.env`, from `scripts/deploy/backup.env.example`: an S3-compatible bucket, its endpoint, rclone's provider name for the service, and a key that can only read and write that bucket. Give the bucket a lifecycle rule that deletes objects 13 days after upload.
 
@@ -123,6 +125,8 @@ systemctl daemon-reload && systemctl enable --now mako-bot mako-backup.timer
 ```
 
 ## Updating
+
+The bot applies its database migrations when it starts. If a release changes `scripts/deploy/grants.sql`, run it again as in step 7.
 
 1. Take a snapshot of the server at your provider. Delete the previous one first.
 2. `sudo /opt/mako/scripts/deploy/update.sh <ink-indexer|mako> <tag>` asks for the snapshot, then checks out the tag, installs and restarts.

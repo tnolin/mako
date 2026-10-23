@@ -194,7 +194,7 @@ describe("NFT alerts", () => {
       ["SOLD OUT", "Show Image"],
       ["NEW COLLECTION", "Show Image"],
       ["BIG SALE", "Show Image"],
-      ["MINTED at: 50%", "BIG SALE: 0.1 ETH"],
+      ["MINTED 50%", "BIG SALE: 0.1 ETH"],
       ["Reset to default"],
       ["Watched only", "Back"],
     ])
@@ -260,7 +260,7 @@ describe("NFT alerts", () => {
     await h.tap("al:u:p:floor:2")
     await h.tap("al:u:p:sweep:1")
     await h.tap("al:u:na")
-    expect(labels(screen())).toContainEqual(["MINTED at: 50%, 75%", "BIG SALE: 0.5 ETH"])
+    expect(labels(screen())).toContainEqual(["MINTED 50%, 75%", "BIG SALE: 0.5 ETH"])
     await h.tap("al:u:nw")
     expect(labels(screen())).toContainEqual(["UNDER FLOOR: 10%", "RARE: top 1%"])
     expect(labels(screen())).toContainEqual(["FLOOR MOVE: 30%", "SWEEP: 10 items"])
@@ -276,6 +276,29 @@ describe("NFT alerts", () => {
     await h.tap("al:u:p:bigsale")
     expect(labels(screen())).toEqual([["0.05 ETH", "0.1 ETH", "0.25 ETH"], ["0.5 ETH"], ["Back"]])
     expect(find(screen(), "0.1 ETH").style).toBe("success")
+  })
+})
+
+describe("picker screens", () => {
+  it("each picker shows the owner's line", async () => {
+    await addUser(sql, 100)
+    const text: Record<string, string> = {
+      big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target.",
+      minted: "MINTED - Sends when a collection's mint progress crosses the following %:",
+      bigsale: "BIG SALE - Sends when an NFT sells for at least:",
+      under:
+        "UNDER FLOOR - Sends when an NFT is listed at least this % under the current floor price:",
+      rare: "RARE LISTING - Sends when an NFT is listed near floor price with a rarity in the designated % range:",
+      floor: "FLOOR MOVE - Sends when the floor price moves this much in 24h:",
+      sweep: "SWEEP - Sends when one wallet buys this many NFTs within 10 mins:",
+      sale: "SOLD - Sends when an item on your watchlist sells for at least this amount:",
+    }
+    for (const [kind, line] of Object.entries(text)) {
+      await h.tap(`al:u:p:${kind}`)
+      expect(screen().text).toBe(line)
+    }
+    await h.tap("al:u:p:bonding")
+    expect(screen().text).toBe("<b>BONDING marks</b>\nAlert when a curve passes:")
   })
 })
 

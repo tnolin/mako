@@ -184,7 +184,7 @@ const PICKERS: Record<string, Picker> = {
   minted: {
     values: NFT_MARKS,
     label: (v) => pct(Number(v)),
-    button: (s) => `MINTED at: ${marks(s.alerts.minted.marks)}`,
+    button: (s) => `MINTED ${marks(s.alerts.minted.marks)}`,
     multi: true,
     get: (s) => s.alerts.minted.marks,
     set: (s, v) => {
@@ -247,13 +247,20 @@ const PICKERS: Record<string, Picker> = {
   },
 }
 const PICKER_PATTERN = Object.keys(PICKERS).join("|")
-/** Owner copy for the picker screens has not been supplied. */
-const pickerGap = (name: string) => `[COPY NEEDED: picker text for ${name}]`
-/** The picker screen's text. The BONDING marks picker keeps the text it already had. */
+/** Owner copy (2026-10-23): one line on each picker screen. BONDING keeps the text it already had. */
+const PICKER_TEXT: Record<string, string> = {
+  bonding: "<b>BONDING marks</b>\nAlert when a curve passes:",
+  big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target.",
+  minted: "MINTED - Sends when a collection's mint progress crosses the following %:",
+  bigsale: "BIG SALE - Sends when an NFT sells for at least:",
+  under: "UNDER FLOOR - Sends when an NFT is listed at least this % under the current floor price:",
+  rare: "RARE LISTING - Sends when an NFT is listed near floor price with a rarity in the designated % range:",
+  floor: "FLOOR MOVE - Sends when the floor price moves this much in 24h:",
+  sweep: "SWEEP - Sends when one wallet buys this many NFTs within 10 mins:",
+  sale: "SOLD - Sends when an item on your watchlist sells for at least this amount:",
+}
 const pickerText = (kind: string): string =>
-  kind === "bonding"
-    ? "<b>BONDING marks</b>\nAlert when a curve passes:"
-    : escapeHtml(pickerGap(ALERT_LABEL[kind as AlertKind]))
+  kind === "bonding" ? PICKER_TEXT.bonding! : escapeHtml(PICKER_TEXT[kind]!)
 
 const toggleRow = (s: Settings, id: string, a: AlertKind): ReturnType<typeof btn>[] => {
   const row = [

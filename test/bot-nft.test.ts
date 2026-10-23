@@ -96,7 +96,7 @@ function hornet() {
 }
 
 describe("collection card", () => {
-  it("opens from /nft by slug with the approved rows, as a photo with the card as caption", async () => {
+  it("opens from /nft by slug with the card rows, as a photo with the card as caption", async () => {
     await boot(hornet())
     mkBot()
     await h.text("/nft ink-hornet")

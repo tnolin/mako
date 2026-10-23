@@ -230,7 +230,7 @@ it("ALERT_DESC follows the chosen thresholds", () => {
   expect(ALERT_DESC("mintlive", s)).toBe("MINT LIVE - A mint without any mint stages goes live.")
 })
 
-it("ALERT_DESC leaves a marked gap where the owner has not supplied the wording", () => {
+it('ALERT_DESC reads "at any price" when the SOLD minimum is any', () => {
   const s = basicPreset("private")
   s.alerts.sale.minWei = "0"
   expect(ALERT_DESC("sale", s)).toBe("SOLD - an item sells at any price.")

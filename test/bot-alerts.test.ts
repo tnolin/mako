@@ -89,7 +89,7 @@ const WATCHED_BODY = [
 ]
 
 describe("My alerts", () => {
-  it("shows the approved text and the counts", async () => {
+  it("shows the exact text and the counts", async () => {
     const me = await addUser(sql, 100)
     await subscribe(sql, me, "watch", "0xa1")
     await subscribe(sql, me, "watch", "0xa2")
@@ -135,7 +135,7 @@ describe("token alerts", () => {
     expect(labels(screen()).flat()).toContain("BIG BUY/SELL at: 10%")
   })
 
-  it("has the approved rows", async () => {
+  it("has the expected rows", async () => {
     await addUser(sql, 100)
     await h.tap("al:u:tk")
     expect(labels(screen())).toEqual([
@@ -280,7 +280,7 @@ describe("NFT alerts", () => {
 })
 
 describe("picker screens", () => {
-  it("each picker shows the owner's line", async () => {
+  it("each picker shows its own line", async () => {
     await addUser(sql, 100)
     const text: Record<string, string> = {
       big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target.",

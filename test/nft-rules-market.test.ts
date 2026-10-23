@@ -60,7 +60,7 @@ describe("UNDER FLOOR", () => {
       ...o,
     })
 
-  it("fires 24% under a fresh floor, titled with the actual discount, to the approved rows", async () => {
+  it("fires 24% under a fresh floor, titled with the actual discount, with the expected rows", async () => {
     const cs = await run(under({ tokenId: "4405" }))
     const c = by(cs, "under")!
     expect(c).toMatchObject({
@@ -178,7 +178,7 @@ describe("FLOOR UP / DOWN", () => {
       ...o,
     })
 
-  it("fires on a 24% drop to the approved rows", async () => {
+  it("fires on a 24% drop with the expected rows", async () => {
     const [c] = await run(stats())
     expect(c).toMatchObject({
       alert: "floor",
@@ -274,7 +274,7 @@ describe("SOLD and BIG SALE", () => {
       ...o,
     })
 
-  it("yields a SOLD candidate carrying the price, to the approved rows", async () => {
+  it("yields a SOLD candidate carrying the price, with the expected rows", async () => {
     const cs = await run(sold())
     const c = by(cs, "sale")!
     expect(c).toMatchObject({

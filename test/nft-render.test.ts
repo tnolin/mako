@@ -39,7 +39,7 @@ const base = (o: Partial<NftAlertCard>): NftAlertCard => ({
 const ctx = { linksBase: "https://go.makobot.xyz", botUsername: "makoinkbot" }
 const code = (...rows: string[]) => rows.map((r) => `<code>${r}</code>`)
 
-describe("renderNftAlert matches the approved samples", () => {
+describe("renderNftAlert matches the expected text", () => {
   it("UPCOMING MINT", () => {
     const card = base({
       rows: [
@@ -522,7 +522,7 @@ describe("nftAlertKeyboard", () => {
   const dm = { ...ctx, chatType: "private" as const, deliveryId: "d1" }
   const grp = { ...ctx, chatType: "supergroup" as const, deliveryId: "d1" }
 
-  it("follows the approved button table", () => {
+  it("follows the button table", () => {
     const k = (alert: NftAlertCard["alert"]) => base({ alert, tokenId: "5" })
     expect(texts(nftAlertKeyboard(k("upcoming"), dm))).toEqual([
       ["View", "Watch", "Mute"],

@@ -13,7 +13,7 @@ Watch, Mute and Remind me are toggles, and so are the alert switches and the cho
 - Watching, Muted and Reminder set are also in the label, so their state doesn't depend on colour.
 - Every screen builds these buttons through the helpers in `src/platforms/telegram/ui.ts` (`btnOn`, `toggleBtn`, `stateBtn`, `chosenBtn`). No screen sets `style` itself.
 - `BUTTON_COLOURS=0` is the fallback for clients that don't show colour: toggles read `: on` or `: off` and chosen values get a `· ` prefix, for everyone, since the bot can't tell clients apart. The state words need no fallback.
-- No client check was made before release. The fallback is the answer if a client shows no colour.
+- Colour support varies by Telegram client, and the state words carry the meaning where colour doesn't show. The fallback covers a client that shows no colour.
 
 ## Consequences
 

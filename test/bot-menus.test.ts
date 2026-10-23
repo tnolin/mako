@@ -61,7 +61,7 @@ describe("main menu", () => {
     expect(h.last("editMessageText")!.text).toBe(MENU)
   })
 
-  it("has the approved buttons, with links that open out", async () => {
+  it("has the expected buttons, with links that open out", async () => {
     await addUser(sql, 100)
     await h.text("/menu")
     const p = h.last("sendMessage")!
@@ -117,7 +117,7 @@ describe("main menu", () => {
 })
 
 describe("bot descriptions", () => {
-  it("are the owner copy and fit Telegram's limits", () => {
+  it("match the exact text and fit Telegram's limits", () => {
     expect(SHORT_ABOUT).toBe(
       "The only bot for real-time alerts of memecoins and NFTs on Ink. Open source. Join the community: @MakoOnInk",
     )
@@ -136,7 +136,7 @@ describe("bot descriptions", () => {
 })
 
 describe("command menus", () => {
-  it("are the owner copy", () => {
+  it("match the exact text", () => {
     const watch = "Watch a token or NFT: /watch <address or name>"
     expect(PRIVATE_COMMANDS).toEqual([
       { command: "start", description: "Start MAKO" },
@@ -336,7 +336,7 @@ describe("Help", () => {
     expect(labels(p)).toEqual([["Help", "Menu"]])
   })
 
-  it("Watched & Muted, Group setup and Privacy are the owner's copy", async () => {
+  it("Watched & Muted, Group setup and Privacy match the exact text", async () => {
     await h.tap("h:watched")
     expect(h.last("editMessageText")!.text).toBe(
       [

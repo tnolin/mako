@@ -186,14 +186,6 @@ Outbound trade and marketplace links carry referral codes where the platform off
 - NFT buttons (View, Recent sales, the NFT card) open OpenSea through `go.makobot.xyz/n/…`. OpenSea links carry no referral code. The NFTs screen links OpenSea and Chimera through `go.makobot.xyz/p/…`.
 - The redirects log a click with no user data. Clicks on the join link have no token and kind `join`.
 
-## Brand
-
-- **Name:** plain MAKO in handles and domains. Stylized forms appear only in designs and display names.
-- **Mark:** the ASCII shark fin.
-- **Style:** retro sci-fi cassette futurism: CRT glow, scanlines, radar HUD, ASCII and pixel details.
-- **Alerts:** plain text.
-- Ink projects' names and logos appear in MAKO's branding only with their permission.
-
 ## Decisions
 
 Dated decision records live in [`adr/`](./adr).

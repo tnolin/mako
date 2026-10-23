@@ -42,7 +42,7 @@ const cards = async () => (await listDeliveries(sql)).filter((r) => r.alert === 
 const ago15 = START - 15 * 60
 
 describe("MINT REMINDER scheduler", () => {
-  it("queues a reminder 15 minutes before a stage for a reminder user and a watcher, with the approved rows", async () => {
+  it("queues a reminder 15 minutes before a stage for a reminder user and a watcher, with the reminder rows", async () => {
     const a = await addUser(sql, 101)
     const b = await addUser(sql, 102)
     await remind(sql, a, C)

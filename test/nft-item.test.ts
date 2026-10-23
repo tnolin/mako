@@ -219,7 +219,7 @@ describe("NFT card", () => {
     )
   }
 
-  it("renders rank, offers, last sale and traits to the approved layout", async () => {
+  it("renders rank, offers, last sale and traits in the card layout", async () => {
     await boot()
     await h.text("/nft wiredonink 4164")
     const m = h.last("sendPhoto") ?? h.last("sendMessage")!

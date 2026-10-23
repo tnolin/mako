@@ -1,8 +1,8 @@
 # Deploying MAKO and ink-indexer
 
-One VPS runs Postgres, the indexer, the bot and Caddy (ADR 0009). Steps marked **owner** buy services or handle secrets.
+One VPS runs Postgres, the indexer, the bot and Caddy (ADR 0009). You buy the server in step 1, write the secrets in step 6 and set up DNS in step 8.
 
-## 1. Server (owner)
+## 1. Server
 
 - A single Ubuntu 24.04 VPS with 2 vCPUs, 4 GB RAM and about 40 GB of disk. Turn on your provider's backups and snapshots if it offers them.
 - A sudo user that logs in with your SSH key. Cloud images usually ship one, such as `ubuntu`. Install your key with `ssh-copy-id <user>@<ip>` and confirm that key login works before going on.
@@ -76,7 +76,7 @@ local   ink   mako      peer map=ink
 
 Keep `listen_addresses = 'localhost'`, then `systemctl reload postgresql`.
 
-## 6. Secrets (owner)
+## 6. Secrets
 
 Write the env files from each repo's `.env.example`. systemd reads them as root, so only root needs access:
 
@@ -114,7 +114,7 @@ sudo -u postgres psql ink -f /opt/mako/scripts/deploy/grants.sql
 
 ## 8. Bot, redirect and backups
 
-DNS (owner): an `A` record for `go` pointing at the server IP, not proxied. Only `go.makobot.xyz` points at this server; the website on `makobot.xyz` is hosted elsewhere.
+DNS: point an `A` record for `go` at the server IP, not proxied. Only `go.makobot.xyz` points at this server; the website on `makobot.xyz` is hosted elsewhere.
 
 ```bash
 cd /opt/mako && sudo -u mako git checkout <tag> && sudo -u mako pnpm install --frozen-lockfile

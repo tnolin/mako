@@ -4,7 +4,7 @@ import type { Sql } from "../src/db"
 import { escapeHtml } from "../src/format"
 import { NOT_FOUND } from "../src/menus/copy"
 import { EMPTY } from "../src/menus/lists"
-import { LOOKUP_PROMPT, REFRESH_COOLDOWN_MS, refreshCooldown } from "../src/menus/token"
+import { REFRESH_COOLDOWN_MS, refreshCooldown } from "../src/menus/token"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
@@ -152,16 +152,8 @@ describe("token card", () => {
     ).toBe(true)
   })
 
-  it("opens from a pasted address and from the Look up prompt", async () => {
+  it("opens from a pasted address", async () => {
     await h.text(`check this ${CHECKSUMMED} pls`)
-    expect(h.last("sendPhoto")!.caption).toContain("$GOBLO")
-    await h.tap("look")
-    expect(h.last("sendMessage")).toMatchObject({
-      text: LOOKUP_PROMPT,
-      reply_markup: { force_reply: true },
-    })
-    h.clear()
-    await h.text(A, { replyTo: LOOKUP_PROMPT })
     expect(h.last("sendPhoto")!.caption).toContain("$GOBLO")
   })
 

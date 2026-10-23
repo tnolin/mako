@@ -4,7 +4,7 @@ import { show } from "../platforms/telegram/ui"
 import { allOff, TOKEN_PATTERN, type TokenAlert } from "../settings"
 import { openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
-import { MENU_TEXT, menuKb } from "./main"
+import { showMenu } from "./main"
 import { sendTokenCard } from "./token"
 import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
 import { nftDeepLink } from "./watches"
@@ -42,11 +42,10 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
         payload.slice(0, 2) as "wn" | "rn",
         payload.slice(3).toLowerCase(),
       )
-    if (created) {
-      await sendWelcome(ctx, user.settings)
-    } else if (!/^(wn|rn|[wts])_/.test(payload)) {
-      await show(ctx, MENU_TEXT, menuKb(deps.linksBase))
-    }
+    const deepLink = /^(wn|rn|[wts])_/.test(payload)
+    // A new user gets the menu, then the alert picker. A deep link already answered with its own screen.
+    if (!deepLink) await showMenu(ctx)
+    if (created) await sendWelcome(ctx, user.settings)
   })
   pm.callbackQuery(new RegExp(`^ob:(${TOKEN_PATTERN})$`), async (ctx) => {
     const user = await findUser(deps.sql, ctx.from.id)
@@ -70,6 +69,6 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
   })
   pm.callbackQuery("ob:done", async (ctx) => {
     await logAction(deps.sql, { chatType: "private", action: "preset", params: { choice: "done" } })
-    await show(ctx, MENU_TEXT, menuKb(deps.linksBase))
+    await showMenu(ctx)
   })
 }

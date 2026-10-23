@@ -6,9 +6,10 @@ import { startSender } from "./delivery/sender"
 import { createViewer } from "./delivery/viewer"
 import { createHeartbeat } from "./heartbeat"
 import { cursorBlock } from "./history"
-import { LAUNCHPADS, referralLink, tradeLink } from "./launchpads"
+import { referralLink, tradeLink } from "./launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
+import { ABOUT } from "./menus/main"
 import { createItemReader } from "./nft/opensea"
 import { startReminders } from "./nft/reminders"
 import type { NftState } from "./nft/state"
@@ -85,10 +86,6 @@ const bot = createBot({
 await bot.init()
 const botUsername = bot.botInfo.username
 
-const BLURB = "Real-time alerts for memecoins, NFTs and DeFi on Ink. Open source."
-const ABOUT = `${BLURB} Trade on ${LAUNCHPADS.inkypump.name}: ${linksBase}/inkypump`
-// Telegram caps the short description (the profile's About) at 120 characters.
-const SHORT_ABOUT = ABOUT.length <= 120 ? ABOUT : BLURB
 await Promise.all([
   bot.api.setMyCommands(
     [
@@ -112,7 +109,7 @@ await Promise.all([
     { scope: { type: "all_group_chats" } },
   ),
   bot.api.setMyDescription(ABOUT),
-  bot.api.setMyShortDescription(SHORT_ABOUT),
+  bot.api.setMyShortDescription(ABOUT),
 ]).catch((err) => log("warn", "could not set commands or description", { error: String(err) }))
 
 const balanceOf = rpcBalanceOf(env.INK_RPC_URL || DEFAULT_RPC)

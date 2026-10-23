@@ -15,8 +15,6 @@ import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
 import { tryNftPaste } from "./nft"
 
-export const LOOKUP_PROMPT = "Send a token address."
-
 export { REFRESH_COOLDOWN_MS, refreshCooldown }
 
 /** Time since bonding: whole days from one day, whole hours below that, "<1h" under an hour. */
@@ -244,15 +242,7 @@ export function registerToken(bot: Bot, deps: BotDeps): void {
     await refreshTokenCard(ctx, deps, ca, ctx.match[2])
   })
   const pm = bot.chatType("private")
-  pm.callbackQuery("look", async (ctx) => {
-    await ctx.answerCallbackQuery()
-    await ctx.reply(LOOKUP_PROMPT, {
-      reply_markup: { force_reply: true, input_field_placeholder: "0x…" },
-    })
-  })
   pm.on("message:text", async (ctx, next) => {
-    const r = ctx.msg.reply_to_message
-    const prompt = r?.from?.id === ctx.me.id ? r.text : undefined
     const text = ctx.msg.text
     const ca = findAddress(text)
     if (ca) {
@@ -260,7 +250,6 @@ export function registerToken(bot: Bot, deps: BotDeps): void {
       if (!(await launchOf(deps.sql, ca)) && (await tryNftPaste(ctx, deps, text))) return
       return sendTokenCard(ctx, deps, text)
     }
-    if (prompt === LOOKUP_PROMPT) return sendTokenCard(ctx, deps, text)
     if (await tryNftPaste(ctx, deps, text)) return
     return next()
   })

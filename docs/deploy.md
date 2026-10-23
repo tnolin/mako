@@ -132,6 +132,8 @@ The bot applies its database migrations when it starts. If a release changes `sc
 2. `sudo /opt/mako/scripts/deploy/update.sh <ink-indexer|mako> <tag>` asks for the snapshot, then checks out the tag, installs and restarts.
 3. Check `journalctl -u <unit>` and the bot, then delete the snapshot. Never keep it longer than 14 days: it holds user data, and `/help` says backups are deleted after 14 days.
 
+To roll back, restore the snapshot. Checking out the previous tag without restoring it leaves queued NFT alert and reminder rows that the older bot can't send; they fail or age out within 30 minutes.
+
 ## Restore drill
 
 From the local dump:

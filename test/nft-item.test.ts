@@ -86,10 +86,11 @@ describe("OpenSea reader", () => {
       type: "Cat",
       value: "Whisper",
     })
-    expect(calls).toEqual([
-      `/chain/ink/contract/${WIRED}/nfts/4164`,
-      "/offers/collection/wiredonink/nfts/4164/best",
+    // The offer and listing reads run together, so their order varies.
+    expect(calls[0]).toBe(`/chain/ink/contract/${WIRED}/nfts/4164`)
+    expect(calls.slice(1).sort()).toEqual([
       "/listings/collection/wiredonink/nfts/4164/best",
+      "/offers/collection/wiredonink/nfts/4164/best",
     ])
   })
 
@@ -134,6 +135,13 @@ describe("OpenSea reader", () => {
     expect(await reader.get(WIRED, "4164", null)).toBe("unavailable")
     expect(Date.now() - start).toBeLessThan(6000)
     expect(calls).toEqual([])
+  })
+
+  it("waits out the spacing since the last request before it calls", async () => {
+    await sql`update indexer.opensea_budget set min_interval_ms = 400, last_take_at = now()`
+    const start = Date.now()
+    expect(await reader.get(WIRED, "4164", null)).not.toBe("unavailable")
+    expect(Date.now() - start).toBeGreaterThanOrEqual(300)
   })
 
   it("blocks every process after a 429", async () => {

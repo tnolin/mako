@@ -24,6 +24,29 @@ export const ABOUT = [
   "Open-source project. Join the community: @MakoOnInk",
 ].join("\n")
 
+const WATCH_COMMAND = {
+  command: "watch",
+  description: "Watch a token or NFT: /watch <address or name>",
+}
+/** The command menus, owner copy. */
+export const PRIVATE_COMMANDS = [
+  { command: "start", description: "Start MAKO" },
+  { command: "menu", description: "Main menu" },
+  { command: "t", description: "Look up a token: /t <address>" },
+  { command: "nft", description: "Look up an NFT collection: /nft <name or address>" },
+  WATCH_COMMAND,
+  { command: "alerts", description: "My alerts" },
+  { command: "help", description: "Help" },
+  { command: "deletedata", description: "Delete my data" },
+]
+export const GROUP_COMMANDS = [
+  { command: "t", description: "Look up a token: /t <address>" },
+  WATCH_COMMAND,
+  { command: "setup", description: "Post MAKO alerts in this topic" },
+  { command: "route", description: "Send chosen alerts to this topic" },
+  { command: "help", description: "Help" },
+]
+
 export const X_URL = "https://x.com/MakoInkBot"
 
 /** The greeting uses the first name from the incoming update only: it is never stored or logged. */

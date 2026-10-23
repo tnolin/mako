@@ -9,7 +9,7 @@ import { cursorBlock } from "./history"
 import { referralLink, tradeLink } from "./launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
-import { ABOUT, SHORT_ABOUT } from "./menus/main"
+import { ABOUT, GROUP_COMMANDS, PRIVATE_COMMANDS, SHORT_ABOUT } from "./menus/main"
 import { createItemReader } from "./nft/opensea"
 import { startReminders } from "./nft/reminders"
 import type { NftState } from "./nft/state"
@@ -87,27 +87,8 @@ await bot.init()
 const botUsername = bot.botInfo.username
 
 await Promise.all([
-  bot.api.setMyCommands(
-    [
-      { command: "start", description: "Start MAKO" },
-      { command: "menu", description: "Main menu" },
-      { command: "t", description: "Look up a token: /t <address>" },
-      { command: "watch", description: "Watch a token: /watch <address>" },
-      { command: "alerts", description: "My alerts" },
-      { command: "help", description: "Help" },
-      { command: "deletedata", description: "Delete my data" },
-    ],
-    { scope: { type: "all_private_chats" } },
-  ),
-  bot.api.setMyCommands(
-    [
-      { command: "t", description: "Look up a token: /t <address>" },
-      { command: "setup", description: "Post MAKO alerts in this topic" },
-      { command: "route", description: "Send chosen alerts to this topic" },
-      { command: "help", description: "Help" },
-    ],
-    { scope: { type: "all_group_chats" } },
-  ),
+  bot.api.setMyCommands(PRIVATE_COMMANDS, { scope: { type: "all_private_chats" } }),
+  bot.api.setMyCommands(GROUP_COMMANDS, { scope: { type: "all_group_chats" } }),
   bot.api.setMyDescription(ABOUT),
   bot.api.setMyShortDescription(SHORT_ABOUT),
 ]).catch((err) => log("warn", "could not set commands or description", { error: String(err) }))

@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { ABOUT, SHORT_ABOUT } from "../src/menus/main"
+import { ABOUT, GROUP_COMMANDS, PRIVATE_COMMANDS, SHORT_ABOUT } from "../src/menus/main"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { addUser } from "./helpers/bot"
@@ -132,6 +132,29 @@ describe("bot descriptions", () => {
     )
     expect([...SHORT_ABOUT].length).toBeLessThanOrEqual(120)
     expect([...ABOUT].length).toBeLessThanOrEqual(512)
+  })
+})
+
+describe("command menus", () => {
+  it("are the owner copy", () => {
+    const watch = "Watch a token or NFT: /watch <address or name>"
+    expect(PRIVATE_COMMANDS).toEqual([
+      { command: "start", description: "Start MAKO" },
+      { command: "menu", description: "Main menu" },
+      { command: "t", description: "Look up a token: /t <address>" },
+      { command: "nft", description: "Look up an NFT collection: /nft <name or address>" },
+      { command: "watch", description: watch },
+      { command: "alerts", description: "My alerts" },
+      { command: "help", description: "Help" },
+      { command: "deletedata", description: "Delete my data" },
+    ])
+    expect(GROUP_COMMANDS).toEqual([
+      { command: "t", description: "Look up a token: /t <address>" },
+      { command: "watch", description: watch },
+      { command: "setup", description: "Post MAKO alerts in this topic" },
+      { command: "route", description: "Send chosen alerts to this topic" },
+      { command: "help", description: "Help" },
+    ])
   })
 })
 

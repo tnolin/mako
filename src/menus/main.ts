@@ -13,8 +13,16 @@ import {
 import type { BotDeps } from "./deps"
 import { deleteUserData } from "./users"
 
-/** The bot profile's description. Names no launchpad: MAKO treats platforms equally. */
-export const ABOUT = "Real-time alerts for memecoins, NFTs and DeFi on Ink. Open source."
+/** The bot profile's About (short description) and description, owner copy. Neither names a launchpad. */
+export const SHORT_ABOUT =
+  "The only bot for real-time alerts of memecoins and NFTs on Ink. Open source. Join the community: @MakoOnInk"
+export const ABOUT = [
+  "I send real-time alerts for memecoins and NFTs on Ink: new launches, bonding, mints, rare listings and whale buys.",
+  "",
+  "Customize your alerts for the NFTs and tokens you care about with support for groups and channels.",
+  "",
+  "Open-source project. Join the community: @MakoOnInk",
+].join("\n")
 
 export const X_URL = "https://x.com/MakoInkBot"
 

@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { ABOUT } from "../src/menus/main"
+import { ABOUT, SHORT_ABOUT } from "../src/menus/main"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { addUser } from "./helpers/bot"
@@ -113,6 +113,25 @@ describe("main menu", () => {
     const flat = rows(h.last("sendMessage")).flat()
     expect(flat.some((b) => /inkypump|trade/i.test(`${b.text} ${b.url ?? ""}`))).toBe(false)
     expect(ABOUT).not.toMatch(/inkypump|trade|https?:/i)
+  })
+})
+
+describe("bot descriptions", () => {
+  it("are the owner copy and fit Telegram's limits", () => {
+    expect(SHORT_ABOUT).toBe(
+      "The only bot for real-time alerts of memecoins and NFTs on Ink. Open source. Join the community: @MakoOnInk",
+    )
+    expect(ABOUT).toBe(
+      [
+        "I send real-time alerts for memecoins and NFTs on Ink: new launches, bonding, mints, rare listings and whale buys.",
+        "",
+        "Customize your alerts for the NFTs and tokens you care about with support for groups and channels.",
+        "",
+        "Open-source project. Join the community: @MakoOnInk",
+      ].join("\n"),
+    )
+    expect([...SHORT_ABOUT].length).toBeLessThanOrEqual(120)
+    expect([...ABOUT].length).toBeLessThanOrEqual(512)
   })
 })
 

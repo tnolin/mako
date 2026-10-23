@@ -9,7 +9,7 @@ import { cursorBlock } from "./history"
 import { referralLink, tradeLink } from "./launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
-import { ABOUT } from "./menus/main"
+import { ABOUT, SHORT_ABOUT } from "./menus/main"
 import { createItemReader } from "./nft/opensea"
 import { startReminders } from "./nft/reminders"
 import type { NftState } from "./nft/state"
@@ -109,7 +109,7 @@ await Promise.all([
     { scope: { type: "all_group_chats" } },
   ),
   bot.api.setMyDescription(ABOUT),
-  bot.api.setMyShortDescription(ABOUT),
+  bot.api.setMyShortDescription(SHORT_ABOUT),
 ]).catch((err) => log("warn", "could not set commands or description", { error: String(err) }))
 
 const balanceOf = rpcBalanceOf(env.INK_RPC_URL || DEFAULT_RPC)

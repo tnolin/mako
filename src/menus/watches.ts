@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { logAction } from "../actions"
-import { clean, escapeHtml } from "../format"
+import { escapeHtml } from "../format"
 import { launchOf } from "../history"
 import { makeNftAlertCard } from "../nft/card"
 import { matchCollection } from "../nft/match"
@@ -19,7 +19,8 @@ import {
 } from "../nft/watches"
 import { classify } from "../platforms/telegram/errors"
 import { btn, btnOn, findAddress, isAdmin, type Kb, show, stateBtn } from "../platforms/telegram/ui"
-import { NOT_ADMIN } from "./alerts"
+import { chatTitle, NOT_ADMIN } from "./alerts"
+import { chatCode } from "./chat-code"
 import { dm, NOT_FOUND, popup, WATCH_LIMIT, WATCH_USAGE } from "./copy"
 import type { BotDeps } from "./deps"
 import { COPY, openMatch } from "./nft"
@@ -138,37 +139,59 @@ export async function nftDeepLink(
   )
 }
 
-/** Who a Watched list belongs to: the user in a DM, the chat in a group (admins only). */
-async function ownerOf(ctx: Context, deps: BotDeps): Promise<{ owner: Owner; dm: boolean } | null> {
-  if (ctx.chat?.type === "private") {
-    const user = await findUser(deps.sql, ctx.from!.id)
-    if (!user) {
-      await show(ctx, NO_USER)
-      return null
-    }
-    return { owner: { userId: user.id }, dm: true }
-  }
-  if (!(await isAdmin(ctx.api, ctx.chat!.id, ctx.from!.id))) {
-    await ctx.answerCallbackQuery({ text: NOT_ADMIN, show_alert: true }).catch(() => {})
-    return null
-  }
-  return { owner: { chatId: String(ctx.chat!.id) }, dm: false }
+type ListView = {
+  owner: Owner
+  title: string
+  back: string
+  /** The callback data of a row's name and Remove buttons. */
+  open: (contract: string) => string
+  remove: (contract: string) => string
 }
 
-async function watchedScreen(ctx: Context, deps: BotDeps, who: { owner: Owner; dm: boolean }) {
-  const list = await watchesOf(deps.sql, who.owner)
-  const title = who.dm
-    ? "<b>Watched NFTs</b>"
-    : `<b>Watched NFTs for ${escapeHtml(clean(ctx.chat?.title, 64))}</b>`
-  const back = [btn("Back", who.dm ? "al:u" : "gs")]
-  if (list.length === 0) return show(ctx, `${title}\n${WATCHED_EMPTY}`, [back])
-  await show(ctx, `${title}\n${WATCHED_INTRO}`, [
+async function watchedScreen(ctx: Context, deps: BotDeps, v: ListView) {
+  const list = await watchesOf(deps.sql, v.owner)
+  const back = [btn("Back", v.back)]
+  if (list.length === 0) return show(ctx, `${v.title}\n${WATCHED_EMPTY}`, [back])
+  await show(ctx, `${v.title}\n${WATCHED_INTRO}`, [
     ...list.map((c) => [
-      btn(cutName(collectionName(deps, c)), `nc:${c}:w`),
-      btn("Remove", `nwl:rm:${c}`),
+      btn(cutName(collectionName(deps, c)), v.open(c)),
+      btn("Remove", v.remove(c)),
     ]),
     back,
   ])
+}
+
+/** A group's Watched NFTs, shown in an admin's DM (never in the group). Live admin check on every tap. */
+async function groupWatchedScreen(
+  ctx: Context,
+  deps: BotDeps,
+  chatId: string,
+  remove?: string,
+): Promise<void> {
+  if (!(await isAdmin(ctx.api, chatId, ctx.from!.id))) {
+    await ctx.answerCallbackQuery({ text: NOT_ADMIN, show_alert: true }).catch(() => {})
+    return
+  }
+  const owner = { chatId }
+  if (remove) {
+    await unwatch(deps.sql, owner, remove)
+    await logAction(deps.sql, {
+      chatType: "supergroup",
+      chatId,
+      action: "unwatch_nft",
+      token: remove,
+    })
+    await ctx
+      .answerCallbackQuery({ text: popup.stop(collectionName(deps, remove)) })
+      .catch(() => {})
+  }
+  await watchedScreen(ctx, deps, {
+    owner,
+    title: `<b>Watched NFTs for ${escapeHtml(await chatTitle(ctx, chatId))}</b>`,
+    back: `al:${chatId}`,
+    open: (c) => `nc:${c}:z${chatCode(chatId)}`,
+    remove: (c) => `gl:${chatId}:n:${c}`,
+  })
 }
 
 async function mutedScreen(ctx: Context, deps: BotDeps, owner: Owner) {
@@ -287,27 +310,33 @@ export function registerWatches(bot: Bot, deps: BotDeps): void {
     }),
   )
 
-  // Watched NFTs: the user's in a DM, the chat's in a group (admins only).
-  bot.callbackQuery("nwl", async (ctx) => {
-    const who = await ownerOf(ctx, deps)
-    if (who) await watchedScreen(ctx, deps, who)
-  })
-  bot.callbackQuery(new RegExp(`^nwl:rm:${c}$`), async (ctx) => {
-    const who = await ownerOf(ctx, deps)
-    if (!who) return
-    const contract = (ctx.match as RegExpMatchArray)[1]!
-    await unwatch(deps.sql, who.owner, contract)
-    await logAction(deps.sql, {
-      chatType: ctx.chat!.type === "private" ? "private" : (ctx.chat!.type as "group"),
-      chatId: ctx.chat!.id,
-      action: "unwatch_nft",
-      token: contract,
+  // Watched NFTs, in the DM only. A group's list is under its settings: gl:<chatId>:n.
+  const mine = async (ctx: Context, contract?: string) => {
+    const user = await findUser(deps.sql, ctx.from!.id)
+    if (!user) return void (await show(ctx, NO_USER))
+    if (contract) {
+      await unwatch(deps.sql, { userId: user.id }, contract)
+      await log(deps, "unwatch_nft", contract)
+      await ctx
+        .answerCallbackQuery({ text: popup.stop(collectionName(deps, contract)) })
+        .catch(() => {})
+    }
+    await watchedScreen(ctx, deps, {
+      owner: { userId: user.id },
+      title: "<b>Watched NFTs</b>",
+      back: "al:u",
+      open: (c) => `nc:${c}:w`,
+      remove: (c) => `nwl:rm:${c}`,
     })
-    await ctx
-      .answerCallbackQuery({ text: popup.stop(collectionName(deps, contract)) })
-      .catch(() => {})
-    await watchedScreen(ctx, deps, who)
-  })
+  }
+  pm.callbackQuery("nwl", (ctx) => mine(ctx))
+  pm.callbackQuery(new RegExp(`^nwl:rm:${c}$`), (ctx) =>
+    mine(ctx, (ctx.match as RegExpMatchArray)[1]),
+  )
+  pm.callbackQuery(/^gl:(-?\d+):n$/, (ctx) => groupWatchedScreen(ctx, deps, ctx.match[1]!))
+  pm.callbackQuery(new RegExp(`^gl:(-?\\d+):n:${c}$`), (ctx) =>
+    groupWatchedScreen(ctx, deps, ctx.match[1]!, ctx.match[2]),
+  )
   pm.callbackQuery("nml", async (ctx) => {
     const user = await findUser(deps.sql, ctx.from.id)
     if (!user) return show(ctx, NO_USER)

@@ -4,16 +4,16 @@ import type postgres from "postgres"
 import { logAction } from "../actions"
 import { moveChat } from "../chat-move"
 import { escapeHtml } from "../format"
-import { btn, isAdmin, type Kb, link, show, sleep } from "../platforms/telegram/ui"
+import { btn, chosenBtn, isAdmin, type Kb, link, show, sleep } from "../platforms/telegram/ui"
 import {
   ALERT_LABEL,
   ALERT_PATTERN,
+  ALERTS,
   type AlertKind,
   basicPreset,
   type ChatType,
   readSettings,
   type Settings,
-  TOKEN_ALERTS,
 } from "../settings"
 import { NOT_ADMIN, openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
@@ -120,13 +120,14 @@ async function linkChannel(
 const setupText = (hasSettings: boolean) =>
   `MAKO will post alerts here.${hasSettings ? "" : " Start a chat with MAKO to get settings and admin notices."}`
 const setupKb = (bot: string, chatId: number): Kb => [
-  [link("Open settings", `https://t.me/${bot}?start=s_${chatId}`), btn("Watched NFTs", "nwl")],
+  [link("Open settings", `https://t.me/${bot}?start=s_${chatId}`)],
 ]
 
+// MINT REMINDER goes to DMs only, so it has no route.
+const ROUTED = ALERTS.filter((a) => a !== "reminder")
+
 function routeKb(s: Settings, thread: number): Kb {
-  return TOKEN_ALERTS.map((a) => [
-    btn(`${s.routes?.[a] === thread ? "✓" : "·"} ${ALERT_LABEL[a]}`, `rt:${a}`),
-  ])
+  return ROUTED.map((a) => [chosenBtn(ALERT_LABEL[a], s.routes?.[a] === thread, `rt:${a}`)])
 }
 
 export function registerChats(bot: Bot, deps: BotDeps): void {
@@ -185,12 +186,6 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
       where chat_id = ${ctx.chat.id}`
     await logAction(deps.sql, { chatType: ctx.chat.type, chatId: ctx.chat.id, action: "setup" })
     await reply(setupText(!!setupBy), setupKb(ctx.me.username, ctx.chat.id))
-  })
-  // Back from Watched NFTs.
-  groups.callbackQuery("gs", async (ctx) => {
-    const [c] = await deps.sql<{ set: boolean }[]>`
-      select setup_by is not null as set from bot.chats where chat_id = ${ctx.chat.id}`
-    await show(ctx, setupText(c?.set ?? false), setupKb(ctx.me.username, ctx.chat.id))
   })
   groups.command("route", async (ctx) => {
     const thread = ctx.msg.is_topic_message ? ctx.msg.message_thread_id : undefined

@@ -198,6 +198,25 @@ describe("Tokens and NFTs screens", () => {
     expect(labels(h.last("editMessageText")).flat()).not.toContain("Menu")
   })
 
+  it("the Back buttons of the lists lead back to these screens", async () => {
+    for (const [list, screenData, title] of [
+      ["l:hot", "tk", "<b>Tokens</b>"],
+      ["l:near", "tk", "<b>Tokens</b>"],
+      ["l:bonded", "tk", "<b>Tokens</b>"],
+      ["nl:m", "nfts", "<b>NFTs</b>"],
+      ["nl:u", "nfts", "<b>NFTs</b>"],
+      ["nl:t24", "nfts", "<b>NFTs</b>"],
+    ] as const) {
+      await h.tap(list)
+      const back = rows(h.last("editMessageText"))
+        .flat()
+        .find((b) => b.text === "Back")!
+      expect(back.callback_data).toBe(screenData)
+      await h.tap(back.callback_data!)
+      expect(h.last("editMessageText")!.text.split("\n")[0]).toBe(title)
+    }
+  })
+
   it("has no Look up button or prompt", async () => {
     await addUser(sql, 100)
     await h.text("/menu")

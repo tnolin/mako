@@ -118,10 +118,7 @@ describe("groups", () => {
       message_thread_id: 5,
       reply_markup: {
         inline_keyboard: [
-          [
-            { text: "Open settings", url: `https://t.me/makoinkbot?start=s_${G.id}` },
-            { text: "Watched NFTs", callback_data: "nwl" },
-          ],
+          [{ text: "Open settings", url: `https://t.me/makoinkbot?start=s_${G.id}` }],
         ],
       },
     })
@@ -136,9 +133,11 @@ describe("groups", () => {
     expect(h.last("sendMessage")!.message_thread_id).toBe(9)
     await h.tap("rt:new", { chat: G, thread: 9 })
     expect((await chat(G.id))?.settings.routes).toEqual({ new: 9 })
-    expect(h.last("editMessageReplyMarkup")!.reply_markup.inline_keyboard[0][0].text).toBe(
-      "✓ NEW TOKEN",
-    )
+    expect(h.last("editMessageReplyMarkup")!.reply_markup.inline_keyboard[0][0]).toEqual({
+      text: "NEW TOKEN",
+      callback_data: "rt:new",
+      style: "success",
+    })
     await h.tap("rt:new", { chat: G, thread: 9 })
     expect((await chat(G.id))?.settings.routes).toEqual({})
     expect(
@@ -149,6 +148,34 @@ describe("groups", () => {
       { alert: "new", on: true },
       { alert: "new", on: false },
     ])
+  })
+
+  it("lists the NFT kinds in /route, without MINT REMINDER, and routes them to the topic", async () => {
+    await addChat(sql, G.id, "supergroup", { ...basicPreset("supergroup"), thread: 5 })
+    await h.text("/route", { chat: G, thread: 9 })
+    const kb = h.last("sendMessage")!.reply_markup.inline_keyboard.flat()
+    expect(kb.map((b: { text: string }) => b.text)).toEqual([
+      "NEW TOKEN",
+      "BONDING",
+      "PUMPING",
+      "BONDED",
+      "DEV SELL",
+      "BIG BUY/SELL",
+      "UPCOMING MINT",
+      "MINT STARTING",
+      "MINT LIVE",
+      "MINTED",
+      "SOLD OUT",
+      "NEW COLLECTION",
+      "BIG SALE",
+      "UNDER FLOOR",
+      "RARE LISTING",
+      "FLOOR MOVE",
+      "SWEEP",
+      "SOLD",
+    ])
+    await h.tap("rt:mintstart", { chat: G, thread: 9 })
+    expect((await chat(G.id))?.settings.routes).toEqual({ mintstart: 9 })
   })
 
   it("asks for a topic when /route runs outside one", async () => {
@@ -204,14 +231,14 @@ describe("chat settings in the DM", () => {
 
   it("edits the user's own alerts: marks, BIG threshold, image and reset", async () => {
     await h.text("/start")
-    await h.tap("al:u:mk:5000")
-    await h.tap("al:u:big")
+    await h.tap("al:u:p:bonding:0")
+    await h.tap("al:u:p:big:2")
     await h.tap("al:u:pumping:img")
     const s = (await sql`select settings from bot.users`)[0]!.settings
     expect(s.alerts.bonding.marks).toEqual([5000, 8000, 9000])
     expect(s.alerts.big.pctBps).toBe(1000)
     expect(s.alerts.pumping.image).toBe(false)
-    await h.tap("al:u:reset")
+    await h.tap("al:u:reset:tk")
     expect((await sql`select settings from bot.users`)[0]!.settings).toEqual(basicPreset("private"))
   })
 
@@ -331,9 +358,12 @@ describe("no user rows from old taps", () => {
       "al:u",
       "al:u:new:on",
       "al:u:pumping:img",
-      "al:u:mk:5000",
-      "al:u:big",
-      "al:u:reset",
+      "al:u:tk",
+      "al:u:na",
+      "al:u:nw",
+      "al:u:p:bonding:0",
+      "al:u:p:big:2",
+      "al:u:reset:tk",
       "gc",
     ]) {
       await h.tap(data)
@@ -361,7 +391,7 @@ describe("chat settings details", () => {
     await addChat(sql, CH, "channel")
     await h.tap(`al:${CH}`)
     expect(h.last("editMessageText")!.text).not.toContain("Posts to")
-    await h.tap(`al:${CH}:reset`)
+    await h.tap(`al:${CH}:reset:tk`)
     expect(
       await sql`select chat_type, chat_id::text, action, params from bot.user_actions where action = 'preset'`,
     ).toEqual([

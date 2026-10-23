@@ -29,6 +29,7 @@ import {
   threadOf,
 } from "../platforms/telegram/ui"
 import { NATIVE } from "../prices"
+import { chatFromCode } from "./chat-code"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
@@ -187,8 +188,18 @@ async function isWatching(deps: BotDeps, ctx: Context, contract: string): Promis
 }
 
 const suffix = (code?: string) => (code ? `:${code}` : "")
-/** Back from a card opened in a list: w is Watched NFTs and x is Muted NFTs, the rest are the lists. */
-const backTo = (code: string) => (code === "w" ? "nwl" : code === "x" ? "nml" : `nl:${code}`)
+/**
+ * Back from a card opened in a list: w is Watched NFTs and x is Muted NFTs, z<chat code> is a group's
+ * Watched NFTs (in the DM), the rest are the lists.
+ */
+const backTo = (code: string) =>
+  code === "w"
+    ? "nwl"
+    : code === "x"
+      ? "nml"
+      : code.startsWith("z")
+        ? `gl:${chatFromCode(code.slice(1))}:n`
+        : `nl:${code}`
 const viewUrl = (deps: BotDeps, contract: string, slug: string | null) =>
   slug ? `${deps.linksBase}/n/c/${slug}` : `${deps.linksBase}/n/a/${contract}`
 

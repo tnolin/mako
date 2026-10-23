@@ -277,21 +277,69 @@ describe("from a group", () => {
     expect(h.last("sendMessage")!.text).toBe(NOT_FOUND)
   })
 
-  it("Watched NFTs for a group is admin-only and titled with the chat name", async () => {
-    await addChat(sql, -1001, "supergroup")
-    await watch(sql, { chatId: "-1001" }, C)
-    await h.tap("nwl", { chat: groupFrom, from: 200 })
-    expect(h.last("editMessageText")!.text.split("\n")[0]).toBe(
-      "<b>Watched NFTs for Test Group</b>",
-    )
+  const nonAdmin = () =>
     h.on("getChatMember", (p) => ({
       status: "member",
       user: { id: p.user_id, is_bot: false, first_name: "A" },
     }))
-    await h.tap(`nwl:rm:${C}`, { chat: groupFrom, from: 200 })
-    expect(h.last("answerCallbackQuery")!.text).toBe(
-      "Only admins of that chat can change its settings.",
+
+  it("Watched NFTs for a group opens in the DM, titled with the chat name, with Back to the group's settings", async () => {
+    await addChat(sql, -1001, "supergroup")
+    await watch(sql, { chatId: "-1001" }, C)
+    await h.tap("gl:-1001:n")
+    const m = h.last("editMessageText")!
+    expect(m.text).toBe(
+      "<b>Watched NFTs for Test Group</b>\nThese are all the NFT collections you are currently watching. If you no longer wish to receive alerts for these, simply click Remove next to each collection.",
     )
+    expect(kbOf(m)).toEqual([
+      [
+        { text: N, callback_data: `nc:${C}:zs1` },
+        { text: "Remove", callback_data: `gl:-1001:n:${C}` },
+      ],
+      [{ text: "Back", callback_data: "al:-1001" }],
+    ])
+  })
+
+  it("Watched NFTs for a group is admin-only", async () => {
+    await addChat(sql, -1001, "supergroup")
+    await watch(sql, { chatId: "-1001" }, C)
+    nonAdmin()
+    await h.tap("gl:-1001:n")
+    expect(h.last("answerCallbackQuery")).toMatchObject({
+      text: "Only admins of that chat can change its settings.",
+      show_alert: true,
+    })
+    await h.tap(`gl:-1001:n:${C}`)
+    expect(await rows("nft_watches")).toHaveLength(1)
+  })
+
+  it("Remove in a group's list answers the stop pop-up and redraws", async () => {
+    await addChat(sql, -1001, "supergroup")
+    await watch(sql, { chatId: "-1001" }, C)
+    await h.tap(`gl:-1001:n:${C}`)
+    expect(popupText()).toBe(popup.stop(N))
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Watched NFTs for Test Group</b>\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
+    )
+    expect(await rows("nft_watches")).toHaveLength(0)
+  })
+
+  it("a collection opened from a group's list has Back to that list", async () => {
+    await addChat(sql, -1001, "supergroup")
+    await watch(sql, { chatId: "-1001" }, C)
+    await h.tap(`nc:${C}:zs1`)
+    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
+    expect(back).toEqual([{ text: "Back", callback_data: "gl:-1001:n" }])
+  })
+
+  it("the Watched lists never open in a group", async () => {
+    await addChat(sql, -1001, "supergroup")
+    await watch(sql, { chatId: "-1001" }, C)
+    h.clear()
+    await h.tap("nwl", { chat: groupFrom, from: 200 })
+    await h.tap(`nwl:rm:${C}`, { chat: groupFrom, from: 200 })
+    await h.tap(`gl:-1001:n`, { chat: groupFrom, from: 200 })
+    expect(h.calls.filter((c) => c.method === "editMessageText")).toHaveLength(0)
     expect(await rows("nft_watches")).toHaveLength(1)
   })
 })

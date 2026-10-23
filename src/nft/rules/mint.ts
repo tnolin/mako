@@ -18,10 +18,10 @@ import {
   type NftAlertKind,
   shortAddr,
 } from "../card"
-import { isTeamStage, MINT_RECENT_S } from "../policy"
+import { isTeamStage, LAUNCH_HOLD_S, MINT_RECENT_S } from "../policy"
 import type { CollectionState } from "../state"
 
-type MintCtx = Pick<RuleCtx, "nft" | "now">
+type MintCtx = Pick<RuleCtx, "nft" | "now" | "nftSince">
 type Rows = NftAlertCard["rows"]
 
 const lateS = (kind: AlertKind) => ((LONG_WINDOW as readonly string[]).includes(kind) ? 1800 : 180)
@@ -292,8 +292,17 @@ export function mintRules(
       }
       break
     case "nft.collection": {
-      // A launch held for its page goes out the first time the snapshot has a name and an image.
-      if (st.launch && pageOk(p) && !pageOk(prev)) out.push(newCollection(b, st, st.launch, now))
+      // A launch held for its page goes out the first time the snapshot has a name and an image, within
+      // a week of the launch and never for one from before the alerts cutoff.
+      const held = st.launch
+      if (
+        held &&
+        pageOk(p) &&
+        !pageOk(prev) &&
+        now - held.blockTimestamp <= LAUNCH_HOLD_S &&
+        held.blockTimestamp >= (ctx.nftSince ?? 0)
+      )
+        out.push(newCollection(b, st, held, now))
       const becameReal = prev?.verdict !== "real" && p.verdict === "real"
       const becameEligible = !upcomingEligible(prev) && upcomingEligible(p)
       if (becameReal || becameEligible) {

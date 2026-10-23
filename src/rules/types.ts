@@ -55,6 +55,8 @@ export type RuleCtx = {
   nft: NftState
   /** Unix seconds. */
   now: () => number
+  /** Unix seconds: NFT events before this time never alert (the backfill cutoff). */
+  nftSince?: number
 }
 
 export type TradeCtx = {

@@ -15,6 +15,7 @@ import {
   NATIVE,
   nftCollection,
   nftDrop,
+  nftLaunch,
   nftMint,
   nftSale,
   T0,
@@ -733,6 +734,15 @@ it("applies backfilled NFT history to the state but sends nothing for it", async
   await pollOnce(deps({ now: () => T0 + 3610, nftAlertsSince: T0 }))
   // The mint start knows the collection is real because the old snapshot built the state.
   expect(await nftRows()).toEqual([expect.objectContaining({ alert: "mintstart", chat_id: "101" })])
+})
+
+it("sends no NEW COLLECTION for a backfilled launch whose page appears later", async () => {
+  await addUser(sql, 101)
+  await insertEvents(sql, [nftLaunch({ blockTimestamp: T0 - 4000 })])
+  await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: T0 }))
+  await insertEvents(sql, [nftCollection({ launchpad: "chimera", blockTimestamp: T0 + 600 })])
+  await pollOnce(deps({ now: () => T0 + 610, nftAlertsSince: T0 }))
+  expect(await nftRows()).toEqual([])
 })
 
 describe("a group that watches a token", () => {

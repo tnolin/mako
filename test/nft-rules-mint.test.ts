@@ -41,11 +41,13 @@ const creator = { address: addr(0xaa), username: "INKHornetDEV", verified: false
 let state: NftState
 let n = 0
 let now = 0
+let since = 0
 beforeEach(() => {
   state = createNftState()
   n = 0
+  since = 0
 })
-const ctx = () => ({ nft: state, now: () => now })
+const ctx = () => ({ nft: state, now: () => now, nftSince: since })
 /** The poller's order: apply the event to the state, then run the rules with the previous snapshot. */
 function process(p: NftEvent): Candidate[] {
   const ev: Row<NftEvent> = { id: String(++n), p }
@@ -732,6 +734,38 @@ describe("NEW COLLECTION", () => {
           name: "Bloop",
           imageUrl: "https://i.example/b.png",
           blockTimestamp: now + 5,
+        }),
+      ),
+    ).toEqual([])
+  })
+
+  it("is not sent from a held launch more than 7 days old", () => {
+    now = SEP6 + 30
+    expect(process(launch())).toEqual([])
+    now = SEP6 + 7 * 24 * H + 60
+    expect(
+      process(
+        nftCollection({
+          launchpad: "chimera",
+          name: "Bloop",
+          imageUrl: "https://i.example/b.png",
+          blockTimestamp: now,
+        }),
+      ),
+    ).toEqual([])
+  })
+
+  it("is not sent from a held launch older than the NFT alerts cutoff", () => {
+    since = SEP6 + 60
+    now = SEP6 + H
+    process(launch())
+    expect(
+      process(
+        nftCollection({
+          launchpad: "chimera",
+          name: "Bloop",
+          imageUrl: "https://i.example/b.png",
+          blockTimestamp: now,
         }),
       ),
     ).toEqual([])

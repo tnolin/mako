@@ -235,7 +235,9 @@ async function processBatch(
     // Backfilled NFT history: the cursor moves past it and nothing is sent.
     if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue
     try {
-      cands.push(...(await rules(ev, { sql, prices: deps.prices, log, nft, now }, prev)))
+      cands.push(
+        ...(await rules(ev, { sql, prices: deps.prices, log, nft, now, nftSince: cutoff }, prev)),
+      )
     } catch (err) {
       // Database and connection errors fail the whole batch: the cursor stays and the loop retries.
       // Anything else is a bad event; skip it so one poison event cannot stall every chat.

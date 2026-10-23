@@ -18,7 +18,7 @@ import {
   type NftAlertKind,
   shortAddr,
 } from "../card"
-import { isTeamStage } from "../policy"
+import { isTeamStage, MINT_RECENT_S } from "../policy"
 import type { CollectionState } from "../state"
 
 type MintCtx = Pick<RuleCtx, "nft" | "now">
@@ -45,6 +45,16 @@ const upcomingEligible = (col: NftCollectionEvent | null | undefined): boolean =
 const feedOk = (st: CollectionState) => st.col?.verdict === "real"
 const pageOk = (col: { name: string | null; imageUrl: string | null } | null | undefined) =>
   !!col?.name && !!col.imageUrl
+/**
+ * Whether the catch-up may still announce the mint: its stage ends in the future, or, with no end time,
+ * the newest mint event is under an hour old.
+ */
+function mintLive(st: CollectionState, now: number): boolean {
+  const end = st.lastStage && st.drop?.stages[st.lastStage.stageIndex]?.endTime
+  if (end != null) return end > now
+  const seen = [st.lastStage, st.lastMark].filter((m) => m !== null).map((m) => m.blockTimestamp)
+  return seen.length > 0 && now - Math.max(...seen) < MINT_RECENT_S
+}
 /** A mint with no stages (not a SeaDrop drop): its one `stage_start` reads MINT LIVE. */
 const stageless = (st: CollectionState): boolean => (st.col ? !st.col.seadrop : !st.drop)
 
@@ -289,7 +299,7 @@ export function mintRules(
       if (becameReal || becameEligible) {
         const up = upcomingEligible(p) && st.drop ? upcoming(b, st, st.drop, now) : null
         if (up) out.push({ ...up, eventTs: now })
-        else if (becameReal && st.lastStage && !st.soldOut) {
+        else if (becameReal && st.lastStage && !st.soldOut && mintLive(st, now)) {
           out.push(stageStart(b, st, st.lastStage, now, true))
         }
       }

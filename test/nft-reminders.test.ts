@@ -86,6 +86,14 @@ describe("MINT REMINDER scheduler", () => {
     expect(p.card.contract).toBe(C)
   })
 
+  it("queues nothing for a collection that has sold out", async () => {
+    const a = await addUser(sql, 101)
+    await remind(sql, a, C)
+    state.apply({ id: "3", p: nftMint({ kind: "sold_out", minted: "2222", maxSupply: "2222" }) })
+    await queueReminders({ sql, nft: () => state, now: () => ago15 })
+    expect(await cards()).toEqual([])
+  })
+
   it("leaves minted out before the mint has started, and limit out when there is none", async () => {
     state.apply({ id: "3", p: nftDrop({ stages: [stage("FCFS", { maxPerWallet: null })] }) })
     await remind(sql, await addUser(sql, 101), C)

@@ -37,7 +37,7 @@ export type NftState = {
   search(q: string, limit?: number): CollectionState[]
   /** Collections with a mint running: a stage or mark was seen and it has not sold out. */
   live(): CollectionState[]
-  /** Collections with a non-Team stage starting within `withinS` after `nowS`, soonest first. */
+  /** Collections not sold out with a non-Team stage starting within `withinS` after `nowS`, soonest first. */
   upcoming(nowS: number, withinS: number): CollectionState[]
 }
 
@@ -142,7 +142,7 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
             .map((st) => st.startTime),
         )
       return [...byContract.values()]
-        .filter((s) => Number.isFinite(next(s)))
+        .filter((s) => !s.soldOut && Number.isFinite(next(s)))
         .sort((a, b) => next(a) - next(b))
     },
   }

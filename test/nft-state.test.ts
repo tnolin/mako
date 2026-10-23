@@ -134,6 +134,16 @@ it("lists collections minting now and upcoming ones without Team stages", async 
   expect(state.live().map((s) => s.lastStage?.contract)).toEqual([addr(0xc6)])
 })
 
+it("leaves a sold-out collection out of upcoming", async () => {
+  const ids = await insertEvents(sql, [
+    nftCollection(),
+    nftDrop(),
+    nftMint({ kind: "sold_out", minted: "2222", maxSupply: "2222" }),
+  ])
+  const state = await loadNftState(sql, ids.at(-1)!)
+  expect(state.upcoming(T0, 7 * 86400)).toEqual([])
+})
+
 it("parses OpenSea collection, item and assets links", () => {
   expect(parseOpenSeaLink("https://opensea.io/collection/ink-hornet")).toEqual({
     slug: "ink-hornet",

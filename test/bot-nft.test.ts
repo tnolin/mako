@@ -420,6 +420,8 @@ describe("lists", () => {
     await boot(hornet())
     mkBot()
     await h.tap("nl:u")
-    expect(h.last("editMessageText")!.text).toBe("<b>Upcoming</b>\nNo results in the next 7 days.")
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Upcoming</b>\n\nNo results in the next 7 days.",
+    )
   })
 })

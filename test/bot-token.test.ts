@@ -422,11 +422,11 @@ describe("discovery lists", () => {
     await setCursorBlock(sql, 1004)
     await h.tap("l:hot")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Hot now (24h)</b>\n1. $GOBLO · Goblo · 1 trade (24h)")
+    expect(m.text).toBe("<b>Hot now (24h)</b>\n\n1. $GOBLO · Goblo · 1 trade (24h)")
     expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "Back"])
     await sql`delete from indexer.events where entity = ${A}`
     await h.tap("l:hot")
-    expect(h.last("editMessageText")!.text).toBe(`<b>Hot now</b>\n${EMPTY.hot}`)
+    expect(h.last("editMessageText")!.text).toBe(`<b>Hot now</b>\n\n${EMPTY.hot}`)
   })
 
   it("falls back to 7 days for hot tokens and says so in the title", async () => {
@@ -441,7 +441,7 @@ describe("discovery lists", () => {
     await setCursorBlock(sql, 1001 + 700_000)
     await h.tap("l:hot")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe(`<b>Hot now</b>\n${EMPTY.hot}`)
+    expect(m.text).toBe(`<b>Hot now</b>\n\n${EMPTY.hot}`)
     expect(kbOf(m)).toEqual([[{ text: "Back", callback_data: "tk" }]])
   })
 
@@ -461,7 +461,7 @@ describe("discovery lists", () => {
     await setCursorBlock(sql, 1010)
     await h.tap("l:near")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Near bonding</b>\n1. $GOBLO · Goblo · 80%\n2. $BEE · Bee · 30%")
+    expect(m.text).toBe("<b>Near bonding</b>\n\n1. $GOBLO · Goblo · 80%\n2. $BEE · Bee · 30%")
     expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "$BEE", "Back"])
   })
 
@@ -481,7 +481,7 @@ describe("discovery lists", () => {
     expect(h.last("editMessageText")!.text).toContain("1. $GOBLO · Goblo · bonded ")
     await sql`delete from indexer.events where type = 'launchpad.bond'`
     await h.tap("l:bonded")
-    expect(h.last("editMessageText")!.text).toBe(`<b>Recently bonded</b>\n${EMPTY.bonded}`)
+    expect(h.last("editMessageText")!.text).toBe(`<b>Recently bonded</b>\n\n${EMPTY.bonded}`)
   })
 
   it("lists bonds of the last 7 days, and says so when there are none", async () => {
@@ -492,7 +492,7 @@ describe("discovery lists", () => {
     await setCursorBlock(sql, 1002 + 700_000)
     await h.tap("l:bonded")
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>Recently bonded</b>\nNo tokens have bonded in the last 7 days.",
+      "<b>Recently bonded</b>\n\nNo tokens have bonded in the last 7 days.",
     )
   })
 

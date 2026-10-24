@@ -76,12 +76,17 @@ export function threadOf(ctx: Context): number | undefined {
  */
 export const FULL_WIDTH = `\n${"\u2800".repeat(40)}`
 
+/** A screen's bold title line is followed by one blank line. */
+export const spaceTitle = (text: string): string =>
+  text.replace(/^(<b>[^\n]*<\/b>)\n(?!\n)/, "$1\n\n")
+
 /**
  * Shows a screen: edits the tapped message, or replies in the same topic. Identical edits count as success.
  * A screen with buttons gets the full-width line.
  */
 export async function show(ctx: Context, text: string, kb: Kb = []): Promise<void> {
-  const html = kb.length > 0 ? text + FULL_WIDTH : text
+  const spaced = spaceTitle(text)
+  const html = kb.length > 0 ? spaced + FULL_WIDTH : spaced
   const opts = {
     parse_mode: "HTML" as const,
     reply_markup: { inline_keyboard: kb },

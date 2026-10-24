@@ -55,6 +55,7 @@ const nonAdmin = () =>
 
 const TOKEN_TEXT = [
   "<b>Token alerts</b>",
+  "",
   "Customize what kind of alerts you receive for tokens.",
   "",
   "<b>Alert Types</b>",
@@ -100,6 +101,7 @@ describe("My alerts", () => {
     expect(screen().text).toBe(
       [
         "<b>My alerts</b>",
+        "",
         "Choose which alerts you want me to send you.",
         "",
         "Tokens and NFTs you watch always send alerts, even if that alert type is turned off here.",
@@ -185,7 +187,7 @@ describe("NFT alerts", () => {
   it("All collections text is exact and the DM defaults are all on", async () => {
     await addUser(sql, 100)
     await h.tap("al:u:na")
-    expect(screen().text).toBe(["<b>NFT alerts · All collections</b>", ...ALL_BODY].join("\n"))
+    expect(screen().text).toBe(["<b>NFT alerts · All collections</b>", "", ...ALL_BODY].join("\n"))
     expect(labels(screen())).toEqual([
       ["UPCOMING MINT", "Show Image"],
       ["MINT STARTING", "Show Image"],
@@ -214,6 +216,7 @@ describe("NFT alerts", () => {
     expect(screen().text).toBe(
       [
         "<b>NFT alerts · Watched only</b>",
+        "",
         "These alerts are only for NFTs you added to your watchlist.",
         "",
         ...WATCHED_BODY,
@@ -298,7 +301,7 @@ describe("picker screens", () => {
       expect(screen().text).toBe(line)
     }
     await h.tap("al:u:p:bonding")
-    expect(screen().text).toBe("<b>BONDING marks</b>\nAlert when a curve passes:")
+    expect(screen().text).toBe("<b>BONDING marks</b>\n\nAlert when a curve passes:")
   })
 })
 
@@ -369,13 +372,15 @@ describe("a group's settings in the DM", () => {
     expect(screen().text.split("\n")[0]).toBe("<b>Token alerts for Test Group</b>")
     expect(find(screen(), "Back").callback_data).toBe(`al:${G.id}`)
     await h.tap(`al:${G.id}:na`)
-    expect(screen().text.split("\n").slice(0, 2)).toEqual([
+    expect(screen().text.split("\n").slice(0, 3)).toEqual([
       "<b>NFT alerts for Test Group</b>",
+      "",
       "All collections",
     ])
     await h.tap(`al:${G.id}:nw`)
-    expect(screen().text.split("\n").slice(0, 2)).toEqual([
+    expect(screen().text.split("\n").slice(0, 3)).toEqual([
       "<b>NFT alerts for Test Group</b>",
+      "",
       "Watched only",
     ])
     expect(find(screen(), "All collections").callback_data).toBe(`al:${G.id}:na`)

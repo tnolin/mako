@@ -15,7 +15,15 @@ export type ItemData = {
 }
 
 export type TrendingTimeframe = "one_hour" | "one_day" | "seven_days"
-export type TrendingRow = { slug: string; name: string; contract: string }
+/** A trending collection, with the details OpenSea's trending response carries (it has no prices). */
+export type TrendingRow = {
+  slug: string
+  name: string
+  contract: string
+  imageUrl: string | null
+  verified: boolean
+  links: { twitter: string | null; website: string | null; discord: string | null }
+}
 
 /** What OpenSea says about a collection MAKO has no events for, for its card. */
 export type LiveCollection = {
@@ -36,8 +44,13 @@ export type ItemReader = {
   /** `calcAt` is the collection's rarity `calculated_at`; a different value drops the cached rank. */
   get(contract: string, tokenId: string, calcAt: string | null): Promise<ItemData | "unavailable">
   trending(timeframe: TrendingTimeframe): Promise<TrendingRow[] | "unavailable">
-  /** A collection and its stats, by contract. "unavailable" when the collection itself can't be read. */
+  /**
+   * A collection and its stats, by contract. A trending collection is built from its trending entry and
+   * one stats read; any other needs its collection read too. "unavailable" when that read fails.
+   */
   collection(contract: string): Promise<LiveCollection | "unavailable">
+  /** Reads the stats of these trending collections into the cache, one at a time. Never rejects. */
+  prefetch(contracts: string[]): Promise<void>
 }
 
 const BASE = "https://api.opensea.io/api/v2"
@@ -137,6 +150,11 @@ export function createItemReader(deps: {
   const prices = new Map<string, Prices>()
   const trends = new Map<string, { at: number; rows: TrendingRow[] }>()
   const collections = new Map<string, { at: number; value: LiveCollection }>()
+  type Stats = Pick<LiveCollection, "floorWei" | "owners" | "volume24hWei" | "sales24h">
+  const NO_STATS: Stats = { floorWei: null, owners: null, volume24hWei: null, sales24h: null }
+  /** By slug: stats read in the last 5 minutes, and reads under way (so a tap joins a prefetch). */
+  const stats = new Map<string, { at: number; value: Stats }>()
+  const statsReads = new Map<string, Promise<Stats | null>>()
 
   const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : null)
   const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null)
@@ -179,6 +197,38 @@ export function createItemReader(deps: {
     const o = p as { currency?: unknown; decimals?: unknown; value?: unknown } | undefined
     if (o?.decimals !== 18 || typeof o.value !== "string" || !/^[0-9]+$/.test(o.value)) return null
     return BigInt(o.value)
+  }
+
+  const trendingRow = (contract: string) =>
+    [...trends.values()].flatMap((t) => t.rows).find((r) => r.contract === contract)
+  const parseStats = (j: unknown): Stats => {
+    const o = j as { total?: Record<string, unknown>; intervals?: Record<string, unknown>[] }
+    const day = (Array.isArray(o.intervals) ? o.intervals : []).find(
+      (i) => i?.interval === "one_day",
+    )
+    return {
+      floorWei: ethWei(o.total?.floor_price),
+      owners: num(o.total?.num_owners),
+      volume24hWei: ethWei(day?.volume),
+      sales24h: num(day?.sales),
+    }
+  }
+  /** A collection's stats from the cache, a read under way, or a new read. Null when OpenSea fails. */
+  function statsFor(slug: string): Promise<Stats | null> {
+    const hit = stats.get(slug)
+    if (hit && now() - hit.at <= OFFER_TTL_MS) return Promise.resolve(hit.value)
+    const running = statsReads.get(slug)
+    if (running) return running
+    const read = get(`/collections/${slug}/stats`, parseStats)
+      .then((r) => {
+        if (!r.ok) return null
+        stats.set(slug, { at: now(), value: r.value })
+        return r.value
+      })
+      .catch(() => null)
+      .finally(() => statsReads.delete(slug))
+    statsReads.set(slug, read)
+    return read
   }
 
   return {
@@ -230,7 +280,7 @@ export function createItemReader(deps: {
       const r = await get(
         `/collections/trending?chains=ink&timeframe=${timeframe}&limit=20`,
         (j) => {
-          type Entry = { collection?: unknown; name?: unknown; contracts?: unknown }
+          type Entry = Record<string, unknown>
           const cs = (j as { collections?: Entry[] }).collections
           if (!Array.isArray(cs)) throw new Error("no collections")
           // In OpenSea's order. A collection opens by its Ink contract, so one without it is left out.
@@ -240,7 +290,21 @@ export function createItemReader(deps: {
               (k: { chain?: unknown }) => k?.chain === "ink",
             ) as { address?: unknown } | undefined
             const contract = str(ink?.address)?.toLowerCase()
-            return slug && contract ? [{ slug, name: str(c.name) ?? slug, contract }] : []
+            if (!slug || !contract) return []
+            return [
+              {
+                slug,
+                name: str(c.name) ?? slug,
+                contract,
+                imageUrl: str(c.image_url),
+                verified: c.safelist_status === "verified",
+                links: {
+                  twitter: str(c.twitter_username),
+                  website: str(c.project_url),
+                  discord: str(c.discord_url),
+                },
+              },
+            ]
           })
         },
       )
@@ -250,51 +314,43 @@ export function createItemReader(deps: {
     },
 
     async collection(contract) {
+      const row = trendingRow(contract)
+      if (row) {
+        const { contract: _, ...details } = row
+        return { ...details, totalSupply: null, ...((await statsFor(row.slug)) ?? NO_STATS) }
+      }
       const hit = collections.get(contract)
       if (hit && now() - hit.at <= OFFER_TTL_MS) return hit.value
-      // The trending list usually gave the slug already; otherwise OpenSea looks it up by contract.
-      let slug = [...trends.values()]
-        .flatMap((t) => t.rows)
-        .find((r) => r.contract === contract)?.slug
-      if (!slug) {
-        const c = await get(`/chain/ink/contract/${contract}`, (j) =>
-          str((j as { collection?: unknown }).collection),
-        )
-        if (!c.ok || !c.value) return "unavailable"
-        slug = c.value
-      }
+      const c = await get(`/chain/ink/contract/${contract}`, (j) =>
+        str((j as { collection?: unknown }).collection),
+      )
+      if (!c.ok || !c.value) return "unavailable"
+      const slug = c.value
       const col = await get(`/collections/${slug}`, (j) => j as Record<string, unknown>)
       if (!col.ok) return "unavailable"
-      const stats = await get(`/collections/${slug}/stats`, (j) => {
-        const o = j as { total?: Record<string, unknown>; intervals?: Record<string, unknown>[] }
-        const day = (Array.isArray(o.intervals) ? o.intervals : []).find(
-          (i) => i?.interval === "one_day",
-        )
-        return {
-          floorWei: ethWei(o.total?.floor_price),
-          owners: num(o.total?.num_owners),
-          volume24hWei: ethWei(day?.volume),
-          sales24h: num(day?.sales),
-        }
-      })
-      const c = col.value
+      const o = col.value
       const value: LiveCollection = {
         slug,
-        name: str(c.name),
-        imageUrl: str(c.image_url),
-        verified: c.safelist_status === "verified",
+        name: str(o.name),
+        imageUrl: str(o.image_url),
+        verified: o.safelist_status === "verified",
         links: {
-          twitter: str(c.twitter_username),
-          website: str(c.project_url),
-          discord: str(c.discord_url),
+          twitter: str(o.twitter_username),
+          website: str(o.project_url),
+          discord: str(o.discord_url),
         },
-        totalSupply: num(c.total_supply),
-        ...(stats.ok
-          ? stats.value
-          : { floorWei: null, owners: null, volume24hWei: null, sales24h: null }),
+        totalSupply: num(o.total_supply),
+        ...((await statsFor(slug)) ?? NO_STATS),
       }
       collections.set(contract, { at: now(), value })
       return value
+    },
+
+    async prefetch(contracts) {
+      for (const contract of contracts) {
+        const row = trendingRow(contract)
+        if (row) await statsFor(row.slug)
+      }
     },
   }
 }

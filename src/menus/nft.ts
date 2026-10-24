@@ -581,6 +581,11 @@ async function showTrending(
   code: keyof typeof TIMEFRAME,
 ): Promise<void> {
   const rows = await trendingRows(deps, code)
+  if (Array.isArray(rows)) {
+    // Reads the stats of the rows MAKO has no data for in the background, so a tap opens from the cache.
+    const state = deps.nft?.()
+    void deps.items?.prefetch(rows.map((r) => r.contract).filter((c) => !state?.get(c)))
+  }
   const title = `<b>${COPY.trendingTitle} (${TREND_LABEL[code]})</b>`
   const back: Kb = [[btn("Back", "nfts")]]
   const frames: Kb = [

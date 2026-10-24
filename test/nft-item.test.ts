@@ -49,6 +49,11 @@ const okRoute =
           {
             collection: "elsewhere",
             name: "Elsewhere",
+            image_url: "https://i.example/else.png",
+            safelist_status: "verified",
+            twitter_username: "elsewhereink",
+            project_url: "https://else.example",
+            discord_url: "",
             contracts: [{ address: "0xE15E000000000000000000000000000000000E15", chain: "ink" }],
           },
           {
@@ -196,9 +201,28 @@ describe("OpenSea reader", () => {
 
   it("lists trending collections for a timeframe and caches them for 10 minutes", async () => {
     // In OpenSea's order, with the Ink contract; a collection without one is left out.
+    const links = (twitter: string | null, website: string | null) => ({
+      twitter,
+      website,
+      discord: null,
+    })
     expect(await reader.trending("one_day")).toEqual([
-      { slug: "elsewhere", name: "Elsewhere", contract: ELSE },
-      { slug: "wiredonink", name: "WIRED", contract: WIRED },
+      {
+        slug: "elsewhere",
+        name: "Elsewhere",
+        contract: ELSE,
+        imageUrl: "https://i.example/else.png",
+        verified: true,
+        links: links("elsewhereink", "https://else.example"),
+      },
+      {
+        slug: "wiredonink",
+        name: "WIRED",
+        contract: WIRED,
+        imageUrl: null,
+        verified: false,
+        links: links(null, null),
+      },
     ])
     await reader.trending("one_day")
     expect(calls).toEqual(["/collections/trending?chains=ink&timeframe=one_day&limit=20"])
@@ -209,7 +233,48 @@ describe("OpenSea reader", () => {
     expect(calls).toHaveLength(3)
   })
 
-  it("reads a collection and its stats live, finding the slug by contract, and caches it for 5 minutes", async () => {
+  it("builds a trending collection from the trending entry and one stats read", async () => {
+    await reader.trending("one_day")
+    calls.length = 0
+    expect(await reader.collection(ELSE)).toEqual({
+      slug: "elsewhere",
+      name: "Elsewhere",
+      imageUrl: "https://i.example/else.png",
+      verified: true,
+      links: { twitter: "elsewhereink", website: "https://else.example", discord: null },
+      totalSupply: null,
+      floorWei: 12_000_000_000_000_000n,
+      owners: 321,
+      volume24hWei: 1_500_000_000_000_000_000n,
+      sales24h: 42,
+    })
+    expect(calls).toEqual(["/collections/elsewhere/stats"])
+  })
+
+  it("prefetches stats so the tap reads from the cache, and shares a read already under way", async () => {
+    await reader.trending("one_day")
+    calls.length = 0
+    const pending = reader.prefetch([ELSE, WIRED])
+    // A tap while the prefetch is still reading waits for the same request.
+    const tapped = reader.collection(ELSE)
+    await pending
+    await tapped
+    expect(calls).toEqual(["/collections/elsewhere/stats", "/collections/wiredonink/stats"])
+    await reader.collection(ELSE)
+    await reader.prefetch([ELSE])
+    expect(calls).toHaveLength(2)
+    t += 5 * 60_000 + 1
+    await reader.prefetch([ELSE])
+    expect(calls).toHaveLength(3)
+  })
+
+  it("never rejects a prefetch, even when OpenSea fails", async () => {
+    await reader.trending("one_day")
+    route = () => json({}, 500)
+    await expect(reader.prefetch([ELSE])).resolves.toBeUndefined()
+  })
+
+  it("reads a collection it has no trending entry for live, finding the slug by contract, and caches it for 5 minutes", async () => {
     expect(await reader.collection(ELSE)).toEqual({
       slug: "elsewhere",
       name: "Elsewhere",
@@ -229,11 +294,6 @@ describe("OpenSea reader", () => {
     ])
     await reader.collection(ELSE)
     expect(calls).toHaveLength(3)
-    t += 5 * 60_000 + 1
-    await reader.trending("one_day")
-    await reader.collection(ELSE)
-    // The trending list already gave the slug, so no contract lookup.
-    expect(calls.slice(4)).toEqual(["/collections/elsewhere", "/collections/elsewhere/stats"])
   })
 
   it("says unavailable when the collection read fails", async () => {
@@ -378,7 +438,31 @@ describe("NFT card", () => {
     ])
   })
 
-  it("opens a trending collection MAKO doesn't know as a live card from OpenSea", async () => {
+  it("prefetches stats for unknown trending rows when the list is shown, so the tap reads no OpenSea", async () => {
+    await boot()
+    await h.tap("nl:t24")
+    // Only the row MAKO doesn't know is prefetched; WIRED has MAKO's own data.
+    await vi.waitFor(() => expect(calls).toContain("/collections/elsewhere/stats"))
+    expect(calls).not.toContain("/collections/wiredonink/stats")
+    calls.length = 0
+    await h.tap(`nc:${ELSE}:t24`)
+    expect(calls).toEqual([])
+    expect(h.last("sendPhoto")!.caption).toBe(
+      [
+        "<b>Elsewhere ✓ · OpenSea</b>",
+        "",
+        `<code>floor    ${ethText(12_000_000_000_000_000n, 2500)}</code>`,
+        `<code>volume   ${ethText(1_500_000_000_000_000_000n, 2500)} (24h)</code>`,
+        "<code>sales    42 (24h)</code>",
+        "<code>holders  321</code>",
+        "",
+        `CA   <code>${ELSE}</code>`,
+        '<a href="https://x.com/elsewhereink">X</a> · <a href="https://else.example/">Website</a>',
+      ].join("\n"),
+    )
+  })
+
+  it("opens a collection it has no trending entry for as a live card from OpenSea", async () => {
     await boot()
     await h.tap(`nc:${ELSE}:t24`)
     const p = h.last("sendPhoto")!

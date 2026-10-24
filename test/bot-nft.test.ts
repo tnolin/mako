@@ -99,6 +99,43 @@ function hornet() {
 }
 
 describe("collection card", () => {
+  it("reads Minting now while a mint runs, with no stage or price, and leaves the row out once it stopped", async () => {
+    const stage = (endTime: number) => ({
+      type: "public",
+      label: "Public",
+      priceWei: eth(0.0005),
+      startTime: NOW - 2 * H,
+      endTime,
+      maxPerWallet: null,
+      allowlistCount: null,
+    })
+    const mint = (contract: `0x${string}`) =>
+      nftMint({
+        contract,
+        stageIndex: 0,
+        stageLabel: "Public",
+        minted: "1104",
+        maxSupply: "2222",
+        blockTimestamp: NOW - 2 * H,
+        stageStartTs: NOW - 2 * H,
+        mintStartTs: NOW - 2 * H,
+      })
+    const ended = addr(0xc5)
+    await boot([
+      nftCollection(),
+      nftDrop({ stages: [stage(NOW + 2 * H)] }),
+      mint(C),
+      nftCollection({ contract: ended, name: "Ended", slug: "ended" }),
+      nftDrop({ contract: ended, stages: [stage(NOW - H)] }),
+      mint(ended),
+    ])
+    mkBot()
+    await h.text(`/nft ${C}`)
+    expect(h.last("sendPhoto")!.caption).toContain("<code>mint     Minting now</code>")
+    await h.text(`/nft ${ended}`)
+    expect(h.last("sendPhoto")!.caption).not.toContain("<code>mint")
+  })
+
   it("opens from /nft by slug with the card rows, as a photo with the card as caption", async () => {
     await boot(hornet())
     mkBot()

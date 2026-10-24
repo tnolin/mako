@@ -14,7 +14,7 @@ import {
 } from "../nft/match"
 import type { ItemData } from "../nft/opensea"
 import { isTeamStage } from "../nft/policy"
-import { upcomingCard } from "../nft/rules/mint"
+import { mintLive, upcomingCard } from "../nft/rules/mint"
 import type { CollectionState } from "../nft/state"
 import { viewerState } from "../nft/watches"
 import { classify } from "../platforms/telegram/errors"
@@ -56,8 +56,6 @@ const PARTIAL = "Some details are unavailable right now."
 export const SHORT = "Send at least 3 characters"
 
 const nowS = (deps: BotDeps) => deps.now?.() ?? Math.floor(Date.now() / 1000)
-const sameDay = (a: number, b: number) => utcDate(a) === utcDate(b)
-const price = (wei: string) => (BigInt(wei) === 0n ? "free" : ethText(BigInt(wei), null))
 const knownMax = (m: string | null | undefined): m is string => !!m && BigInt(m) > 0n
 
 /** The latest minted count and supply the state saw, from the newest mint event. */
@@ -68,23 +66,10 @@ function latestMint(st: CollectionState) {
   return best ?? null
 }
 
-/** The `mint` row: where the mint stands now, or null for a collection with no mint phase. */
+/** The `mint` row: Minting now, or how long a sold-out mint took; null otherwise. */
 function mintRow(st: CollectionState, now: number): string | null {
   if (st.soldOut) return `sold out in ${age(st.soldOut.blockTimestamp - st.soldOut.mintStartTs)}`
-  const stages = (st.drop?.stages ?? []).filter((s) => !isTeamStage(s))
-  const cur = stages.find((s) => s.startTime <= now && (s.endTime === null || now < s.endTime))
-  if (cur) {
-    const end =
-      cur.endTime === null ? "" : `, ends ${utcTime(cur.endTime, !sameDay(cur.endTime, now))}`
-    return `${clean(cur.label, 12)} now · ${price(cur.priceWei)}${end}`
-  }
-  const next = stages.find((s) => s.startTime > now)
-  if (next)
-    return `next ${clean(next.label, 12)} ${utcTime(next.startTime, true)} · ${price(next.priceWei)}`
-  const m = latestMint(st)
-  return m && knownMax(m.maxSupply)
-    ? `${Number((BigInt(m.minted) * 100n) / BigInt(m.maxSupply))}% minted`
-    : null
+  return mintLive(st, now) ? "Minting now" : null
 }
 
 export type CollectionCard = {

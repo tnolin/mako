@@ -438,6 +438,20 @@ describe("NFT card", () => {
     ])
   })
 
+  it("sends the Trending list before any prefetch read starts", async () => {
+    await boot()
+    const prefetch = vi.spyOn(reader, "prefetch")
+    let startedBeforeList = -1
+    h.on("editMessageText", (p) => {
+      startedBeforeList = prefetch.mock.calls.length
+      return { message_id: 77, date: 0, chat: { id: p.chat_id, type: "private" }, text: p.text }
+    })
+    await h.tap("nl:t24")
+    expect(startedBeforeList).toBe(0)
+    expect(prefetch).toHaveBeenCalledWith([ELSE])
+    await vi.waitFor(() => expect(calls).toContain("/collections/elsewhere/stats"))
+  })
+
   it("prefetches stats for unknown trending rows when the list is shown, so the tap reads no OpenSea", async () => {
     await boot()
     await h.tap("nl:t24")

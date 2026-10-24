@@ -197,8 +197,8 @@ describe("NFT alerts", () => {
       ["NEW COLLECTION", "Show Image"],
       ["BIG SALE", "Show Image"],
       ["MINTED 50%", "BIG SALE: 0.1 ETH"],
-      ["Reset to default"],
-      ["Watched only", "Back"],
+      ["Watched Alerts"],
+      ["Reset to default", "Back"],
     ])
     expect(
       rows(screen())
@@ -206,7 +206,7 @@ describe("NFT alerts", () => {
         .flat()
         .every((b) => b.style === "success"),
     ).toBe(true)
-    expect(find(screen(), "Watched only").callback_data).toBe("al:u:nw")
+    expect(find(screen(), "Watched Alerts").callback_data).toBe("al:u:nw")
     expect(find(screen(), "Back").callback_data).toBe("al:u")
   })
 
@@ -215,7 +215,7 @@ describe("NFT alerts", () => {
     await h.tap("al:u:nw")
     expect(screen().text).toBe(
       [
-        "<b>NFT alerts · Watched only</b>",
+        "<b>NFT alerts · Watched Alerts</b>",
         "",
         "These alerts are only for NFTs you added to your watchlist.",
         "",
@@ -381,7 +381,7 @@ describe("a group's settings in the DM", () => {
     expect(screen().text.split("\n").slice(0, 3)).toEqual([
       "<b>NFT alerts for Test Group</b>",
       "",
-      "Watched only",
+      "Watched Alerts",
     ])
     expect(find(screen(), "All collections").callback_data).toBe(`al:${G.id}:na`)
   })

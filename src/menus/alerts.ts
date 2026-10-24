@@ -309,7 +309,7 @@ async function screenText(ctx: Context, sc: Scope, screen: Screen): Promise<stri
     ].join("\n")
   }
   return [
-    ...head("Watched only"),
+    ...head("Watched Alerts"),
     "These alerts are only for NFTs you added to your watchlist.",
     "",
     ...desc(NFT_WATCHED_ALERTS),
@@ -328,10 +328,11 @@ async function renderScreen(ctx: Context, sc: Scope, screen: Screen): Promise<vo
   } else {
     kb.push([open("under"), open("rare")], [open("floor"), open("sweep")], [open("sale")])
   }
-  kb.push([btn("Reset to default", `al:${id}:reset:${screen}`)])
-  if (screen === "tk") kb.push([btn("Back", backTo(sc))])
-  else if (screen === "na") kb.push([btn("Watched only", `al:${id}:nw`), btn("Back", backTo(sc))])
-  else kb.push([btn("All collections", `al:${id}:na`), btn("Back", backTo(sc))])
+  const reset = btn("Reset to default", `al:${id}:reset:${screen}`)
+  if (screen === "tk") kb.push([reset], [btn("Back", backTo(sc))])
+  else if (screen === "na")
+    kb.push([btn("Watched Alerts", `al:${id}:nw`)], [reset, btn("Back", backTo(sc))])
+  else kb.push([reset], [btn("All collections", `al:${id}:na`), btn("Back", backTo(sc))])
   await show(ctx, await screenText(ctx, sc, screen), kb)
 }
 

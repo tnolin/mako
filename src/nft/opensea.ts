@@ -15,12 +15,29 @@ export type ItemData = {
 }
 
 export type TrendingTimeframe = "one_hour" | "one_day" | "seven_days"
-export type TrendingRow = { slug: string; name: string }
+export type TrendingRow = { slug: string; name: string; contract: string }
+
+/** What OpenSea says about a collection MAKO has no events for, for its card. */
+export type LiveCollection = {
+  slug: string
+  name: string | null
+  imageUrl: string | null
+  verified: boolean
+  links: { twitter: string | null; website: string | null; discord: string | null }
+  totalSupply: number | null
+  /** Wei; null when the stats read failed or has no value. */
+  floorWei: bigint | null
+  owners: number | null
+  volume24hWei: bigint | null
+  sales24h: number | null
+}
 
 export type ItemReader = {
   /** `calcAt` is the collection's rarity `calculated_at`; a different value drops the cached rank. */
   get(contract: string, tokenId: string, calcAt: string | null): Promise<ItemData | "unavailable">
   trending(timeframe: TrendingTimeframe): Promise<TrendingRow[] | "unavailable">
+  /** A collection and its stats, by contract. "unavailable" when the collection itself can't be read. */
+  collection(contract: string): Promise<LiveCollection | "unavailable">
 }
 
 const BASE = "https://api.opensea.io/api/v2"
@@ -119,8 +136,22 @@ export function createItemReader(deps: {
   const bases = new Map<string, Base>()
   const prices = new Map<string, Prices>()
   const trends = new Map<string, { at: number; rows: TrendingRow[] }>()
+  const collections = new Map<string, { at: number; value: LiveCollection }>()
 
   const str = (v: unknown) => (typeof v === "string" && v !== "" ? v : null)
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null)
+  /** An ETH amount, as OpenSea's stats give it (a float), to wei. Read from its decimal text, so 0.562 stays exact. */
+  const ethWei = (v: unknown): bigint | null => {
+    if (typeof v !== "number" && typeof v !== "string") return null
+    const m = /^(\d+)(?:\.(\d+))?(?:e([+-]?\d+))?$/i.exec(String(v).trim())
+    if (!m) return null
+    const [, whole = "", frac = "", exp = "0"] = m
+    const shift = Number(exp) - frac.length + 18
+    const digits = whole + frac
+    if (shift >= 0) return BigInt(digits) * 10n ** BigInt(shift)
+    const keep = digits.length + shift
+    return keep <= 0 ? 0n : BigInt(digits.slice(0, keep))
+  }
   const parseItem = (j: unknown): Omit<Base, "at" | "calcAt"> => {
     const n = (j as { nft?: Record<string, unknown> }).nft
     if (!n) throw new Error("no nft")
@@ -199,18 +230,71 @@ export function createItemReader(deps: {
       const r = await get(
         `/collections/trending?chains=ink&timeframe=${timeframe}&limit=20`,
         (j) => {
-          const cs = (j as { collections?: { collection?: unknown; name?: unknown }[] }).collections
+          type Entry = { collection?: unknown; name?: unknown; contracts?: unknown }
+          const cs = (j as { collections?: Entry[] }).collections
           if (!Array.isArray(cs)) throw new Error("no collections")
-          return cs.flatMap((c) =>
-            str(c.collection)
-              ? [{ slug: str(c.collection)!, name: str(c.name) ?? str(c.collection)! }]
-              : [],
-          )
+          // In OpenSea's order. A collection opens by its Ink contract, so one without it is left out.
+          return cs.flatMap((c) => {
+            const slug = str(c.collection)
+            const ink = (Array.isArray(c.contracts) ? c.contracts : []).find(
+              (k: { chain?: unknown }) => k?.chain === "ink",
+            ) as { address?: unknown } | undefined
+            const contract = str(ink?.address)?.toLowerCase()
+            return slug && contract ? [{ slug, name: str(c.name) ?? slug, contract }] : []
+          })
         },
       )
       if (!r.ok) return "unavailable"
       trends.set(timeframe, { at: now(), rows: r.value })
       return r.value
+    },
+
+    async collection(contract) {
+      const hit = collections.get(contract)
+      if (hit && now() - hit.at <= OFFER_TTL_MS) return hit.value
+      // The trending list usually gave the slug already; otherwise OpenSea looks it up by contract.
+      let slug = [...trends.values()]
+        .flatMap((t) => t.rows)
+        .find((r) => r.contract === contract)?.slug
+      if (!slug) {
+        const c = await get(`/chain/ink/contract/${contract}`, (j) =>
+          str((j as { collection?: unknown }).collection),
+        )
+        if (!c.ok || !c.value) return "unavailable"
+        slug = c.value
+      }
+      const col = await get(`/collections/${slug}`, (j) => j as Record<string, unknown>)
+      if (!col.ok) return "unavailable"
+      const stats = await get(`/collections/${slug}/stats`, (j) => {
+        const o = j as { total?: Record<string, unknown>; intervals?: Record<string, unknown>[] }
+        const day = (Array.isArray(o.intervals) ? o.intervals : []).find(
+          (i) => i?.interval === "one_day",
+        )
+        return {
+          floorWei: ethWei(o.total?.floor_price),
+          owners: num(o.total?.num_owners),
+          volume24hWei: ethWei(day?.volume),
+          sales24h: num(day?.sales),
+        }
+      })
+      const c = col.value
+      const value: LiveCollection = {
+        slug,
+        name: str(c.name),
+        imageUrl: str(c.image_url),
+        verified: c.safelist_status === "verified",
+        links: {
+          twitter: str(c.twitter_username),
+          website: str(c.project_url),
+          discord: str(c.discord_url),
+        },
+        totalSupply: num(c.total_supply),
+        ...(stats.ok
+          ? stats.value
+          : { floorWei: null, owners: null, volume24hWei: null, sales24h: null }),
+      }
+      collections.set(contract, { at: now(), value })
+      return value
     },
   }
 }

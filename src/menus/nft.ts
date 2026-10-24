@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { age, clean, count, escapeHtml, inText, utcDate, utcTime } from "../format"
-import { creatorRow, ethText, makeNftAlertCard, shortAddr } from "../nft/card"
+import { collectionLinks, creatorRow, ethText, makeNftAlertCard, shortAddr } from "../nft/card"
 import { floorAt, lastSaleOf, recentSales, salesSince } from "../nft/history"
 import {
   type Match,
@@ -175,6 +175,61 @@ async function isWatching(deps: BotDeps, ctx: Context, contract: string): Promis
 const viewUrl = (deps: BotDeps, contract: string, slug: string | null) =>
   slug ? `${deps.linksBase}/n/c/${slug}` : `${deps.linksBase}/n/a/${contract}`
 
+/** Watch in a DM (green Watching when set), a deep link into the DM elsewhere. */
+const watchBtn = (ctx: Context, contract: string, watching: boolean): InlineKeyboardButton =>
+  ctx.chat?.type === "private"
+    ? stateBtn(
+        { on: watching, off: "Watch", onText: "Watching" },
+        `${watching ? "nws" : "nwa"}:${contract}`,
+      )
+    : link("Watch", `https://t.me/${ctx.me.username}?start=wn_${contract}`)
+
+/**
+ * A collection MAKO has no events for (one from Trending), read live from OpenSea and laid out like the
+ * collection card. Without MAKO's history it has no window or Recent sales buttons.
+ */
+async function sendLiveCard(ctx: Context, deps: BotDeps, contract: string): Promise<void> {
+  const live = deps.items ? await deps.items.collection(contract) : "unavailable"
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+  const d = live === "unavailable" ? null : live
+  const rate = deps.prices.usd(NATIVE)
+  const rows: [string, string][] = []
+  if (d?.floorWei != null) rows.push(["floor", ethText(d.floorWei, rate)])
+  if (d?.volume24hWei != null) rows.push(["volume", `${ethText(d.volume24hWei, rate)} (24h)`])
+  if (d?.sales24h != null) rows.push(["sales", `${count(d.sales24h)} (24h)`])
+  if (d?.totalSupply) rows.push(["supply", count(d.totalSupply)])
+  if (d?.owners != null) rows.push(["holders", count(d.owners)])
+  const stats = d && (d.floorWei ?? d.volume24hWei ?? d.sales24h ?? d.owners) !== null
+  const name = clean(d?.name, 64) || shortAddr(contract)
+  const lines = [
+    `<b>${escapeHtml(name)}${d?.verified ? " ✓" : ""} · OpenSea</b>`,
+    "",
+    ...renderRows(rows),
+    ...(stats ? [] : [PARTIAL]),
+    "",
+    `CA   <code>${contract}</code>`,
+  ]
+  const links = collectionLinks(d?.links)
+  if (links.length > 0) {
+    lines.push(links.map((l) => `<a href="${escapeHtml(l.url)}">${l.label}</a>`).join(" · "))
+  }
+  await deps.images.send(ctx.api, {
+    chat: ctx.chat!.id,
+    thread: threadOf(ctx),
+    imageKey: `nft:${contract}`,
+    imageUrl: d?.imageUrl ?? null,
+    html: lines.join("\n"),
+    reply_markup: {
+      inline_keyboard: [
+        [
+          watchBtn(ctx, contract, await isWatching(deps, ctx, contract)),
+          link("View", viewUrl(deps, contract, d?.slug ?? null)),
+        ],
+      ],
+    },
+  })
+}
+
 function cardKb(
   deps: BotDeps,
   ctx: Context,
@@ -183,13 +238,7 @@ function cardKb(
   win: Window,
   watching: boolean,
 ): Kb {
-  const dm = ctx.chat?.type === "private"
-  const watch: InlineKeyboardButton = dm
-    ? stateBtn(
-        { on: watching, off: "Watch", onText: "Watching" },
-        `${watching ? "nws" : "nwa"}:${contract}`,
-      )
-    : link("Watch", `https://t.me/${ctx.me.username}?start=wn_${contract}`)
+  const watch = watchBtn(ctx, contract, watching)
   return [
     WINDOWS.map((w) => chosenBtn(w, w === win, `nw:${contract}:${w}`)),
     [
@@ -231,7 +280,10 @@ async function sendUpcomingCard(ctx: Context, deps: BotDeps, contract: string): 
 /** A new message: the card as a padded photo with the card as caption, or as text. */
 async function sendCard(ctx: Context, deps: BotDeps, contract: string, win: Window): Promise<void> {
   const card = await collectionCard(deps, contract, win)
-  if (!card) return void (await show(ctx, COPY.none))
+  if (!card) {
+    if (deps.items) return sendLiveCard(ctx, deps, contract)
+    return void (await show(ctx, COPY.none))
+  }
   if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
   const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract))
   await deps.images.send(ctx.api, {
@@ -438,7 +490,7 @@ type ListRow = { contract: string; label: string }
 const TIMEFRAME = { t1: "one_hour", t24: "one_day", t7: "seven_days" } as const
 const TREND_LABEL = { t1: "1h", t24: "24h", t7: "7d" } as const
 
-/** OpenSea's trending Ink collections that MAKO knows, with their floor from its own stats. */
+/** OpenSea's trending Ink collections in its order, with the floor from MAKO's stats where it knows one. */
 async function trendingRows(
   deps: BotDeps,
   code: keyof typeof TIMEFRAME,
@@ -447,16 +499,12 @@ async function trendingRows(
   if (!state) return null
   const trending = deps.items ? await deps.items.trending(TIMEFRAME[code]) : "unavailable"
   if (trending === "unavailable") return "down"
-  const rows: ListRow[] = []
-  for (const t of trending) {
-    const hit = state.matches(t.slug).find((m) => m.tier === 1)?.state
-    const contract = hit?.col?.contract
-    if (!hit || !contract) continue
-    const floor = hit.stats?.floorWei ? ` · ${ethText(BigInt(hit.stats.floorWei), null)} floor` : ""
-    rows.push({ contract, label: withTail(clean(t.name, 64), floor, 30) })
-    if (rows.length === 10) break
-  }
-  return rows
+  // OpenSea's trending response has no prices, so the floor is MAKO's own, when it has one.
+  return trending.slice(0, 10).map((t) => {
+    const floorWei = state.get(t.contract)?.stats?.floorWei
+    const floor = floorWei ? ` · ${ethText(BigInt(floorWei), null)} floor` : ""
+    return { contract: t.contract, label: withTail(clean(t.name, 64), floor, 30) }
+  })
 }
 
 async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<ListRow[] | null> {

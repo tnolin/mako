@@ -223,10 +223,10 @@ describe("Watched tokens and Muted tokens", () => {
     expect(h.last("editMessageText")!.text).toBe("<b>Muted tokens</b>\nYou haven't muted anything.")
   })
 
-  it("a token opened from a list has Back to that list", async () => {
+  it("a token opened from a list arrives without Back", async () => {
     await h.tap(`t:${A}:wl`)
-    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
-    expect(back).toEqual([{ text: "Back", callback_data: "wl" }])
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
   })
 
   it("creates no user from taps on old buttons after Delete my data", async () => {
@@ -353,10 +353,10 @@ describe("a group watches tokens", () => {
     expect(await groupWatches()).toEqual([])
   })
 
-  it("a token opened from the group's list has Back to that list", async () => {
+  it("a token opened from the group's list arrives without Back", async () => {
     await h.tap(`t:${A}:ys1`)
-    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
-    expect(back).toEqual([{ text: "Back", callback_data: "gl:-1001:t" }])
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
   })
 
   it("the user's own Watched tokens never open in a group", async () => {

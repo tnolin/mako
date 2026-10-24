@@ -324,12 +324,12 @@ describe("from a group", () => {
     expect(await rows("nft_watches")).toHaveLength(0)
   })
 
-  it("a collection opened from a group's list has Back to that list", async () => {
+  it("a collection opened from a group's list arrives without Back", async () => {
     await addChat(sql, -1001, "supergroup")
     await watch(sql, { chatId: "-1001" }, C)
     await h.tap(`nc:${C}:zs1`)
-    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
-    expect(back).toEqual([{ text: "Back", callback_data: "gl:-1001:n" }])
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
   })
 
   it("the Watched lists never open in a group", async () => {
@@ -425,11 +425,11 @@ describe("Watched NFTs and Muted NFTs", () => {
     expect(h.last("editMessageText")!.text).toBe("<b>Muted NFTs</b>\nYou haven't muted anything.")
   })
 
-  it("a collection opened from a list has Back to that list", async () => {
+  it("a collection opened from a list arrives without Back", async () => {
     await watch(sql, { userId }, C)
     await h.tap(`nc:${C}:w`)
-    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
-    expect(back).toEqual([{ text: "Back", callback_data: "nwl" }])
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
   })
 })
 

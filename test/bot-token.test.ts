@@ -397,16 +397,19 @@ describe("discovery lists", () => {
     ])
   })
 
-  it("a token card opened from a list ends with Back to that list, and keeps it on Refresh", async () => {
+  it("a token card opened from a list arrives as a new message without Back, also after Refresh", async () => {
     await h.tap(`t:${A}:near`)
     const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
-    expect(kb.at(-1)).toEqual([{ text: "Back", callback_data: "l:near" }])
-    expect(kb[1]![0]).toEqual({ text: "Refresh", callback_data: `tr:${A}:near` })
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
+    expect(kb[1]![0]).toEqual({ text: "Refresh", callback_data: `tr:${A}` })
     h.clear()
+    // An older Refresh button that carries the list still works.
     await h.tap(`tr:${A}:near`, { photo: true })
-    expect(kbOf(h.last("editMessageCaption")).at(-1)).toEqual([
-      { text: "Back", callback_data: "l:near" },
-    ])
+    expect(
+      kbOf(h.last("editMessageCaption"))
+        .flat()
+        .some((b) => b.text === "Back"),
+    ).toBe(false)
   })
 
   it("skips tokens without a name and a ticker", async () => {

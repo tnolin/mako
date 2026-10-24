@@ -312,13 +312,13 @@ describe("lists", () => {
     for (const row of texts(m)) expect(row[0]!.length).toBeLessThanOrEqual(30)
   })
 
-  it("a card opened from a list ends with Back to that list", async () => {
+  it("a card opened from a list arrives as a new message without Back", async () => {
     await boot([...live(addr(0xc1), "Ink Hornet")])
     mkBot()
     await h.tap(`nc:${addr(0xc1)}:m`)
     const kb = kbOf(h.last("sendPhoto"))
-    expect(kb.at(-1)).toEqual([{ text: "Back", callback_data: "nl:m" }])
-    expect(kb[0]![0]!.callback_data).toBe(`nw:${addr(0xc1)}:1h:m`)
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
+    expect(kb[0]![0]!.callback_data).toBe(`nw:${addr(0xc1)}:1h`)
   })
 
   it("Upcoming lists the next 7 days by start time", async () => {

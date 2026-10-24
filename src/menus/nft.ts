@@ -29,7 +29,6 @@ import {
   threadOf,
 } from "../platforms/telegram/ui"
 import { NATIVE } from "../prices"
-import { chatFromCode } from "./chat-code"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
@@ -184,19 +183,6 @@ async function isWatching(deps: BotDeps, ctx: Context, contract: string): Promis
   )
 }
 
-const suffix = (code?: string) => (code ? `:${code}` : "")
-/**
- * Back from a card opened in a list: w is Watched NFTs and x is Muted NFTs, z<chat code> is a group's
- * Watched NFTs (in the DM), the rest are the lists.
- */
-const backTo = (code: string) =>
-  code === "w"
-    ? "nwl"
-    : code === "x"
-      ? "nml"
-      : code.startsWith("z")
-        ? `gl:${chatFromCode(code.slice(1))}:n`
-        : `nl:${code}`
 const viewUrl = (deps: BotDeps, contract: string, slug: string | null) =>
   slug ? `${deps.linksBase}/n/c/${slug}` : `${deps.linksBase}/n/a/${contract}`
 
@@ -207,7 +193,6 @@ function cardKb(
   contract: string,
   win: Window,
   watching: boolean,
-  code?: string,
 ): Kb {
   const dm = ctx.chat?.type === "private"
   const watch: InlineKeyboardButton = dm
@@ -216,30 +201,22 @@ function cardKb(
         `${watching ? "nws" : "nwa"}:${contract}`,
       )
     : link("Watch", `https://t.me/${ctx.me.username}?start=wn_${contract}`)
-  const kb: Kb = [
-    WINDOWS.map((w) => chosenBtn(w, w === win, `nw:${contract}:${w}${suffix(code)}`)),
+  return [
+    WINDOWS.map((w) => chosenBtn(w, w === win, `nw:${contract}:${w}`)),
     [
       watch,
-      btn("Recent sales", `nr:${contract}:1${suffix(code)}`),
+      btn("Recent sales", `nr:${contract}:1`),
       link("View", viewUrl(deps, contract, card.slug)),
     ],
   ]
-  if (code) kb.push([btn("Back", backTo(code))])
-  return kb
 }
 
 /** A new message: the card as a padded photo with the card as caption, or as text. */
-async function sendCard(
-  ctx: Context,
-  deps: BotDeps,
-  contract: string,
-  win: Window,
-  code?: string,
-): Promise<void> {
+async function sendCard(ctx: Context, deps: BotDeps, contract: string, win: Window): Promise<void> {
   const card = await collectionCard(deps, contract, win)
   if (!card) return void (await show(ctx, COPY.none))
   if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
-  const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract), code)
+  const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract))
   await deps.images.send(ctx.api, {
     chat: ctx.chat!.id,
     thread: threadOf(ctx),
@@ -286,11 +263,10 @@ async function windowCard(
   deps: BotDeps,
   contract: string,
   win: Window,
-  code?: string,
 ): Promise<void> {
   const card = await collectionCard(deps, contract, win)
   if (!card) return void (await ctx.answerCallbackQuery({ text: COPY.none }).catch(() => {}))
-  const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract), code)
+  const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract))
   await editCard(ctx, deps, card.html, kb)
 }
 
@@ -300,7 +276,6 @@ async function salesPage(
   deps: BotDeps,
   contract: string,
   page: number,
-  code?: string,
 ): Promise<void> {
   const st = deps.nft?.()?.get(contract)
   if (!st) return void (await ctx.answerCallbackQuery({ text: COPY.none }).catch(() => {}))
@@ -324,12 +299,12 @@ async function salesPage(
     `page ${page} of ${pages}`,
   ].join("\n")
   const nav: InlineKeyboardButton[] = []
-  if (page > 1) nav.push(btn("‹ Newer", `nr:${contract}:${page - 1}${suffix(code)}`))
-  if (page < pages) nav.push(btn("Older ›", `nr:${contract}:${page + 1}${suffix(code)}`))
+  if (page > 1) nav.push(btn("‹ Newer", `nr:${contract}:${page - 1}`))
+  if (page < pages) nav.push(btn("Older ›", `nr:${contract}:${page + 1}`))
   const kb: Kb = []
   if (nav.length > 0) kb.push(nav)
   kb.push([
-    btn("Back", `nw:${contract}:24h${suffix(code)}`),
+    btn("Back", `nw:${contract}:24h`),
     link("OpenSea", slug ? `${deps.linksBase}/n/s/${slug}` : viewUrl(deps, contract, null)),
   ])
   await editCard(ctx, deps, html, kb)
@@ -632,13 +607,14 @@ export async function tryNftPaste(ctx: Context, deps: BotDeps, text: string): Pr
 export function registerNft(bot: Bot, deps: BotDeps): void {
   bot.command("nft", (ctx) => nftCommand(ctx, deps, ctx.match))
   bot.callbackQuery(/^nc:(0x[0-9a-f]{40})(?::([a-z0-9]+))?$/, (ctx) =>
-    sendCard(ctx, deps, ctx.match[1]!, "24h", ctx.match[2]),
+    sendCard(ctx, deps, ctx.match[1]!, "24h"),
   )
+  // Older buttons carry the list a card came from; it no longer matters.
   bot.callbackQuery(/^nw:(0x[0-9a-f]{40}):(1h|24h|7d|30d)(?::([a-z0-9]+))?$/, (ctx) =>
-    windowCard(ctx, deps, ctx.match[1]!, ctx.match[2] as Window, ctx.match[3]),
+    windowCard(ctx, deps, ctx.match[1]!, ctx.match[2] as Window),
   )
   bot.callbackQuery(/^nr:(0x[0-9a-f]{40}):([0-9]{1,4})(?::([a-z0-9]+))?$/, (ctx) =>
-    salesPage(ctx, deps, ctx.match[1]!, Math.max(1, Number(ctx.match[2])), ctx.match[3]),
+    salesPage(ctx, deps, ctx.match[1]!, Math.max(1, Number(ctx.match[2]))),
   )
   bot.callbackQuery(/^ni:(0x[0-9a-f]{40}):([0-9]{1,78})$/, (ctx) =>
     sendItemCard(ctx, deps, ctx.match[1]!, ctx.match[2]!),

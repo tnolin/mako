@@ -1,9 +1,12 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { NOT_FOUND } from "../src/menus/copy"
+import type { NftAlertCard } from "../src/nft/card"
+import { mintRules } from "../src/nft/rules/mint"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { watch } from "../src/nft/watches"
 import { createBot } from "../src/platforms/telegram/bot"
+import { renderNftAlert } from "../src/platforms/telegram/render"
 import type { Prices } from "../src/prices"
 import { addUser } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
@@ -345,6 +348,35 @@ describe("lists", () => {
     const m = h.last("editMessageText")!
     expect(m.text).toBe("<b>Upcoming</b>")
     expect(texts(m)).toEqual([["Sooner · Nov 2 17:00 UTC"], ["Later · Nov 3 10:00 UTC"], ["Back"]])
+  })
+
+  it("opens a collection from Upcoming as the UPCOMING MINT alert, with its DM buttons", async () => {
+    const stage = (label: string, at: number, price: string) => ({
+      type: "allow_list",
+      label,
+      priceWei: price,
+      startTime: at,
+      endTime: null,
+      maxPerWallet: null,
+      allowlistCount: 100,
+    })
+    const drop = nftDrop({
+      stages: [stage("GTD", NOW + 26 * H, "0"), stage("Public", NOW + 30 * H, eth(0.0005))],
+      blockTimestamp: NOW,
+    })
+    await boot([nftCollection({ name: "Ink Hornet" }), drop])
+    mkBot()
+    const user = await addUser(sql, 100)
+    await watch(sql, { userId: user }, C)
+    await h.tap(`nc:${C}:u`)
+    const p = h.last("sendPhoto")!
+    const alert = mintRules({ id: "x", p: drop } as never, null, { nft: state, now: () => NOW })[0]!
+    expect(p.caption).toBe(renderNftAlert(alert.card as NftAlertCard))
+    expect(p.caption).not.toContain("volume")
+    const kb = kbOf(p)
+    expect(texts(p)).toEqual([["View", "Watching", "Mute"], ["Remind me"]])
+    expect(kb[0]!.slice(1).map((b) => b.callback_data)).toEqual([`nws:${C}`, `nm:${C}`])
+    expect(kb[1]![0]!.callback_data).toBe(`nrm:${C}`)
   })
 
   it("says so when a list is empty", async () => {

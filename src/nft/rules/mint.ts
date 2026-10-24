@@ -87,7 +87,12 @@ function firstOpenStage(drop: NftDropEvent | null, now: number): NftDropStage | 
   return first && first.startTime > now ? first : null
 }
 
-function upcoming(b: Base, st: CollectionState, drop: NftDropEvent, now: number): Candidate | null {
+/** The UPCOMING MINT card, or null once the first non-Team stage has started. The Upcoming list opens it too. */
+export function upcomingCard(
+  col: NftCollectionEvent | null,
+  drop: NftDropEvent,
+  now: number,
+): NftAlertCard | null {
   const stages = drop.stages.filter((s) => !isTeamStage(s))
   const first = firstOpenStage(drop, now)
   if (!first) return null
@@ -102,9 +107,14 @@ function upcoming(b: Base, st: CollectionState, drop: NftDropEvent, now: number)
       label(s.label.toLowerCase()),
       `${utcTime(s.startTime, dates)} · ${price(s.priceWei)}`,
     ])
-  const creator = creatorRow(st.col)
+  const creator = creatorRow(col)
   if (creator) rows.push(creator)
-  const card = makeNftAlertCard("upcoming", "UPCOMING MINT", st.col, rows, { contract: b.contract })
+  return makeNftAlertCard("upcoming", "UPCOMING MINT", col, rows, { contract: drop.contract })
+}
+
+function upcoming(b: Base, st: CollectionState, drop: NftDropEvent, now: number): Candidate | null {
+  const card = upcomingCard(st.col, drop, now)
+  if (!card) return null
   return cand(
     b,
     "upcoming",

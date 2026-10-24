@@ -14,10 +14,12 @@ import {
 } from "../nft/match"
 import type { ItemData } from "../nft/opensea"
 import { isTeamStage } from "../nft/policy"
+import { upcomingCard } from "../nft/rules/mint"
 import type { CollectionState } from "../nft/state"
+import { viewerState } from "../nft/watches"
 import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
-import { renderRows } from "../platforms/telegram/render"
+import { nftAlertKeyboard, renderNftAlert, renderRows } from "../platforms/telegram/render"
 import {
   btn,
   chosenBtn,
@@ -209,6 +211,34 @@ function cardKb(
       link("View", viewUrl(deps, contract, card.slug)),
     ],
   ]
+}
+
+/**
+ * A collection opened from the Upcoming list is shown as its UPCOMING MINT alert, with the buttons that
+ * alert has in this chat. False when the mint has started, so the caller sends the collection card.
+ */
+async function sendUpcomingCard(ctx: Context, deps: BotDeps, contract: string): Promise<boolean> {
+  const st = deps.nft?.()?.get(contract)
+  const card = st?.drop ? upcomingCard(st.col, st.drop, nowS(deps)) : null
+  if (!card) return false
+  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+  const dm = ctx.chat?.type === "private"
+  const user = dm && ctx.from ? await findUser(deps.sql, ctx.from.id) : null
+  const state = user ? await viewerState(deps.sql, user.id, contract) : undefined
+  await deps.images.send(ctx.api, {
+    chat: ctx.chat!.id,
+    thread: threadOf(ctx),
+    imageKey: card.imageKey,
+    imageUrl: card.imageUrl,
+    html: renderNftAlert(card),
+    reply_markup: nftAlertKeyboard(card, {
+      chatType: ctx.chat!.type,
+      linksBase: deps.linksBase,
+      botUsername: ctx.me.username,
+      ...(state ? { state } : {}),
+    }),
+  })
+  return true
 }
 
 /** A new message: the card as a padded photo with the card as caption, or as text. */
@@ -606,9 +636,11 @@ export async function tryNftPaste(ctx: Context, deps: BotDeps, text: string): Pr
 
 export function registerNft(bot: Bot, deps: BotDeps): void {
   bot.command("nft", (ctx) => nftCommand(ctx, deps, ctx.match))
-  bot.callbackQuery(/^nc:(0x[0-9a-f]{40})(?::([a-z0-9]+))?$/, (ctx) =>
-    sendCard(ctx, deps, ctx.match[1]!, "24h"),
-  )
+  bot.callbackQuery(/^nc:(0x[0-9a-f]{40})(?::([a-z0-9]+))?$/, async (ctx) => {
+    const contract = ctx.match[1]!
+    if (ctx.match[2] === "u" && (await sendUpcomingCard(ctx, deps, contract))) return
+    await sendCard(ctx, deps, contract, "24h")
+  })
   // Older buttons carry the list a card came from; it no longer matters.
   bot.callbackQuery(/^nw:(0x[0-9a-f]{40}):(1h|24h|7d|30d)(?::([a-z0-9]+))?$/, (ctx) =>
     windowCard(ctx, deps, ctx.match[1]!, ctx.match[2] as Window),

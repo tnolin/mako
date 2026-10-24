@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.0 (2026-10-25)
 
 MAKO now covers NFTs on Ink. Get alerts for new mints, sell-outs and big sales across every collection, and watch the collections you care about for floor moves, rare listings and sweeps. Groups can watch tokens too.
 
@@ -16,6 +16,7 @@ MAKO now covers NFTs on Ink. Get alerts for new mints, sell-outs and big sales a
 
 - The main menu no longer has a launchpad button.
 - New bot profile descriptions.
+- Card images load faster and more reliably.
 
 ## v0.1.0 (2026-10-17)
 

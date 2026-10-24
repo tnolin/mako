@@ -65,7 +65,7 @@ export function harness(bot: Bot) {
   })
   let updateId = 0
   let messageId = 0
-  const user = (id: number) => ({ id, is_bot: false, first_name: "U" })
+  const user = (id: number, name = "U") => ({ id, is_bot: false, first_name: name })
   const privateChat = (id: number): Chat => ({ id, type: "private" })
   return {
     calls,
@@ -76,9 +76,9 @@ export function harness(bot: Bot) {
     },
     async text(
       text: string,
-      o: { from?: number; chat?: Chat; thread?: number; replyTo?: string } = {},
+      o: { from?: number; name?: string; chat?: Chat; thread?: number; replyTo?: string } = {},
     ) {
-      const from = user(o.from ?? 100)
+      const from = user(o.from ?? 100, o.name)
       const chat = o.chat ?? privateChat(from.id)
       const cmd = text.startsWith("/") ? text.split(" ")[0]!.length : 0
       await bot.handleUpdate({
@@ -109,6 +109,7 @@ export function harness(bot: Bot) {
       data: string,
       o: {
         from?: number
+        name?: string
         chat?: Chat
         thread?: number
         keyboard?: { text: string; callback_data?: string; url?: string }[][]
@@ -116,7 +117,7 @@ export function harness(bot: Bot) {
         photo?: boolean
       } = {},
     ) {
-      const from = user(o.from ?? 100)
+      const from = user(o.from ?? 100, o.name)
       const chat = o.chat ?? privateChat(from.id)
       await bot.handleUpdate({
         update_id: ++updateId,

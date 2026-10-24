@@ -95,9 +95,9 @@ export function createSender(deps: SenderDeps) {
 
   async function topicBroken(r: PendingRow) {
     const [c] = await sql<
-      { settings: unknown }[]
-    >`select settings from bot.chats where chat_id = ${r.chat_id}`
-    const s = readSettings(c?.settings)
+      { kind: ChatType; settings: unknown }[]
+    >`select kind, settings from bot.chats where chat_id = ${r.chat_id}`
+    const s = readSettings(c?.settings, c?.kind ?? "supergroup")
     if ((r.thread_id ?? null) === (s.thread ?? null)) {
       await sql`update bot.chats set active = false, paused_reason = 'topic' where chat_id = ${r.chat_id}`
       await dropPending(r.chat_id)

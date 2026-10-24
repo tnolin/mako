@@ -128,14 +128,16 @@ describe("groups", () => {
   })
 
   it("routes chosen alerts to a topic with /route", async () => {
-    await addChat(sql, G.id, "supergroup", { ...basicPreset(), thread: 5 })
+    await addChat(sql, G.id, "supergroup", { ...basicPreset("supergroup"), thread: 5 })
     await h.text("/route", { chat: G, thread: 9 })
     expect(h.last("sendMessage")!.message_thread_id).toBe(9)
     await h.tap("rt:new", { chat: G, thread: 9 })
     expect((await chat(G.id))?.settings.routes).toEqual({ new: 9 })
-    expect(h.last("editMessageReplyMarkup")!.reply_markup.inline_keyboard[0][0].text).toBe(
-      "✓ NEW TOKEN",
-    )
+    expect(h.last("editMessageReplyMarkup")!.reply_markup.inline_keyboard[0][0]).toEqual({
+      text: "NEW TOKEN",
+      callback_data: "rt:new",
+      style: "success",
+    })
     await h.tap("rt:new", { chat: G, thread: 9 })
     expect((await chat(G.id))?.settings.routes).toEqual({})
     expect(
@@ -146,6 +148,34 @@ describe("groups", () => {
       { alert: "new", on: true },
       { alert: "new", on: false },
     ])
+  })
+
+  it("lists the NFT kinds in /route, without MINT REMINDER, and routes them to the topic", async () => {
+    await addChat(sql, G.id, "supergroup", { ...basicPreset("supergroup"), thread: 5 })
+    await h.text("/route", { chat: G, thread: 9 })
+    const kb = h.last("sendMessage")!.reply_markup.inline_keyboard.flat()
+    expect(kb.map((b: { text: string }) => b.text)).toEqual([
+      "NEW TOKEN",
+      "BONDING",
+      "PUMPING",
+      "BONDED",
+      "DEV SELL",
+      "BIG BUY/SELL",
+      "UPCOMING MINT",
+      "MINT STARTING",
+      "MINT LIVE",
+      "MINTED",
+      "SOLD OUT",
+      "NEW COLLECTION",
+      "BIG SALE",
+      "UNDER FLOOR",
+      "RARE LISTING",
+      "FLOOR MOVE",
+      "SWEEP",
+      "SOLD",
+    ])
+    await h.tap("rt:mintstart", { chat: G, thread: 9 })
+    expect((await chat(G.id))?.settings.routes).toEqual({ mintstart: 9 })
   })
 
   it("asks for a topic when /route runs outside one", async () => {
@@ -201,15 +231,15 @@ describe("chat settings in the DM", () => {
 
   it("edits the user's own alerts: marks, BIG threshold, image and reset", async () => {
     await h.text("/start")
-    await h.tap("al:u:mk:5000")
-    await h.tap("al:u:big")
+    await h.tap("al:u:p:bonding:0")
+    await h.tap("al:u:p:big:2")
     await h.tap("al:u:pumping:img")
     const s = (await sql`select settings from bot.users`)[0]!.settings
     expect(s.alerts.bonding.marks).toEqual([5000, 8000, 9000])
     expect(s.alerts.big.pctBps).toBe(1000)
     expect(s.alerts.pumping.image).toBe(false)
-    await h.tap("al:u:reset")
-    expect((await sql`select settings from bot.users`)[0]!.settings).toEqual(basicPreset())
+    await h.tap("al:u:reset:tk")
+    expect((await sql`select settings from bot.users`)[0]!.settings).toEqual(basicPreset("private"))
   })
 
   it("drops the chat's queued alerts when it is paused", async () => {
@@ -236,7 +266,7 @@ describe("chat settings in the DM", () => {
 
   it("lists the user's chats after a live admin check", async () => {
     const me = await addUser(sql, 100)
-    await addChat(sql, G.id, "supergroup", basicPreset(), { setupBy: me })
+    await addChat(sql, G.id, "supergroup", basicPreset("supergroup"), { setupBy: me })
     await h.tap("gc")
     const kb = h.last("editMessageText")!.reply_markup.inline_keyboard
     expect(kb[0]).toEqual([{ text: "Test Group", callback_data: `gc:${G.id}` }])
@@ -328,9 +358,12 @@ describe("no user rows from old taps", () => {
       "al:u",
       "al:u:new:on",
       "al:u:pumping:img",
-      "al:u:mk:5000",
-      "al:u:big",
-      "al:u:reset",
+      "al:u:tk",
+      "al:u:na",
+      "al:u:nw",
+      "al:u:p:bonding:0",
+      "al:u:p:big:2",
+      "al:u:reset:tk",
       "gc",
     ]) {
       await h.tap(data)
@@ -358,7 +391,7 @@ describe("chat settings details", () => {
     await addChat(sql, CH, "channel")
     await h.tap(`al:${CH}`)
     expect(h.last("editMessageText")!.text).not.toContain("Posts to")
-    await h.tap(`al:${CH}:reset`)
+    await h.tap(`al:${CH}:reset:tk`)
     expect(
       await sql`select chat_type, chat_id::text, action, params from bot.user_actions where action = 'preset'`,
     ).toEqual([
@@ -368,7 +401,7 @@ describe("chat settings details", () => {
 
   it("offers Resume for paused topics and clears them after the rights check", async () => {
     await addChat(sql, G.id, "supergroup", {
-      ...basicPreset(),
+      ...basicPreset("supergroup"),
       thread: 5,
       routes: { new: 9 },
       pausedRoutes: ["new"],
@@ -392,7 +425,7 @@ describe("chat settings details", () => {
   })
 
   it("refuses to resume while MAKO cannot post", async () => {
-    await addChat(sql, G.id, "supergroup", basicPreset(), { active: false })
+    await addChat(sql, G.id, "supergroup", basicPreset("supergroup"), { active: false })
     h.on("getChatMember", (p) => ({
       status: p.user_id === BOT_INFO.id ? "left" : "administrator",
       user: { id: p.user_id, is_bot: false, first_name: "A" },
@@ -410,9 +443,53 @@ describe("chat settings details", () => {
     expect(h.last("answerCallbackQuery")!.text).toBe("Only group admins can change routing.")
   })
 
+  it("carries token and collection watches and collection mutes to the new chat id", async () => {
+    await addChat(sql, -6, "group")
+    await sql`insert into bot.chat_token_watches (chat_id, target) values (-6, '0xa1'), (-6, '0xa2')`
+    await sql`insert into bot.nft_watches (chat_id, contract) values (-6, '0xc1')`
+    await sql`insert into bot.collection_mutes (chat_id, contract) values (-6, '0xc2')`
+    await sql`insert into bot.nft_watches (chat_id, contract) values (-7, '0xc9')`
+    await h.update({
+      message: {
+        message_id: 3,
+        date: 0,
+        chat: { id: -6, type: "group", title: "x" },
+        migrate_to_chat_id: -1006,
+      },
+    })
+    const ids = (t: string) => sql.unsafe(`select chat_id::text as c from bot.${t} order by 1`)
+    expect((await ids("chat_token_watches")).map((r) => r.c)).toEqual(["-1006", "-1006"])
+    expect((await ids("nft_watches")).map((r) => r.c)).toEqual(["-1006", "-7"])
+    expect((await ids("collection_mutes")).map((r) => r.c)).toEqual(["-1006"])
+  })
+
+  it("merges the old chat's watches into a supergroup row that already exists", async () => {
+    await addChat(sql, -6, "group")
+    await addChat(sql, -1006, "supergroup")
+    await sql`insert into bot.chat_token_watches (chat_id, target) values (-6, '0xa1'), (-6, '0xa2'), (-1006, '0xa2')`
+    await sql`insert into bot.nft_watches (chat_id, contract) values (-6, '0xc1'), (-1006, '0xc1')`
+    await h.update({
+      message: {
+        message_id: 3,
+        date: 0,
+        chat: { id: -6, type: "group", title: "x" },
+        migrate_to_chat_id: -1006,
+      },
+    })
+    expect(
+      await sql`select chat_id::text, target from bot.chat_token_watches order by target`,
+    ).toEqual([
+      { chat_id: "-1006", target: "0xa1" },
+      { chat_id: "-1006", target: "0xa2" },
+    ])
+    expect(await sql`select chat_id::text, contract from bot.nft_watches`).toEqual([
+      { chat_id: "-1006", contract: "0xc1" },
+    ])
+  })
+
   it("merges into the supergroup row when it already exists at migration", async () => {
-    await addChat(sql, -6, "group", { ...basicPreset(), thread: 4 })
-    await addChat(sql, -1006, "supergroup", basicPreset(), { active: false })
+    await addChat(sql, -6, "group", { ...basicPreset("supergroup"), thread: 4 })
+    await addChat(sql, -1006, "supergroup", basicPreset("supergroup"), { active: false })
     await h.update({
       message: {
         message_id: 3,

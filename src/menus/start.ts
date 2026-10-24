@@ -1,19 +1,20 @@
 import type { Bot } from "grammy"
 import { logAction } from "../actions"
 import { show } from "../platforms/telegram/ui"
-import { ALERT_PATTERN, type AlertKind, allOff } from "../settings"
+import { allOff, TOKEN_PATTERN, type TokenAlert } from "../settings"
 import { openChatSettings } from "./alerts"
 import type { BotDeps } from "./deps"
-import { MENU_TEXT, menuKb } from "./main"
+import { showMenu } from "./main"
 import { sendTokenCard } from "./token"
 import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
+import { nftDeepLink } from "./watches"
 import { watchToken } from "./watchlist"
 import { sendWelcome, welcomeKb, welcomeText } from "./welcome"
 
 /** Analytics source for /start: a kind letter for our own links, a plain campaign tag, never free text or ids. */
 export function startSource(payload: string): string {
   if (!payload) return "none"
-  const kind = /^([wts])_/.exec(payload)?.[1]
+  const kind = /^(wn|rn|[wts])_/.exec(payload)?.[1]
   if (kind) return kind
   // A bare address or chat id is an identifier, not a campaign tag.
   if (/^0x[0-9a-fA-F]{40}$/.test(payload) || /^-?\d+$/.test(payload)) return "other"
@@ -33,16 +34,23 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
     if (payload.startsWith("w_")) await watchToken(ctx, deps, payload.slice(2))
     else if (payload.startsWith("t_")) await sendTokenCard(ctx, deps, payload.slice(2))
     else if (payload.startsWith("s_")) await openChatSettings(ctx, deps, payload.slice(2))
-    if (created) {
-      await sendWelcome(ctx, user.settings)
-    } else if (!/^[wts]_/.test(payload)) {
-      await show(ctx, MENU_TEXT, menuKb(deps.linksBase))
-    }
+    else if (/^(wn|rn)_0x[0-9a-fA-F]{40}$/.test(payload))
+      await nftDeepLink(
+        ctx,
+        deps,
+        user,
+        payload.slice(0, 2) as "wn" | "rn",
+        payload.slice(3).toLowerCase(),
+      )
+    const deepLink = /^(wn|rn|[wts])_/.test(payload)
+    // A new user gets the menu, then the alert picker. A deep link already answered with its own screen.
+    if (!deepLink) await showMenu(ctx)
+    if (created) await sendWelcome(ctx, user.settings)
   })
-  pm.callbackQuery(new RegExp(`^ob:(${ALERT_PATTERN})$`), async (ctx) => {
+  pm.callbackQuery(new RegExp(`^ob:(${TOKEN_PATTERN})$`), async (ctx) => {
     const user = await findUser(deps.sql, ctx.from.id)
     if (!user) return show(ctx, NO_USER)
-    const a = ctx.match[1] as AlertKind
+    const a = ctx.match[1] as TokenAlert
     user.settings.alerts[a].on = !user.settings.alerts[a].on
     await saveUserSettings(deps.sql, user.id, user.settings)
     await show(ctx, welcomeText(), welcomeKb(user.settings))
@@ -61,6 +69,6 @@ export function registerStart(bot: Bot, deps: BotDeps): void {
   })
   pm.callbackQuery("ob:done", async (ctx) => {
     await logAction(deps.sql, { chatType: "private", action: "preset", params: { choice: "done" } })
-    await show(ctx, MENU_TEXT, menuKb(deps.linksBase))
+    await showMenu(ctx)
   })
 }

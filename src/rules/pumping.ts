@@ -20,7 +20,7 @@ export function pumping(t: TradeCtx): Candidate[] {
     {
       alert: "pumping",
       eventId: t.ev.id,
-      token: p.token,
+      target: p.token,
       dedupeKey: `pump:${p.txHash}:${p.logIndex}`,
       priority: PRIORITY.pumping,
       eventTs: p.blockTimestamp,

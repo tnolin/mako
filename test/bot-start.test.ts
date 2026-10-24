@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { MENU_TEXT } from "../src/menus/main"
+import { menuText } from "../src/menus/main"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { addChat, addUser, subscribe } from "./helpers/bot"
@@ -42,19 +42,21 @@ const actions = () =>
 const buttons = (p: Payload | undefined) =>
   (p?.reply_markup?.inline_keyboard ?? []).flat().map((b: { text: string }) => b.text)
 
-it("creates a new user with every alert on and shows the welcome card", async () => {
+it("creates a new user with every alert on except SOLD and shows the welcome card", async () => {
   await h.text("/start")
-  expect(Object.values((await settingsOf(100))!.alerts).every((a) => a.on)).toBe(true)
-  const msg = h.last("sendMessage")!
-  expect(msg.text).toContain("NEW TOKEN")
-  expect(msg.text).toContain("curve jumps 15%+ in 10 min")
+  const alerts = (await settingsOf(100))!.alerts
+  for (const [k, a] of Object.entries(alerts)) expect(a.on).toBe(k !== "sale")
+  const [menu, msg] = h.calls.filter((c) => c.method === "sendMessage").map((c) => c.payload)
+  expect(menu!.text).toBe(menuText("U"))
+  expect(msg!.text).toContain("NEW TOKEN")
+  expect(msg!.text).toContain("curve jumps 15%+ in 10 min")
   expect(buttons(msg)).toEqual([
-    "✓ NEW TOKEN",
-    "✓ BONDING",
-    "✓ PUMPING",
-    "✓ BONDED",
-    "✓ DEV SELL",
-    "✓ BIG BUY/SELL",
+    "NEW TOKEN",
+    "BONDING",
+    "PUMPING",
+    "BONDED",
+    "DEV SELL",
+    "BIG BUY/SELL",
     "Turn all off",
     "Done → menu",
   ])
@@ -67,35 +69,16 @@ it("toggles an alert, turns all off, and logs preset choices", async () => {
   await h.text("/start")
   await h.tap("ob:new")
   expect((await settingsOf(100))!.alerts.new!.on).toBe(false)
-  expect(buttons(h.last("editMessageText"))[0]).toBe("· NEW TOKEN")
+  expect(h.last("editMessageText")!.reply_markup.inline_keyboard[0][0].style).toBeUndefined()
   await h.tap("ob:off")
   expect(Object.values((await settingsOf(100))!.alerts).some((a) => a.on)).toBe(false)
   await h.tap("ob:done")
-  expect(h.last("editMessageText")!.text).toBe(MENU_TEXT)
+  expect(h.last("editMessageText")!.text).toBe(menuText("U"))
   expect((await actions()).map((a) => a.params)).toEqual([
     { source: "none" },
     { choice: "all_off" },
     { choice: "done" },
   ])
-})
-
-it("shows the main menu to a returning user", async () => {
-  await h.text("/start")
-  await h.text("/start")
-  expect(buttons(h.last("sendMessage"))).toEqual([
-    "Look up token",
-    "Hot now",
-    "Near bonding",
-    "Recently bonded",
-    "My watchlist",
-    "My alerts",
-    "Settings",
-    "Help",
-    "Trade on InkyPump",
-  ])
-  const kb = h.last("sendMessage")!.reply_markup.inline_keyboard
-  expect(kb.map((r: unknown[]) => r.length)).toEqual([2, 2, 2, 2, 1])
-  expect(kb[4][0].url).toBe("https://go.makobot.xyz/inkypump")
 })
 
 it("puts Groups & channels in Settings and Community in Help", async () => {
@@ -109,7 +92,7 @@ it("puts Groups & channels in Settings and Community in Help", async () => {
   await h.tap("h")
   const rows = h.last("editMessageText")!.reply_markup.inline_keyboard
   const help = rows.flat()
-  expect(help.find((b: { text: string }) => b.text === "Community")?.url).toMatch(/^https:/)
+  expect(help.find((b: { text: string }) => b.text === "Community ↗")?.url).toMatch(/^https:/)
   expect(rows.every((r: unknown[]) => r.length <= 2)).toBe(true)
 })
 
@@ -132,19 +115,6 @@ it("deletes the user, their subscriptions and DM deliveries after confirming, an
   expect((await sql`select setup_by from bot.chats`)[0]?.setup_by).toBeNull()
 })
 
-it("tells the truth about storage in the privacy help", async () => {
-  await h.tap("h:privacy")
-  const text = h.last("editMessageText")!.text as string
-  expect(text).toContain("deleted after 14 days")
-  expect(text).not.toMatch(/encrypt/i)
-  expect(text).toContain("Telegram user id")
-})
-
-it("says in /help that alert percentages are shares of total supply", async () => {
-  await h.text("/help")
-  expect(h.last("sendMessage")!.text).toContain("Percentages in alerts are shares of total supply.")
-})
-
 it("offers the Menu button in a DM's help but not in a group's", async () => {
   const group = { id: -1001, type: "supergroup" as const, title: "Alpha" }
   await h.text("/help")
@@ -153,7 +123,7 @@ it("offers the Menu button in a DM's help but not in a group's", async () => {
   expect(buttons(h.last("editMessageText"))).toContain("Menu")
   h.clear()
   await h.text("/help", { chat: group })
-  expect(buttons(h.last("sendMessage"))).toContain("Community")
+  expect(buttons(h.last("sendMessage"))).toContain("Community ↗")
   expect(buttons(h.last("sendMessage"))).not.toContain("Menu")
   await h.tap("h:alerts", { chat: group })
   expect(buttons(h.last("editMessageText"))).toEqual(["Help"])

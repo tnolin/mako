@@ -9,7 +9,7 @@ Traders act fast and many never type commands. Image cards are slower to generat
 
 ## Decision
 
-Every card and menu ends in buttons; slash commands open the same screens. Alerts are plain text (Telegram HTML, Discord embeds).
+Every card and menu ends in buttons; slash commands open the same screens. Alerts are plain text (Telegram HTML).
 
 ## Consequences
 

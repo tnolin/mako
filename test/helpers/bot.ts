@@ -6,7 +6,7 @@ import { basicPreset, type Settings } from "../../src/settings"
 export async function addUser(
   sql: Sql,
   tgId: number,
-  settings: Settings = basicPreset(),
+  settings: Settings = basicPreset("private"),
 ): Promise<string> {
   const [r] = await sql<{ id: string }[]>`
     insert into bot.users (platform_user_id, settings)
@@ -18,7 +18,7 @@ export async function addChat(
   sql: Sql,
   chatId: number,
   kind: "group" | "supergroup" | "channel",
-  settings: Settings = basicPreset(),
+  settings: Settings = basicPreset(kind),
   opts: { active?: boolean; setupBy?: string | null } = {},
 ): Promise<void> {
   await sql`
@@ -46,4 +46,9 @@ export function listDeliveries(sql: Sql): Promise<DeliveryRow[]> {
   return sql<DeliveryRow[]>`
     select id::text, chat_id::text, chat_type, thread_id, alert, dedupe_key, status, priority, card
     from bot.deliveries order by created_at, chat_id, dedupe_key`
+}
+
+/** A group or channel watches a token. */
+export async function watchToken(sql: Sql, chatId: number, token: string) {
+  await sql`insert into bot.chat_token_watches (chat_id, target) values (${chatId}, ${token})`
 }

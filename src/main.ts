@@ -1,16 +1,22 @@
 import { connect, migrate } from "./db"
 import { createNotify } from "./delivery/notices"
-import { initCursor, startPoller } from "./delivery/poller"
+import { initCursor, nftCutoff, startPoller } from "./delivery/poller"
 import { startRetention } from "./delivery/retention"
 import { startSender } from "./delivery/sender"
+import { createViewer } from "./delivery/viewer"
 import { createHeartbeat } from "./heartbeat"
 import { cursorBlock } from "./history"
-import { LAUNCHPADS, referralLink, tradeLink } from "./launchpads"
-import { createLinkServer, logTradeClick } from "./links"
+import { referralLink, tradeLink } from "./launchpads"
+import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
+import { ABOUT, GROUP_COMMANDS, PRIVATE_COMMANDS, SHORT_ABOUT } from "./menus/main"
+import { createItemReader } from "./nft/opensea"
+import { startReminders } from "./nft/reminders"
+import type { NftState } from "./nft/state"
 import { createBot } from "./platforms/telegram/bot"
 import { createImages, sqlImageCache } from "./platforms/telegram/images"
 import { createSend } from "./platforms/telegram/send"
+import { setButtonColours } from "./platforms/telegram/ui"
 import { rpcSqrtPrice } from "./pool"
 import { createPrices } from "./prices"
 import { DEFAULT_RPC, readDevHolds, rpcBalanceOf } from "./rpc"
@@ -35,6 +41,7 @@ if (i >= 0 && !/^\d+$/.test(fromId ?? "")) {
   process.exit(2)
 }
 
+setButtonColours(env.BUTTON_COLOURS !== "0")
 const reporter = initSentry(env)
 const report = (err: unknown, extra?: Record<string, unknown>) => reporter.capture(err, extra)
 process.on("unhandledRejection", (err) => {
@@ -45,41 +52,43 @@ process.on("unhandledRejection", (err) => {
 const sql = connect(databaseUrl)
 await migrate(sql)
 await initCursor(sql, fromId)
+const nftSince = env.NFT_ALERTS_SINCE
+if (nftSince && !/^\d+$/.test(nftSince)) {
+  console.error("NFT_ALERTS_SINCE must be unix seconds")
+  process.exit(2)
+}
+const nftAlertsSince = nftSince ? Number(nftSince) : undefined
+// Stores the first start time now, so the cutoff is not set by the first NFT event that arrives.
+await nftCutoff(sql, nftAlertsSince)
 
+// One NFT collection state, kept by the poller and read by the bot and the reminder scheduler.
+const nftState: { current?: NftState } = {}
 const prices = createPrices({ log, report: (m) => reporter.message(m) })
 const stopPrices = prices.start()
 const images = createImages({ fetch, cache: sqlImageCache(sql), log })
 const readSqrtPrice = rpcSqrtPrice(env.INK_RPC_URL || DEFAULT_RPC)
-const bot = createBot({ token, sql, prices, log, report, linksBase, images, readSqrtPrice })
+// Without a key the NFT card and Trending say details are unavailable.
+const items = env.OPENSEA_API_KEY
+  ? createItemReader({ key: env.OPENSEA_API_KEY, sql, log })
+  : undefined
+const bot = createBot({
+  token,
+  sql,
+  prices,
+  log,
+  report,
+  linksBase,
+  images,
+  readSqrtPrice,
+  nft: () => nftState.current,
+  ...(items ? { items } : {}),
+})
 await bot.init()
 const botUsername = bot.botInfo.username
 
-const BLURB = "Real-time alerts for memecoins, NFTs and DeFi on Ink. Open source."
-const ABOUT = `${BLURB} Trade on ${LAUNCHPADS.inkypump.name}: ${linksBase}/inkypump`
-// Telegram caps the short description (the profile's About) at 120 characters.
-const SHORT_ABOUT = ABOUT.length <= 120 ? ABOUT : BLURB
 await Promise.all([
-  bot.api.setMyCommands(
-    [
-      { command: "start", description: "Start MAKO" },
-      { command: "menu", description: "Main menu" },
-      { command: "t", description: "Look up a token: /t <address>" },
-      { command: "watch", description: "Watch a token: /watch <address>" },
-      { command: "alerts", description: "My alerts" },
-      { command: "help", description: "Help" },
-      { command: "deletedata", description: "Delete my data" },
-    ],
-    { scope: { type: "all_private_chats" } },
-  ),
-  bot.api.setMyCommands(
-    [
-      { command: "t", description: "Look up a token: /t <address>" },
-      { command: "setup", description: "Post MAKO alerts in this topic" },
-      { command: "route", description: "Send chosen alerts to this topic" },
-      { command: "help", description: "Help" },
-    ],
-    { scope: { type: "all_group_chats" } },
-  ),
+  bot.api.setMyCommands(PRIVATE_COMMANDS, { scope: { type: "all_private_chats" } }),
+  bot.api.setMyCommands(GROUP_COMMANDS, { scope: { type: "all_group_chats" } }),
   bot.api.setMyDescription(ABOUT),
   bot.api.setMyShortDescription(SHORT_ABOUT),
 ]).catch((err) => log("warn", "could not set commands or description", { error: String(err) }))
@@ -91,11 +100,14 @@ const stopPoller = startPoller({
   log,
   report,
   readHolds: (r) => readDevHolds(balanceOf, r),
+  nftAlertsSince,
+  nftState,
 })
+const stopReminders = startReminders({ sql, nft: () => nftState.current, log })
 const notify = createNotify({ sql, api: bot.api, botUsername, log })
 const stopSender = startSender({
   sql,
-  send: createSend(bot.api, { linksBase, botUsername, images }),
+  send: createSend(bot.api, { linksBase, botUsername, images, viewer: createViewer(sql) }),
   notify,
   log,
   report,
@@ -105,6 +117,7 @@ const server = createLinkServer({
   target: (ca) => tradeLink("inkypump", ca),
   join: () => referralLink("inkypump"),
   onClick: (ca, d) => logTradeClick(sql, ca, d),
+  onNftClick: (target, d) => logNftClick(sql, target, d),
   log,
 })
 server.listen(Number(env.LINKS_PORT || 8080), "127.0.0.1")
@@ -144,6 +157,7 @@ const shutdown = async () => {
   stopping = true
   log("info", "shutting down")
   stopPoller()
+  stopReminders()
   stopSender()
   stopPrices()
   stopRetention()

@@ -1,12 +1,12 @@
 # Deploying MAKO and ink-indexer
 
-One VPS runs Postgres, the indexer, the bot and Caddy (ADR 0009). Steps marked **owner** buy services or handle secrets.
+One VPS runs Postgres, the indexer, the bot and Caddy (ADR 0009). You buy the server in step 1, write the secrets in step 6 and set up DNS in step 8.
 
-## 1. Server (owner)
+## 1. Server
 
 - A single Ubuntu 24.04 VPS with 2 vCPUs, 4 GB RAM and about 40 GB of disk. Turn on your provider's backups and snapshots if it offers them.
 - A sudo user that logs in with your SSH key. Cloud images usually ship one, such as `ubuntu`. Install your key with `ssh-copy-id <user>@<ip>` and confirm that key login works before going on.
-- Record the connect times to the RPCs and Telegram in your private deploy notes:
+- Note the connect times to the RPCs and Telegram:
 
 ```bash
 for h in rpc-qnd.inkonchain.com ink.drpc.org rpc-gel.inkonchain.com api.telegram.org; do
@@ -76,7 +76,7 @@ local   ink   mako      peer map=ink
 
 Keep `listen_addresses = 'localhost'`, then `systemctl reload postgresql`.
 
-## 6. Secrets (owner)
+## 6. Secrets
 
 Write the env files from each repo's `.env.example`. systemd reads them as root, so only root needs access:
 
@@ -88,7 +88,9 @@ install -m 0600 -o root -g root /dev/null /etc/ink/mako.env
 
 `/etc/ink/indexer.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=indexer`, `INK_RPC_WS_URLS=`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
 
-`/etc/ink/mako.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=mako`, `TELEGRAM_BOT_TOKEN=…`, `INKYPUMP_REF_CODE=…`, `LINKS_BASE_URL=https://go.makobot.xyz`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
+`/etc/ink/mako.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=mako`, `TELEGRAM_BOT_TOKEN=…`, `INKYPUMP_REF_CODE=…`, `LINKS_BASE_URL=https://go.makobot.xyz`, `OPENSEA_API_KEY=…`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
+
+`OPENSEA_API_KEY` is the same key as the indexer's: the bot's NFT card and Trending list spend the indexer's shared request budget through `indexer.opensea_take` and `indexer.opensea_block`, which `grants.sql` (step 7) grants to the `mako` role with `EXECUTE` only. Without a key those screens say details are unavailable. Optional: `NFT_ALERTS_SINCE` (Unix seconds; NFT events with an earlier block time never alert, and the default is the time the bot first ran with NFT rules) and `BUTTON_COLOURS=0` (alert switches read `: on` and `: off` instead of showing green).
 
 `/etc/ink/backup.env`, from `scripts/deploy/backup.env.example`: an S3-compatible bucket, its endpoint, rclone's provider name for the service, and a key that can only read and write that bucket. Give the bucket a lifecycle rule that deletes objects 13 days after upload.
 
@@ -100,7 +102,7 @@ postgres.js reads the socket directory and role from `PGHOST` and `PGUSER` when 
 
 ## 7. Indexer
 
-Check out the latest `indexer-v*` release tag of ink-indexer. `events-v1` is the event schema version mako builds against, not a deploy tag.
+Check out the latest `indexer-v*` release tag of ink-indexer. `events-v2` is the event schema version mako builds against, not a deploy tag.
 
 ```bash
 cd /opt/ink-indexer && sudo -u ink-indexer git checkout <indexer tag> && sudo -u ink-indexer pnpm install --frozen-lockfile
@@ -112,7 +114,7 @@ sudo -u postgres psql ink -f /opt/mako/scripts/deploy/grants.sql
 
 ## 8. Bot, redirect and backups
 
-DNS (owner): an `A` record for `go` pointing at the server IP, not proxied. Only `go.makobot.xyz` points at this server; the website on `makobot.xyz` is hosted elsewhere.
+DNS: point an `A` record for `go` at the server IP, not proxied. Only `go.makobot.xyz` points at this server; the website on `makobot.xyz` is hosted elsewhere.
 
 ```bash
 cd /opt/mako && sudo -u mako git checkout <tag> && sudo -u mako pnpm install --frozen-lockfile
@@ -124,9 +126,13 @@ systemctl daemon-reload && systemctl enable --now mako-bot mako-backup.timer
 
 ## Updating
 
+The bot applies its database migrations when it starts. If a release changes `scripts/deploy/grants.sql`, run it again as in step 7.
+
 1. Take a snapshot of the server at your provider. Delete the previous one first.
 2. `sudo /opt/mako/scripts/deploy/update.sh <ink-indexer|mako> <tag>` asks for the snapshot, then checks out the tag, installs and restarts.
 3. Check `journalctl -u <unit>` and the bot, then delete the snapshot. Never keep it longer than 14 days: it holds user data, and `/help` says backups are deleted after 14 days.
+
+To roll back, restore the snapshot. Checking out the previous tag without restoring it leaves queued NFT alert and reminder rows that the older bot can't send; they fail or age out within 30 minutes.
 
 ## Restore drill
 

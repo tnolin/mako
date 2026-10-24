@@ -10,7 +10,7 @@ type Row = { id: string; tg: string; settings: unknown; created?: boolean }
 const toUser = (r: Row): User => ({
   id: r.id,
   tg: Number(r.tg),
-  settings: readSettings(r.settings),
+  settings: readSettings(r.settings, "private"),
 })
 const json = (s: Settings) => s as unknown as postgres.JSONValue
 
@@ -23,7 +23,7 @@ export async function findUser(sql: Sql, tg: number): Promise<User | null> {
 /** Creates the user with the basic preset, or clears blocked_at for a returning user. Stores only the numeric id. */
 export async function ensureUser(sql: Sql, tg: number): Promise<{ user: User; created: boolean }> {
   const [r] = await sql<Row[]>`
-    insert into bot.users (platform_user_id, settings) values (${tg}, ${sql.json(json(basicPreset()))})
+    insert into bot.users (platform_user_id, settings) values (${tg}, ${sql.json(json(basicPreset("private")))})
     on conflict (platform, platform_user_id) do update set blocked_at = null
     returning id::text, platform_user_id::text as tg, settings, (xmax = 0) as created`
   return { user: toUser(r!), created: r!.created === true }

@@ -1,13 +1,26 @@
-import { afterAll, beforeEach, expect, inject, it, vi } from "vitest"
+import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { initCursor, type PollerDeps, pollOnce, startPoller } from "../src/delivery/poller"
 import { deleteUserData } from "../src/menus/users"
 import type { Prices } from "../src/prices"
 import type { DevHolds } from "../src/rpc"
 import { allOff, basicPreset } from "../src/settings"
-import { addChat, addUser, listDeliveries, subscribe } from "./helpers/bot"
+import { addChat, addUser, listDeliveries, subscribe, watchToken } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
-import { addr, bond, hash, launch, NATIVE, T0, trade } from "./helpers/events"
+import {
+  addr,
+  bond,
+  hash,
+  launch,
+  NATIVE,
+  nftCollection,
+  nftDrop,
+  nftLaunch,
+  nftMint,
+  nftSale,
+  T0,
+  trade,
+} from "./helpers/events"
 import { connectAsBotRole } from "./helpers/roles"
 
 const prices: Prices = { usd: () => 2500, symbol: (q) => (q === NATIVE ? "ETH" : "xStock") }
@@ -67,13 +80,17 @@ it("reads no event past maxId and leaves the cursor at the last one it read", as
 
 it("routes to feeds, DM watchers, groups with topics and channels, minus mutes", async () => {
   await addUser(sql, 101)
-  const watcher = await addUser(sql, 102, allOff(basicPreset()))
+  const watcher = await addUser(sql, 102, allOff(basicPreset("private")))
   const muter = await addUser(sql, 103)
   await subscribe(sql, watcher, "watch", L.token)
   await subscribe(sql, muter, "mute", L.token)
-  await addChat(sql, -1001, "supergroup", { ...basicPreset(), thread: 7, routes: { new: 9 } })
+  await addChat(sql, -1001, "supergroup", {
+    ...basicPreset("supergroup"),
+    thread: 7,
+    routes: { new: 9 },
+  })
   await addChat(sql, -1002, "channel")
-  await addChat(sql, -1003, "supergroup", basicPreset(), { active: false })
+  await addChat(sql, -1003, "supergroup", basicPreset("supergroup"), { active: false })
   await insertEvents(sql, [L, trade({ soldBps: 8100, quoteAmount: eth(0.5) })])
   await pollOnce(deps())
   expect(await byChat()).toEqual({
@@ -94,7 +111,7 @@ it("routes to feeds, DM watchers, groups with topics and channels, minus mutes",
 })
 
 it("applies each chat's BIG threshold and keeps the highest BONDING mark it has", async () => {
-  const s = basicPreset()
+  const s = basicPreset("private")
   await addUser(sql, 201, {
     ...s,
     alerts: {
@@ -135,7 +152,7 @@ it("applies each chat's BIG threshold and keeps the highest BONDING mark it has"
 })
 
 it("prefers PUMPING over BIG for one trade, and honours the 60-minute PUMPING cooldown", async () => {
-  const s = basicPreset()
+  const s = basicPreset("private")
   await addUser(sql, 301, {
     ...s,
     alerts: { ...s.alerts, bonding: { ...s.alerts.bonding, on: false } },
@@ -309,7 +326,7 @@ it("runs as the bot role with only the production grants", async () => {
 })
 
 const pumpOnly = () => {
-  const s = basicPreset()
+  const s = basicPreset("private")
   return { ...s, alerts: { ...s.alerts, bonding: { ...s.alerts.bonding, on: false } } }
 }
 const pumpTrade = () => trade({ soldBps: 2000, quoteAmount: eth(0.5), blockTimestamp: T0 + 60 })
@@ -476,7 +493,7 @@ it("leaves a quiet launchpad's NEW TOKEN alerts alone", async () => {
 })
 
 it("routes to the NEW TOKEN topic and skips chats with NEW TOKEN off or paused", async () => {
-  const s = basicPreset()
+  const s = basicPreset("supergroup")
   await addChat(sql, -1001, "supergroup", { ...s, thread: 2, routes: { new: 3 } })
   await addChat(sql, -1002, "supergroup", {
     ...s,
@@ -534,4 +551,302 @@ it("queues the notice after individual alerts that share its second", async () =
   const [notice] = await sql<{ ts: Date }[]>`
     select event_ts as ts from bot.deliveries where dedupe_key like 'flood:%'`
   expect(notice!.ts.getTime()).toBeGreaterThan(last!.ts.getTime())
+})
+
+it("skips nft events without rules and advances the cursor", async () => {
+  await addUser(sql, 101)
+  // A sweep: one log, two sales, told apart by the events-v2 `sub` column.
+  const tx = hash(0x5e)
+  const ids = await insertEvents(
+    sql,
+    [nftSale({ txHash: tx, logIndex: 7 }), nftSale({ txHash: tx, logIndex: 7 })],
+    {
+      subs: ["0", "1"],
+    },
+  )
+  expect(await pollOnce(deps())).toBe(2)
+  expect(await cursor()).toBe(ids[1])
+  expect(await listDeliveries(sql)).toEqual([])
+  expect(report).not.toHaveBeenCalled()
+})
+
+// The indexer's NFT backfill writes old nft.* events as new rows; the bot must not alert on them.
+const seen = () => {
+  const types: string[] = []
+  const rules: PollerDeps["rules"] = async (ev) => {
+    types.push(`${ev.p.type}@${ev.p.blockTimestamp}`)
+    return []
+  }
+  return { types, rules }
+}
+const storedSince = async () =>
+  (await sql<{ value: string }[]>`select value from bot.state where key = 'nft_alerts_since'`)[0]
+    ?.value
+
+it("skips an nft event older than the cutoff, and the cursor advances", async () => {
+  const s = seen()
+  const ids = await insertEvents(sql, [
+    nftSale({ blockTimestamp: T0 }),
+    nftSale({ blockTimestamp: T0 + 200 }),
+  ])
+  expect(await pollOnce(deps({ now: () => T0 + 100, rules: s.rules }))).toBe(2)
+  expect(s.types).toEqual([`nft.sale@${T0 + 200}`])
+  expect(await cursor()).toBe(ids[1])
+})
+
+it("NFT_ALERTS_SINCE overrides the stored start time", async () => {
+  const s = seen()
+  await insertEvents(sql, [
+    nftSale({ blockTimestamp: T0 + 40 }),
+    nftSale({ blockTimestamp: T0 + 60 }),
+  ])
+  await pollOnce(deps({ now: () => T0 + 1000, nftAlertsSince: T0 + 50, rules: s.rules }))
+  expect(s.types).toEqual([`nft.sale@${T0 + 60}`])
+  expect(await storedSince()).toBeUndefined()
+})
+
+it("a restart keeps the first stored start time", async () => {
+  const first = seen()
+  await insertEvents(sql, [nftSale({ blockTimestamp: T0 + 150 })])
+  await pollOnce(deps({ now: () => T0 + 100, rules: first.rules }))
+  expect(await storedSince()).toBe(String(T0 + 100))
+  // The bot was down; the next start's clock is far later, but the stored time stands.
+  const second = seen()
+  await insertEvents(sql, [nftSale({ blockTimestamp: T0 + 500 })])
+  await pollOnce(deps({ now: () => T0 + 9999, rules: second.rules }))
+  expect(second.types).toEqual([`nft.sale@${T0 + 500}`])
+  expect(await storedSince()).toBe(String(T0 + 100))
+})
+
+it("launchpad events ignore the cutoff", async () => {
+  const s = seen()
+  await insertEvents(sql, [launch({ blockTimestamp: T0 }), nftSale({ blockTimestamp: T0 })])
+  await pollOnce(deps({ now: () => T0 + 100, nftAlertsSince: T0 + 5000, rules: s.rules }))
+  expect(s.types).toEqual([`launchpad.launch@${T0}`])
+})
+
+// NFT rules run end to end through the poller.
+const NFT = addr(0xc0)
+const nftRows = async () =>
+  (
+    await sql<
+      {
+        chat_id: string
+        alert: string
+        dedupe_key: string
+        priority: number
+        token: string
+        card: { type: string }
+      }[]
+    >`
+      select chat_id::text, alert, dedupe_key, priority, token, card from bot.deliveries order by created_at, dedupe_key`
+  ).map((r) => ({ ...r, type: r.card.type }))
+
+it("poller end to end: nft.drop then nft.mint rows land with the right keys and priorities", async () => {
+  await addUser(sql, 101)
+  await addChat(sql, -1001, "supergroup")
+  await insertEvents(sql, [nftCollection(), nftDrop({ blockTimestamp: T0 + 60 })])
+  expect(await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: 0 }))).toBe(2)
+  await insertEvents(sql, [nftMint({ blockTimestamp: T0 + 3600 })])
+  await pollOnce(deps({ now: () => T0 + 3610, nftAlertsSince: 0 }))
+  const rows = await nftRows()
+  expect(rows).toEqual([
+    expect.objectContaining({
+      chat_id: "101",
+      alert: "upcoming",
+      dedupe_key: `upcoming:${NFT}`,
+      priority: 3,
+      token: NFT,
+      type: "nftalert",
+    }),
+    expect.objectContaining({
+      chat_id: "101",
+      alert: "mintstart",
+      dedupe_key: `mintstart:${NFT}:0`,
+      priority: 2,
+      token: NFT,
+      type: "nftalert",
+    }),
+  ])
+})
+
+it("keeps the NFT state across passes, so a collection turning real is caught up once", async () => {
+  await addUser(sql, 101)
+  const shared = {}
+  const d = (now: number) => deps({ now: () => now, nftAlertsSince: 0, nftState: shared })
+  const pending = nftCollection({
+    verdict: "pending",
+    gates: {
+      page: "pending",
+      structure: "pending",
+      traits: "pending",
+      farm: "n/a",
+      farmShareBps: null,
+    },
+  })
+  await insertEvents(sql, [pending, nftDrop({ blockTimestamp: T0 + 60 })])
+  await pollOnce(d(T0 + 120))
+  expect(await nftRows()).toEqual([])
+  await insertEvents(sql, [nftCollection({ verdict: "real", blockTimestamp: T0 + 130 })])
+  await pollOnce(d(T0 + 140))
+  expect((await nftRows()).map((r) => r.alert)).toEqual(["upcoming"])
+  // Nothing more on a repeat snapshot.
+  await insertEvents(sql, [nftCollection({ verdict: "real", blockTimestamp: T0 + 150 })])
+  await pollOnce(d(T0 + 160))
+  expect(await nftRows()).toHaveLength(1)
+})
+
+it("rebuilds the NFT state from the cursor after a failed pass, so a transition is still seen once", async () => {
+  await addUser(sql, 101)
+  const shared: { current?: unknown } = {}
+  const pending = nftCollection({ verdict: "pending" })
+  await insertEvents(sql, [pending, nftDrop({ blockTimestamp: T0 + 60 })])
+  await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: 0, nftState: shared as never }))
+  await insertEvents(sql, [nftCollection({ verdict: "real", blockTimestamp: T0 + 130 })])
+  const failing = Object.assign(new Error("db down"), { code: "ECONNRESET" })
+  await expect(
+    pollOnce(
+      deps({
+        now: () => T0 + 140,
+        nftAlertsSince: 0,
+        nftState: shared as never,
+        rules: async () => {
+          throw failing
+        },
+      }),
+    ),
+  ).rejects.toThrow("db down")
+  expect(shared.current).toBeUndefined()
+  await pollOnce(deps({ now: () => T0 + 150, nftAlertsSince: 0, nftState: shared as never }))
+  expect((await nftRows()).map((r) => r.alert)).toEqual(["upcoming"])
+})
+
+it("applies backfilled NFT history to the state but sends nothing for it", async () => {
+  await addUser(sql, 101)
+  // Old snapshot and drop (before the cutoff), then a live mint start for the same collection.
+  await insertEvents(sql, [
+    nftCollection({ blockTimestamp: T0 - 5000 }),
+    nftDrop({ blockTimestamp: T0 - 4000 }),
+  ])
+  await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: T0 }))
+  expect(await nftRows()).toEqual([])
+  await insertEvents(sql, [nftMint({ blockTimestamp: T0 + 3600 })])
+  await pollOnce(deps({ now: () => T0 + 3610, nftAlertsSince: T0 }))
+  // The mint start knows the collection is real because the old snapshot built the state.
+  expect(await nftRows()).toEqual([expect.objectContaining({ alert: "mintstart", chat_id: "101" })])
+})
+
+it("sends no NEW COLLECTION for a backfilled launch whose page appears later", async () => {
+  await addUser(sql, 101)
+  await insertEvents(sql, [nftLaunch({ blockTimestamp: T0 - 4000 })])
+  await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: T0 }))
+  await insertEvents(sql, [nftCollection({ launchpad: "chimera", blockTimestamp: T0 + 600 })])
+  await pollOnce(deps({ now: () => T0 + 610, nftAlertsSince: T0 }))
+  expect(await nftRows()).toEqual([])
+})
+
+describe("a group that watches a token", () => {
+  const off = (mod: (s: ReturnType<typeof basicPreset>) => void = () => {}) => {
+    const s = allOff(basicPreset("supergroup"))
+    mod(s)
+    return s
+  }
+  const alertsOf = async (chat: string) =>
+    (await listDeliveries(sql))
+      .filter((r) => r.chat_id === chat)
+      .map((r) => r.dedupe_key.split(":")[0])
+
+  it("gets every alert type for it except NEW TOKEN, even with the switches off", async () => {
+    await addChat(sql, -1001, "supergroup", off())
+    await addChat(sql, -1002, "supergroup", off())
+    await watchToken(sql, -1001, L.token)
+    await insertEvents(sql, [
+      L,
+      trade({ soldBps: 8100, quoteAmount: eth(0.01), blockTimestamp: T0 + 2100 }),
+      bond({ token: L.token, blockTimestamp: T0 + 2200 }),
+    ])
+    await pollOnce(deps())
+    expect((await alertsOf("-1001")).sort()).toEqual(["bonded", "bonding"])
+    expect(await alertsOf("-1002")).toEqual([])
+  })
+
+  it("uses the group's BONDING marks", async () => {
+    await addChat(
+      sql,
+      -1001,
+      "supergroup",
+      off((s) => {
+        s.alerts.bonding.marks = [9000]
+      }),
+    )
+    await watchToken(sql, -1001, L.token)
+    await insertEvents(sql, [L, trade({ soldBps: 8100, blockTimestamp: T0 + 2100 })])
+    await pollOnce(deps())
+    // A watching group also gets PUMPING for the jump; only BONDING follows its marks.
+    expect(await alertsOf("-1001")).not.toContain("bonding")
+    await insertEvents(sql, [trade({ soldBps: 9100, blockTimestamp: T0 + 2200 })])
+    await pollOnce(deps())
+    expect(
+      (await listDeliveries(sql)).map((r) => r.dedupe_key).filter((k) => k.startsWith("bonding")),
+    ).toEqual([`bonding:9000:${L.token}`])
+  })
+
+  it("uses the group's BIG BUY/SELL percentage", async () => {
+    await addChat(sql, -1001, "supergroup", off())
+    await addChat(
+      sql,
+      -1002,
+      "supergroup",
+      off((s) => {
+        s.alerts.big.pctBps = 1000
+      }),
+    )
+    await watchToken(sql, -1001, L.token)
+    await watchToken(sql, -1002, L.token)
+    await insertEvents(sql, [
+      L,
+      trade({ soldBps: 4000, blockTimestamp: T0 + 2000 }),
+      trade({ soldBps: 4100, quoteAmount: eth(0.15), blockTimestamp: T0 + 2100 }),
+    ])
+    await pollOnce(deps())
+    expect(await alertsOf("-1001")).toContain("big")
+    expect(await alertsOf("-1002")).not.toContain("big")
+  })
+
+  it("keeps topic routes and paused routes", async () => {
+    await addChat(
+      sql,
+      -1001,
+      "supergroup",
+      off((s) => {
+        s.thread = 7
+        s.routes = { bonding: 9 }
+        s.pausedRoutes = ["bonded"]
+      }),
+    )
+    await watchToken(sql, -1001, L.token)
+    await insertEvents(sql, [
+      L,
+      trade({ soldBps: 8100, quoteAmount: eth(0.01), blockTimestamp: T0 + 2100 }),
+      bond({ token: L.token, blockTimestamp: T0 + 2200 }),
+    ])
+    await pollOnce(deps())
+    const rows = await listDeliveries(sql)
+    expect(rows.map((r) => `${r.alert}:${r.thread_id}`)).toEqual(["bonding:9"])
+  })
+
+  it("never sends NEW TOKEN, whatever the group's switch says", async () => {
+    await addChat(
+      sql,
+      -1001,
+      "supergroup",
+      off((s) => {
+        s.alerts.new.on = false
+      }),
+    )
+    await watchToken(sql, -1001, L.token)
+    await insertEvents(sql, [L])
+    await pollOnce(deps())
+    expect(await alertsOf("-1001")).toEqual([])
+  })
 })

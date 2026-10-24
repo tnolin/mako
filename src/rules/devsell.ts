@@ -26,7 +26,7 @@ export function devSell(t: TradeCtx): Candidate[] {
     {
       alert: "devsell",
       eventId: t.ev.id,
-      token: p.token,
+      target: p.token,
       dedupeKey: `devsell:${p.txHash}:${p.logIndex}`,
       priority: PRIORITY.devsell,
       eventTs: p.blockTimestamp,

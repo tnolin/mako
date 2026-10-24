@@ -17,6 +17,8 @@ export type ImageCache = {
   forget(token: string): Promise<void>
 }
 
+// shortcut: bot.token_images.token now holds any image key (a token, or `nft:<contract>[:<id>]`); rename the
+// column in a later migration if that confuses.
 export function sqlImageCache(sql: Sql): ImageCache {
   return {
     async get(token) {
@@ -38,7 +40,8 @@ export function sqlImageCache(sql: Sql): ImageCache {
 export type CardMessage = {
   chat: number
   thread?: number
-  token: string
+  /** The cache key of the image: the token for token cards, `nft:<contract>[:<id>]` for NFT cards. */
+  imageKey: string
   /** The creator-set image URL, or null when this card has no image. It is never fetched directly. */
   imageUrl: string | null
   html: string
@@ -153,7 +156,7 @@ export function createImages(deps: ImagesDeps): Images {
       if (kind === "media") {
         // The stored id no longer works; the next alert uploads a fresh one.
         await deps.cache
-          .forget(m.token)
+          .forget(m.imageKey)
           .catch((e) => deps.log("warn", "image cache delete failed", { error: String(e) }))
       } else if (kind !== "rights") throw err
       return false
@@ -168,12 +171,12 @@ export function createImages(deps: ImagesDeps): Images {
   ): Promise<boolean> {
     try {
       const sent = await api.sendPhoto(m.chat, new InputFile(bytes, "image.jpg"), photoOpts(m))
-      await remember(m.token, sent.photo)
+      await remember(m.imageKey, sent.photo)
       return true
     } catch (err) {
       // A chat may allow text but not media, so rights falls back too; the text send decides.
       const kind = classify(err).kind
-      if (kind === "media") failedUntil.set(m.token, now() + FAILURE_MEMORY_MS)
+      if (kind === "media") failedUntil.set(m.imageKey, now() + FAILURE_MEMORY_MS)
       else if (kind !== "rights") throw err
       return false
     }
@@ -193,34 +196,34 @@ export function createImages(deps: ImagesDeps): Images {
 
   /** True when the photo went out. A media or rights failure returns false so the caller sends text. */
   async function sendPhoto(api: Pick<Api, "sendPhoto">, m: CardMessage): Promise<boolean> {
-    const cached = await cachedId(m.token)
+    const cached = await cachedId(m.imageKey)
     if (cached) return sendCached(api, m, cached)
-    const pending = inFlight.get(m.token)
+    const pending = inFlight.get(m.imageKey)
     if (pending) {
       const bytes = await pending
-      const stored = await cachedId(m.token)
+      const stored = await cachedId(m.imageKey)
       if (stored) return sendCached(api, m, stored)
-      if (!bytes || recentlyFailed(m.token)) return false
+      if (!bytes || recentlyFailed(m.imageKey)) return false
       return upload(api, m, bytes)
     }
-    if (recentlyFailed(m.token)) return false
+    if (recentlyFailed(m.imageKey)) return false
     let fetched: Uint8Array | null = null
     let settle!: (b: Uint8Array | null) => void
     inFlight.set(
-      m.token,
+      m.imageKey,
       new Promise((r) => {
         settle = r
       }),
     )
     try {
-      fetched = await fetchPadded(m.token, m.imageUrl!)
+      fetched = await fetchPadded(m.imageKey, m.imageUrl!)
       if (!fetched) {
-        failedUntil.set(m.token, now() + FAILURE_MEMORY_MS)
+        failedUntil.set(m.imageKey, now() + FAILURE_MEMORY_MS)
         return false
       }
       return await upload(api, m, fetched)
     } finally {
-      inFlight.delete(m.token)
+      inFlight.delete(m.imageKey)
       settle(fetched)
     }
   }

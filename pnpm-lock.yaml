@@ -192,8 +192,8 @@ importers:
   .:
     dependencies:
       '@ink-indexer/events':
-        specifier: github:tnolin/ink-indexer#events-v1&path:/packages/events
-        version: https://codeload.github.com/tnolin/ink-indexer/tar.gz/5d93ba477f7c11a47e6addea13171257e3df8fdf#path:/packages/events
+        specifier: github:tnolin/ink-indexer#events-v2&path:/packages/events
+        version: https://codeload.github.com/tnolin/ink-indexer/tar.gz/2ed9452087f2d3ac0dbf7af2c957252e79479992#path:/packages/events
       '@sentry/node':
         specifier: 11.6.0
         version: 11.6.0
@@ -489,8 +489,8 @@ packages:
   '@grammyjs/types@5.0.0':
     resolution: {integrity: sha512-iq1Qrq1iPKkB8yAa0qSuIURMZOCuqTY5pWy5gHpCeL1oQ+GPadGhw/cDTVE8waJwuCzacUzuIjRv1sESvk7u7A==}
 
-  '@ink-indexer/events@https://codeload.github.com/tnolin/ink-indexer/tar.gz/5d93ba477f7c11a47e6addea13171257e3df8fdf#path:/packages/events':
-    resolution: {gitHosted: true, integrity: sha512-mLJYXYz95vtARricRljma+7DjgZwYACU9S19H/8hRSycbolWE5UG8uQ4bXqiaLskEBFYB/Jv3M+yvwDqaod0Xg==, path: /packages/events, tarball: https://codeload.github.com/tnolin/ink-indexer/tar.gz/5d93ba477f7c11a47e6addea13171257e3df8fdf}
+  '@ink-indexer/events@https://codeload.github.com/tnolin/ink-indexer/tar.gz/2ed9452087f2d3ac0dbf7af2c957252e79479992#path:/packages/events':
+    resolution: {gitHosted: true, integrity: sha512-kBG8LMYYkjXEikh64jOgVcwG6tNixB1M31ZXcz5JlsdcBU51U2ldrtmTcygGYDen3HTS1ORAu0Q8ub+miTCN1w==, path: /packages/events, tarball: https://codeload.github.com/tnolin/ink-indexer/tar.gz/2ed9452087f2d3ac0dbf7af2c957252e79479992}
     version: 0.0.0
 
   '@jridgewell/resolve-uri@3.1.2':
@@ -1487,7 +1487,7 @@ snapshots:
 
   '@grammyjs/types@5.0.0': {}
 
-  '@ink-indexer/events@https://codeload.github.com/tnolin/ink-indexer/tar.gz/5d93ba477f7c11a47e6addea13171257e3df8fdf#path:/packages/events': {}
+  '@ink-indexer/events@https://codeload.github.com/tnolin/ink-indexer/tar.gz/2ed9452087f2d3ac0dbf7af2c957252e79479992#path:/packages/events': {}
 
   '@jridgewell/resolve-uri@3.1.2': {}
 

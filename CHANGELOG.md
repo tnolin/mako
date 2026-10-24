@@ -2,7 +2,20 @@
 
 ## Unreleased
 
-- Trade on InkyPump: a main menu button and a link in the bot's About text. It opens InkyPump through MAKO's referral link, and clicks are counted like Trade clicks.
+MAKO now covers NFTs on Ink. Get alerts for new mints, sell-outs and big sales across every collection, and watch the collections you care about for floor moves, rare listings and sweeps. Groups can watch tokens too.
+
+### Added
+
+- NFT alerts for Ink collections: upcoming mints, mint progress, sell-outs, new collections and big sales, plus under-floor, rare listing, floor move, sweep and sold alerts for watched collections.
+- /nft lookups for collections and single NFTs, and pasted collection addresses and OpenSea links.
+- Watch, Mute and Remind me buttons on alerts and cards, with the active state in green.
+- A new main menu with Tokens, NFTs and My alerts, and separate NFT alert settings for all collections and watched ones.
+- Groups can watch tokens and collections with /watch. Group settings open in the admin's DM.
+
+### Changed
+
+- The main menu no longer has a launchpad button.
+- New bot profile descriptions.
 
 ## v0.1.0 (2026-10-17)
 

@@ -1,8 +1,9 @@
-import type { LaunchEvent } from "@ink-indexer/events"
+import type { IndexerEvent, LaunchEvent, NftCollectionEvent, NftEvent } from "@ink-indexer/events"
 import type postgres from "postgres"
 import type { Sql } from "../db"
 import { eventsAfter, launchesAround, maxEventId, type Row } from "../history"
 import type { Logger } from "../log"
+import { loadNftState, type NftState } from "../nft/state"
 import type { Prices } from "../prices"
 import type { DevHolds, HoldsReq } from "../rpc"
 import { type Candidate, rulesFor, withDevHolds } from "../rules/index"
@@ -27,6 +28,15 @@ export type PollerDeps = {
   rules?: typeof rulesFor
   /** Shared by startPoller so rule-failure reports are rate-limited across batches. */
   limiter?: ReturnType<typeof createFailureLimiter>
+  /**
+   * Holds the NFT collection state between passes, so it is rebuilt from the cursor only once (startPoller
+   * sets it). Unset, every pass rebuilds it, which is what a test calling pollOnce wants.
+   */
+  nftState?: { current?: NftState }
+  /** Unix seconds. NFT_ALERTS_SINCE, when set: it replaces the stored start time below. */
+  nftAlertsSince?: number
+  /** Unix seconds; tests set it. */
+  now?: () => number
   /** Upper bound (inclusive) on the event ids read. Set only by the replay script; unset in production. */
   maxId?: string
 }
@@ -57,6 +67,24 @@ export async function initCursor(sql: Sql, fromId?: string): Promise<string> {
   const max = await maxEventId(sql)
   await setCursor(sql, max)
   return max
+}
+
+const nowS = () => Math.floor(Date.now() / 1000)
+
+/**
+ * The time before which nft.* events never alert (unix seconds): `override` (NFT_ALERTS_SINCE) when set,
+ * else the time the bot first ran with NFT rules, stored once so a restart reuses it. The indexer's NFT
+ * backfill writes old events as new rows; their `blockTimestamp` is below this time. Events from while the
+ * bot was down are above it and still get the rules' normal late windows.
+ */
+export async function nftCutoff(sql: Sql, override?: number, now = nowS): Promise<number> {
+  if (override !== undefined) return override
+  const read = async () =>
+    (await sql<{ value: string }[]>`select value from bot.state where key = 'nft_alerts_since'`)[0]
+  const [ins] = await sql<{ value: string }[]>`
+    insert into bot.state (key, value) values ('nft_alerts_since', ${String(now())})
+    on conflict (key) do nothing returning value`
+  return Number((ins ?? (await read()))!.value)
 }
 
 /** Inserts deliveries and moves the cursor in one short transaction. No network calls inside. */
@@ -150,10 +178,28 @@ async function write(
 // batch size configurable, and park failed events in a table for replay.
 /** Processes one batch of up to 500 confirmed events. Returns how many events it read. */
 export async function pollOnce(deps: PollerDeps): Promise<number> {
-  const { sql, log } = deps
+  const { sql } = deps
   const cursor = await initCursor(sql)
+  const holder = deps.nftState ?? {}
+  // Loaded even when idle: the reminder scheduler reads it too.
+  holder.current ??= await loadNftState(sql, cursor)
   const events = await eventsAfter(sql, cursor, 500, deps.maxId)
   if (events.length === 0) return 0
+  try {
+    return await processBatch(deps, events, holder.current)
+  } catch (err) {
+    // The state may hold events of a batch that was not written; the next pass rebuilds it from the cursor.
+    holder.current = undefined
+    throw err
+  }
+}
+
+async function processBatch(
+  deps: PollerDeps,
+  events: Row<IndexerEvent>[],
+  nft: NftState,
+): Promise<number> {
+  const { sql, log } = deps
   const lastId = events.at(-1)!.id
   // Launch floods: decided from launch events alone, so a re-run or replay classifies the same way.
   const launches = events.filter((e) => e.p.type === "launchpad.launch") as Row<LaunchEvent>[]
@@ -173,14 +219,25 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
     }
   }
   const rules = deps.rules ?? rulesFor
+  const now = deps.now ?? nowS
   const limiter = deps.limiter ?? createFailureLimiter({ report: deps.report, log })
   const cands: Candidate[] = []
   let skipped = 0
+  const cutoff = events.some((e) => e.p.type.startsWith("nft."))
+    ? await nftCutoff(sql, deps.nftAlertsSince, deps.now)
+    : 0
   for (const ev of events) {
     // A launch in flood would only yield the NEW TOKEN alert that flood mode replaces.
     if (starts.has(ev.id)) continue
+    // The state sees every NFT event, old or new, before the cutoff: it must hold the history.
+    let prev: NftCollectionEvent | null = null
+    if (ev.p.type.startsWith("nft.")) prev = nft.apply(ev as Row<NftEvent>)
+    // Backfilled NFT history: the cursor moves past it and nothing is sent.
+    if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue
     try {
-      cands.push(...(await rules(ev, { sql, prices: deps.prices, log })))
+      cands.push(
+        ...(await rules(ev, { sql, prices: deps.prices, log, nft, now, nftSince: cutoff }, prev)),
+      )
     } catch (err) {
       // Database and connection errors fail the whole batch: the cursor stays and the loop retries.
       // Anything else is a bad event; skip it so one poison event cannot stall every chat.
@@ -192,7 +249,7 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
   }
   if (skipped === 0) limiter.ok("rule")
   const flooded = launches.filter((l) => starts.has(l.id))
-  const aud = await loadAudience(sql, [...new Set(cands.map((c) => c.token))])
+  const aud = await loadAudience(sql, [...new Set(cands.map((c) => c.target))], now())
   const deliveries = route(cands, aud)
   const floods = flooded.length === 0 ? [] : floodRows(flooded, starts, newTokenChats(aud))
   const dev = deliveries.filter((d) => d.alert === "devsell")
@@ -238,7 +295,7 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
 /** Polls every second, straight away again after a full batch. Returns a stop function. */
 export function startPoller(deps: PollerDeps): () => void {
   const limiter = createFailureLimiter({ report: deps.report, log: deps.log })
-  const shared = { ...deps, limiter }
+  const shared = { ...deps, limiter, nftState: deps.nftState ?? {} }
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const loop = async () => {

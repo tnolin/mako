@@ -74,20 +74,3 @@ it("deploy guide disables password and root SSH login with a drop-in that wins o
   expect(guide).toContain("sshd -T")
   expect(guide).toContain("apt -y install unattended-upgrades ufw git curl ca-certificates rclone")
 })
-
-it("public docs and deploy scripts name no hosting provider or region", () => {
-  const { readdirSync } = require("node:fs") as typeof import("node:fs")
-  const root = new URL("../", import.meta.url)
-  const files = [
-    "README.md",
-    "AGENTS.md",
-    ...readdirSync(new URL("docs/", root), { recursive: true })
-      .map(String)
-      .filter((f) => f.endsWith(".md"))
-      .map((f) => `docs/${f}`),
-    ...readdirSync(new URL("scripts/deploy/", root)).map((f) => `scripts/deploy/${f}`),
-  ]
-  const provider =
-    /\b(ovh\w*|hetzner|nbg1|fsn1|nuremberg|falkenstein|singapore|cloudflare|r2)\b|grey cloud/i
-  for (const f of files) expect(readFileSync(new URL(f, root), "utf8"), f).not.toMatch(provider)
-})

@@ -5,13 +5,13 @@ Status: Accepted
 
 ## Context
 
-MAKO launches on Telegram and follows with Discord. Both need the same information with different formatting.
+MAKO sends the same information on every platform it supports, formatted for that platform.
 
 ## Decision
 
-Rules and cards produce one platform-neutral payload. `src/platforms/telegram` (grammY, HTML, inline keyboards) and `src/platforms/discord` (discord.js, embeds, buttons) render it.
+Rules and cards produce one platform-neutral payload. `src/platforms/telegram` (grammY, HTML, inline keyboards) renders it.
 
 ## Consequences
 
-- Discord parity is one adapter.
+- A new platform is one adapter.
 - Card content is tested once, rendering per platform.

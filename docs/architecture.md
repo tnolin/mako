@@ -1,14 +1,14 @@
 # Architecture
 
-MAKO sends real-time alerts for memecoins, NFTs and DeFi positions on Ink to Telegram and Discord. It reads normalized events from [ink-indexer](https://github.com/tnolin/ink-indexer) and turns them into alerts, cards and menus. The protocols it covers are listed in ink-indexer's [event sources](https://github.com/tnolin/ink-indexer/blob/main/docs/architecture.md#event-sources).
+MAKO sends real-time alerts for tokens and NFTs on Ink to Telegram. It reads normalized events from [ink-indexer](https://github.com/tnolin/ink-indexer) and turns them into alerts, cards and menus. The protocols it covers are listed in ink-indexer's [event sources](https://github.com/tnolin/ink-indexer/blob/main/docs/architecture.md#event-sources).
 
 ## Users
 
 | User | Where | What they want |
 | --- | --- | --- |
 | Memecoin trader | Telegram DMs and alpha groups | Know early when a token is moving on its curve, close to bonding, or just bonded |
-| NFT collector | Discord, some Telegram | Sales, new listings, floor moves |
-| Group owner | Their own Telegram group or Discord server | A configurable feed in their channel, filtered to what their members care about |
+| NFT collector | Telegram DMs | Mints, sales, floor moves and rare listings for the collections they watch |
+| Group owner | Their own Telegram group or channel | A feed in their chat, filtered to what their members care about |
 
 ## Flow
 
@@ -17,8 +17,14 @@ MAKO sends real-time alerts for memecoins, NFTs and DeFi positions on Ink to Tel
                 │
                 ▼
  ┌──────────────────────────────┐
- │  src/rules                   │  subscriptions, presets,
- │  match events to subscribers │  thresholds, dedupe, cooldowns
+ │  src/rules, src/nft/rules    │  token rules; NFT rules over an in-memory
+ │  events to candidate alerts  │  collection state rebuilt up to the cursor
+ └──────────────────────────────┘
+                │
+                ▼
+ ┌──────────────────────────────┐
+ │  src/delivery/recipients     │  who gets each candidate: feeds, watches,
+ │                              │  mutes, thresholds, caps, topics
  └──────────────────────────────┘
                 │
                 ▼
@@ -29,160 +35,156 @@ MAKO sends real-time alerts for memecoins, NFTs and DeFi positions on Ink to Tel
                 ▼
  ┌──────────────────────────────┐
  │  src/delivery                │  queue, per-destination throttles,
- │                              │  digests, deliveries log
+ │                              │  summaries, deliveries log
  └──────────────────────────────┘
-          │               │
-          ▼               ▼
-  platforms/telegram   platforms/discord
-  (grammY, HTML,       (discord.js, embeds,
-   inline keyboards)    buttons, selects)
+                │
+                ▼
+         platforms/telegram
+   (grammY, HTML, inline keyboards)
 ```
 
-Rules and delivery don't depend on any chat platform. Each adapter renders the same payload, so supporting a new platform means writing one adapter.
+Rules and delivery don't depend on the chat platform. The Telegram adapter renders the payload.
+
+NFT events are applied to the collection state before anything else, so history from the indexer's backfill still builds the state. Rules skip NFT events older than the alerts start time (`NFT_ALERTS_SINCE`, or the time the bot first ran with NFT rules), so backfilled history sends nothing.
 
 ## Alerts
 
-Users choose alerts through a button setup flow on first start.
+Alert settings are edited in the user's DM, for the user and for each group or channel they administer. New users get the menu, then a picker for the token alerts.
 
-1. `/start` opens a welcome card: Pick a preset, Customize, Skip.
-2. Presets apply a starting set: Bond hunter, Creator watch, Collector, Quiet (bonds and watchlist only).
-3. Customize shows alert groups (Memecoins, NFTs, Wallets), each alert with a toggle and a threshold picker.
-4. Settings stay editable from the main menu.
+**Token alerts**
 
-**Memecoins**
+| Alert | Fires when |
+| --- | --- |
+| NEW TOKEN | A token is created |
+| BONDING | A token's curve passes 80% or 90% (50% is optional) |
+| PUMPING | A token's curve rises 15 points within 10 minutes |
+| BONDED | A token bonds and its liquidity moves to a pool |
+| DEV SELL | The launch's creator wallet sells its token |
+| BIG BUY / BIG SELL | One trade of 5% (2.5% or 10%) or more of the bond target |
 
-| Alert | Fires when | Phase |
-| --- | --- | --- |
-| Curve progress | A token crosses a progress mark on its curve (e.g. 50%, 80%) | v0 |
-| Curve velocity | Progress jumps fast inside a short window | v0 |
-| Bonded / graduated | A token bonds or graduates from its launchpad curve | v0 |
-| Creator sell | The launch's creator wallet sells its token | v0 |
-| Big buy / sell | A single trade above a size threshold | v0 |
-| New launch | A new token is created, filterable by launchpad and quote asset | v0 |
-| Market cap target | A watched token reaches a user-set market cap | v1 |
-| Price move | A bonded token moves by a set percent inside a window | v1 |
-| Serial deployer launch | A wallet with past launches deploys a new token | v1 |
-| Whale buy | A wallet already holding a large share buys more | v1 |
-| Top holder exit | A top 10 holder sells most of their position | v1 |
-| Volume spike | Volume runs well above the recent average | v1 |
-| Holder milestone | A token passes 100, 500 or 1,000 holders | v1 |
-| King / Emperor of the INK | InkyPump's King of the INK or daily Emperor changes | v1 |
+**NFT alerts, All collections**
 
-**NFTs**
+| Alert | Fires when |
+| --- | --- |
+| UPCOMING MINT | A mint is scheduled |
+| MINT STARTING | A mint stage opens, other than a Team stage |
+| MINT LIVE | A mint without stages goes live |
+| MINTED | A collection's mint passes a mark (25%, 50% or 75%) |
+| SOLD OUT | A collection mints out |
+| NEW COLLECTION | A new Chimera collection has a name and an image |
+| BIG SALE | A sale at or above 0.05, 0.1, 0.25 or 0.5 ETH |
 
-| Alert | Fires when | Phase |
-| --- | --- | --- |
-| Sale | A sale in a followed collection above a minimum price | v0 |
-| Cheap listing | An item lists a set percent under floor | v0 |
-| Floor move | Floor changes by a set percent in 24 hours | v0 |
-| Rare listing | A high-rarity item lists near floor | v1 |
-| Sweep | One wallet buys several items in a short window | v1 |
-| New collection | A new Ink collection appears or starts minting | v1 |
-| Mint progress | A minting collection passes 50%, 90% or sells out | v1 |
+**NFT alerts, Watched only**
 
-**Wallets and lending**
+| Alert | Fires when |
+| --- | --- |
+| UNDER FLOOR | An item lists 10%, 20% or 30% or more under floor |
+| RARE LISTING | A top 1%, 5% or 10% item lists at most 10% over floor |
+| FLOOR MOVE | The floor moves 10%, 20% or 30% or more in 24 hours |
+| SWEEP | One wallet buys 5 or 10 items within 10 minutes |
+| SOLD | A sale at or above a minimum (any, 0.01, 0.05, 0.1, 0.5 or 1 ETH) |
+| MINT REMINDER | 15 minutes before each stage that isn't a Team stage, from the REMINDERS switch or a Remind me tap |
 
-| Alert | Fires when | Phase |
-| --- | --- | --- |
-| Health factor | A watched lending position falls below a set level | v0 |
-| Liquidation | A watched lending position is liquidated | v0 |
-| Wallet activity | A followed wallet buys, sells or launches | v1 |
+**Routing**
 
-**Dedupe:** one alert per token per threshold. Velocity and price move alerts have a per-token cooldown. A bond alert replaces any pending progress alert for that token.
+- Muted first: a muted token or collection never sends anything, and a token or collection is watched, muted or neither.
+- An All collections alert reaches a chat when the collection passes MAKO's quality checks and the alert is on, or when the chat watches the collection. A watch ignores the switch and the quality checks, and keeps the thresholds.
+- A Watched only alert reaches a chat only when it watches the collection, the alert is on and the thresholds hold.
+- A user's token watch sends every token alert except NEW TOKEN. A group's token watch does the same, with the group's BONDING marks and BIG BUY/SELL percentage.
+- One alert per event per chat, the highest priority first. Paused and topic routes apply to every kind.
+- Defaults depend on the chat type: the All collections alerts are on in DMs and off in groups and channels. The Watched only alerts are on everywhere except SOLD.
+- At most 3 UNDER FLOOR or RARE LISTING alerts per collection per chat per hour, and one FLOOR MOVE per collection and direction per chat every 6 hours. UNDER FLOOR needs a floor read within 2 hours.
+- Priorities, from first to last: DEV SELL; BONDED, SOLD OUT; BONDING, MINT STARTING, MINT LIVE, MINT REMINDER, RARE LISTING; PUMPING, UPCOMING MINT, MINTED, UNDER FLOOR, SWEEP, BIG SALE, NEW COLLECTION; BIG BUY/SELL, FLOOR MOVE; NEW TOKEN, SOLD.
+- A collection that turns real after its mint started gets one MINT STARTING that reads "started Nm ago", with no back-filled marks.
+- A user or chat watches up to 50 tokens and 50 collections, counted separately.
+
+**Dedupe:** one alert per token per threshold. PUMPING has a per-token cooldown. A bond alert replaces any pending progress alert for that token. NFT alerts dedupe on the sale or stage they describe.
 
 **Creator sell:** a sell by the launch's creator wallet fires DEV SELL, with realized PnL from the creator's curve trades and the creator's current share of supply.
 
 ## Interaction design
 
-Buttons are the main interface, and slash commands open the same screens for people who prefer typing. Pasting a contract address opens its card.
+Buttons are the main interface, and slash commands open the same screens. Pasting a token or collection address, or an OpenSea link, opens its card.
 
-**Main menu** (`/start`, `/menu`, or the pinned Menu button)
+**Main menu** (`/start`, `/menu`)
 
 | Row | Buttons |
 | --- | --- |
-| 1 | Look up token · Hot now |
-| 2 | Near bonding · Recently bonded |
-| 3 | My watchlist · My alerts |
-| 4 | Settings · Help |
-| 5 | Trade on InkyPump |
+| 1 | Add to group or channel |
+| 2 | Tokens · NFTs |
+| 3 | My alerts · Settings |
+| 4 | Help |
+| 5 | Community · X |
 
-Settings holds Groups & channels and Delete my data. Help holds Community.
+Tokens and NFTs list the discovery screens: Hot now, Near bonding and Recently bonded for tokens; Minting now, Upcoming and Trending for NFTs. My alerts holds Token alerts, NFT alerts (All collections and Watched only), and the Watched and Muted lists for tokens and NFTs. Settings holds Groups & channels and Delete my data. Help has four pages: Alerts explained, Group setup, Watched & Muted and Privacy.
 
-**Token card buttons:** Watch, Holders, Dev history, Refresh, Open on launchpad, Explorer.
-**NFT card buttons:** Follow collection, Floor, Rarity (v1), Recent sales, Open on marketplace.
-**Group admin panel** (`/setup`): Feeds, Thresholds, Minimum sizes, Quiet hours, Hourly cap, Card layout.
+**Buttons:** an active state is green and reads Watching, Muted or Reminder set; tapping it undoes it. Alert switches are green when on and grey when off. Group buttons never change state: Watch and Remind me open the user's DM.
+
+**Token card buttons:** Trade, Watch, Refresh, Explorer.
+**NFT collection card buttons:** the 1h, 24h, 7d and 30d windows, Watch, Recent sales, View.
+**Group settings** open in the admin's DM from `/setup`'s Open settings button: Token alerts, NFT alerts, Watched tokens, Watched NFTs, Pause, Remove MAKO.
 
 **Commands**
 
 | Group | Commands |
 | --- | --- |
-| Lookup | `/t <address>` card · `/dev <address>` deployer history (v1) · `/hs <address>` holder stats (v1) · `/c <address>` card with chart (v2) |
-| Discovery | `/hot` · `/near` · `/bonded` · `/new` · `/koti` · `/stocks` (v1) |
-| NFTs | `/nft <collection>` · `/floor <collection>` · `/sales <collection>` · `/rarity <collection> <id>` (v1) · `/mints` (v1) |
-| Personal | `/watch <address> [mcap]` · `/follow <collection>` · `/wallet <address>` · `/alerts` · `/presets` · `/health <wallet>` |
-| Group admin | `/setup` · `/feeds` · `/quiet` · `/minsize` · `/settings` |
-| Utility | `/start` · `/menu` · `/help` · `/status` · `/feedback <text>` |
+| Lookup | `/t <address>` token card · `/nft <collection> [1h\|24h\|7d\|30d]` collection card · `/nft <collection> <id>` one NFT |
+| Watching | `/watch <token address or collection>` · `/alerts` |
+| Group admin | `/setup` · `/route` |
+| Utility | `/start` · `/menu` · `/help` · `/deletedata` |
+
+In a group `/watch` is for admins and watches for the chat.
 
 **Token card**
 
 1. Header: ticker, name, launchpad, phase (curve or bonded).
-2. Curve progress bar as text, e.g. `■■■■■■■□□□ 72%`.
-3. Market cap, 1h volume, holders, age.
-4. Creator line: creator wallet and whether it has sold.
-5. Button rows.
-6. Footer: bot name and community link.
+2. Rows: market cap, volume and trades, age, and the creator's trades. A bonded token shows when it bonded.
+3. Button rows.
 
 When the token has an image, the card is the caption of a square photo. A bonded token's card shows its current market cap, read from the token's Uniswap v4 pool.
 
-**NFT card:** image, name and rank (v1), price in ETH and USD, discount to floor, seller and buyer short addresses, then buttons.
+**NFT card:** the collection card shows supply, floor, volume and sales for the chosen window, holders, listed count and creator. The NFT card (`/nft <collection> <id>`) adds rank, traits, best offer and best listing from a live OpenSea read, with a cache and a refresh cooldown (ADR 0014).
 
-**Platforms:** Telegram uses HTML messages with inline keyboards and edits the same message as people navigate. Discord uses embeds with a colored side bar, buttons and select menus, with ephemeral replies for personal screens.
+**Telegram:** messages are HTML with inline keyboards, edited in place as people navigate.
 
 ## Data model
 
-The bot owns the `bot` schema in the same Postgres as the indexer. It reads only `indexer.events` and `indexer.cursors` (ADR 0006).
+The bot owns the `bot` schema in the same Postgres as the indexer. It reads `indexer.events` and `indexer.cursors`, and calls `indexer.opensea_take(int)` and `indexer.opensea_block(int)` with `EXECUTE` only (ADR 0006, ADR 0014).
 
 | Table | Purpose |
 | --- | --- |
 | `users` | One row per Telegram user: numeric id, settings (JSON), blocked time |
 | `chats` | Groups and channels the bot serves: Telegram chat id, kind, owner, settings (JSON), active flag |
 | `subscriptions` | A user's watched tokens and muted tokens |
+| `chat_token_watches` | The tokens a group or channel watches |
+| `nft_watches` | The collections a user or a chat watches, with the user's reminder switch |
+| `collection_mutes` | The collections a user or a chat mutes |
+| `reminders` | A user's Remind me taps: user and collection |
 | `deliveries` | The send queue, the dedupe record and the source for usage metrics |
 | `delivery_daily` | Daily delivery counts by alert, chat type and status, rolled up from rows older than 90 days |
 | `commands_daily` | Daily command counts |
 | `user_actions` | Button and command events with no user column, for product metrics |
 | `notices` | Admin notices already sent to a chat, one per reason |
-| `state` | Key-value state such as poller cursors |
+| `token_images` | The Telegram file id of each uploaded token image |
+| `state` | Key-value state such as the poller cursor and the NFT alerts start time |
 
 ## Reliability
 
-- Presets keep new users on a focused set of alerts.
-- Per-group minimum trade sizes, quiet hours, and an hourly cap that rolls extra alerts into one digest.
-- Every send goes through a queue with per-destination throttles. Telegram allows about 30 messages per second overall and about 20 per minute to one group; Discord has per-route limits. A group over budget gets one summary message.
-- Alerts older than 3 minutes (30 for DEV SELL and BONDED) are dropped from the queue and counted in one summary message per chat.
+- Every send goes through a queue with per-destination throttles. Telegram allows about 30 messages per second overall and about 20 per minute to one group. A group over budget gets one summary message.
+- An alert that waits longer than its window is dropped from the queue and counted in one summary message per chat. The window is 3 minutes, or 30 for DEV SELL, BONDED, UPCOMING MINT, MINTED, SOLD OUT, NEW COLLECTION, FLOOR MOVE, SWEEP, BIG SALE and SOLD.
 - Launch floods: when a launchpad has more than 10 launches in 5 minutes, its individual NEW TOKEN alerts stop. Every chat with NEW TOKEN on gets one notice per flood, then one NEW TOKENS card per minute listing that minute's launches, until it slows down. Floods are worked out from the launch events alone, so a restart or replay gives the same result.
-- Group feed settings are admin-only.
+- The NFT state is rebuilt from the cursor after a failed pass, so a collection turning real is seen once.
+- Group and channel settings are admin-only, with a live admin check on every tap.
 - Secrets live in env vars. A secret scanner runs in CI.
 
 ## Links and referrals
 
-Outbound trade and marketplace links carry referral codes where the platform offers one (InkyPump, Nado).
+Outbound trade and marketplace links carry referral codes where the platform offers one (InkyPump).
 
 - Trade buttons open `go.makobot.xyz/t/<address>`, which redirects to the token on its launchpad with `?ref=<code>`. InkyPump tags a visitor who arrives with `?ref=`.
-- Trade on InkyPump (main menu and the bot's About text) opens `go.makobot.xyz/inkypump`, which redirects to InkyPump's referral join page, `inkypump.com/ink/join/<code>`.
-- Both redirects log a `trade_click` with no user data. Clicks on the join link have no token and kind `join`. The About page lists these partnerships. MAKO is informational; the About page and terms state this once for the whole service.
-
-## Brand
-
-- **Name:** plain MAKO in handles and domains. Stylized forms appear only in designs and display names.
-- **Mark:** the ASCII shark fin.
-- **Style:** retro sci-fi cassette futurism: CRT glow, scanlines, radar HUD, ASCII and pixel details.
-- **Alerts:** plain text on both platforms for speed.
-- Ink projects' names and logos appear in MAKO's branding only with their permission.
-
-## Credits
-
-MAKO's design borrows from these bots: Rick (onboarding, lookups, deployer history), Rarity Sniper (rare listing alerts), Bobby Buy Bot (group feeds), Fomo Eye (watchlists), and [PumpKit](https://github.com/nirholas/pumpkit) (grammY bot structure).
+- The Tokens screen links the launchpad through `go.makobot.xyz/inkypump`, which redirects to the launchpad's referral join page.
+- NFT buttons (View, Recent sales, the NFT card) open OpenSea through `go.makobot.xyz/n/…`. OpenSea links carry no referral code. The NFTs screen links OpenSea and Chimera through `go.makobot.xyz/p/…`.
+- The redirects log a click with no user data. Clicks on the join link have no token and kind `join`.
 
 ## Decisions
 

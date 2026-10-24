@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
+import { ethText } from "../src/nft/card"
 import { createItemReader, type ItemReader } from "../src/nft/opensea"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { createBot } from "../src/platforms/telegram/bot"
@@ -11,6 +12,7 @@ import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
 const WIRED = "0x7c701c0148e0e965065aa05e008ac9341e6efc6c"
+const ELSE = "0xe15e000000000000000000000000000000000e15"
 const KEY = "SECRETKEY123"
 const NOW = Date.UTC(2026, 9, 20) / 1000
 const prices: Prices = { usd: () => 2500, symbol: () => "ETH" }
@@ -44,9 +46,41 @@ const okRoute =
     if (path.includes("/collections/trending"))
       return json({
         collections: [
-          { collection: "wiredonink", name: "WIRED" },
-          { collection: "elsewhere", name: "Elsewhere" },
+          {
+            collection: "elsewhere",
+            name: "Elsewhere",
+            image_url: "https://i.example/else.png",
+            safelist_status: "verified",
+            twitter_username: "elsewhereink",
+            project_url: "https://else.example",
+            discord_url: "",
+            contracts: [{ address: "0xE15E000000000000000000000000000000000E15", chain: "ink" }],
+          },
+          {
+            collection: "wiredonink",
+            name: "WIRED",
+            contracts: [{ address: WIRED, chain: "ink" }],
+          },
+          { collection: "offchain", name: "Off Chain", contracts: [] },
         ],
+      })
+    if (path.includes("/chain/ink/contract/") && !path.includes("/nfts/"))
+      return json({ collection: "elsewhere", contract_standard: "erc721" })
+    if (path.endsWith("/collections/elsewhere/stats"))
+      return json({
+        total: { floor_price: 0.012, num_owners: 321 },
+        intervals: [{ interval: "one_day", volume: 1.5, sales: 42 }],
+      })
+    if (path.endsWith("/collections/elsewhere"))
+      return json({
+        collection: "elsewhere",
+        name: "Elsewhere",
+        image_url: "https://i.example/else.png",
+        safelist_status: "verified",
+        twitter_username: "elsewhereink",
+        project_url: "https://else.example",
+        discord_url: "",
+        total_supply: 1000,
       })
     return json(nft)
   }
@@ -166,9 +200,29 @@ describe("OpenSea reader", () => {
   })
 
   it("lists trending collections for a timeframe and caches them for 10 minutes", async () => {
+    // In OpenSea's order, with the Ink contract; a collection without one is left out.
+    const links = (twitter: string | null, website: string | null) => ({
+      twitter,
+      website,
+      discord: null,
+    })
     expect(await reader.trending("one_day")).toEqual([
-      { slug: "wiredonink", name: "WIRED" },
-      { slug: "elsewhere", name: "Elsewhere" },
+      {
+        slug: "elsewhere",
+        name: "Elsewhere",
+        contract: ELSE,
+        imageUrl: "https://i.example/else.png",
+        verified: true,
+        links: links("elsewhereink", "https://else.example"),
+      },
+      {
+        slug: "wiredonink",
+        name: "WIRED",
+        contract: WIRED,
+        imageUrl: null,
+        verified: false,
+        links: links(null, null),
+      },
     ])
     await reader.trending("one_day")
     expect(calls).toEqual(["/collections/trending?chains=ink&timeframe=one_day&limit=20"])
@@ -177,6 +231,74 @@ describe("OpenSea reader", () => {
     expect(calls).toHaveLength(2)
     await reader.trending("one_hour")
     expect(calls).toHaveLength(3)
+  })
+
+  it("builds a trending collection from the trending entry and one stats read", async () => {
+    await reader.trending("one_day")
+    calls.length = 0
+    expect(await reader.collection(ELSE)).toEqual({
+      slug: "elsewhere",
+      name: "Elsewhere",
+      imageUrl: "https://i.example/else.png",
+      verified: true,
+      links: { twitter: "elsewhereink", website: "https://else.example", discord: null },
+      totalSupply: null,
+      floorWei: 12_000_000_000_000_000n,
+      owners: 321,
+      volume24hWei: 1_500_000_000_000_000_000n,
+      sales24h: 42,
+    })
+    expect(calls).toEqual(["/collections/elsewhere/stats"])
+  })
+
+  it("prefetches stats so the tap reads from the cache, and shares a read already under way", async () => {
+    await reader.trending("one_day")
+    calls.length = 0
+    const pending = reader.prefetch([ELSE, WIRED])
+    // A tap while the prefetch is still reading waits for the same request.
+    const tapped = reader.collection(ELSE)
+    await pending
+    await tapped
+    expect(calls).toEqual(["/collections/elsewhere/stats", "/collections/wiredonink/stats"])
+    await reader.collection(ELSE)
+    await reader.prefetch([ELSE])
+    expect(calls).toHaveLength(2)
+    t += 5 * 60_000 + 1
+    await reader.prefetch([ELSE])
+    expect(calls).toHaveLength(3)
+  })
+
+  it("never rejects a prefetch, even when OpenSea fails", async () => {
+    await reader.trending("one_day")
+    route = () => json({}, 500)
+    await expect(reader.prefetch([ELSE])).resolves.toBeUndefined()
+  })
+
+  it("reads a collection it has no trending entry for live, finding the slug by contract, and caches it for 5 minutes", async () => {
+    expect(await reader.collection(ELSE)).toEqual({
+      slug: "elsewhere",
+      name: "Elsewhere",
+      imageUrl: "https://i.example/else.png",
+      verified: true,
+      links: { twitter: "elsewhereink", website: "https://else.example", discord: null },
+      totalSupply: 1000,
+      floorWei: 12_000_000_000_000_000n,
+      owners: 321,
+      volume24hWei: 1_500_000_000_000_000_000n,
+      sales24h: 42,
+    })
+    expect(calls).toEqual([
+      `/chain/ink/contract/${ELSE}`,
+      "/collections/elsewhere",
+      "/collections/elsewhere/stats",
+    ])
+    await reader.collection(ELSE)
+    expect(calls).toHaveLength(3)
+  })
+
+  it("says unavailable when the collection read fails", async () => {
+    route = (p) => (p.endsWith("/collections/elsewhere") ? json({}, 500) : okRoute()(p))
+    expect(await reader.collection(ELSE)).toBe("unavailable")
   })
 })
 
@@ -306,21 +428,129 @@ describe("NFT card", () => {
     const [after] = await sql<{ tokens: number }[]>`select tokens from indexer.opensea_budget`
     expect(after!.tokens).toBeGreaterThanOrEqual(tokens)
   })
-  it("lists trending collections that MAKO knows, with the timeframe buttons and Back", async () => {
+  it("lists OpenSea's trending collections in its order, with MAKO's floor where it has one", async () => {
+    await boot()
+    await h.tap("nl:t24")
+    const kb = kbOf(h.last("editMessageText"))
+    expect(kb.slice(1, -1)).toEqual([
+      [{ text: "Elsewhere", callback_data: `nc:${ELSE}:t24` }],
+      [{ text: expect.stringMatching(/^WIRED · .* floor$/), callback_data: `nc:${WIRED}:t24` }],
+    ])
+  })
+
+  it("sends the Trending list before any prefetch read starts", async () => {
+    await boot()
+    const prefetch = vi.spyOn(reader, "prefetch")
+    let startedBeforeList = -1
+    h.on("editMessageText", (p) => {
+      startedBeforeList = prefetch.mock.calls.length
+      return { message_id: 77, date: 0, chat: { id: p.chat_id, type: "private" }, text: p.text }
+    })
+    await h.tap("nl:t24")
+    expect(startedBeforeList).toBe(0)
+    expect(prefetch).toHaveBeenCalledWith([ELSE])
+    await vi.waitFor(() => expect(calls).toContain("/collections/elsewhere/stats"))
+  })
+
+  it("prefetches stats for unknown trending rows when the list is shown, so the tap reads no OpenSea", async () => {
+    await boot()
+    await h.tap("nl:t24")
+    // Only the row MAKO doesn't know is prefetched; WIRED has MAKO's own data.
+    await vi.waitFor(() => expect(calls).toContain("/collections/elsewhere/stats"))
+    expect(calls).not.toContain("/collections/wiredonink/stats")
+    calls.length = 0
+    await h.tap(`nc:${ELSE}:t24`)
+    expect(calls).toEqual([])
+    expect(h.last("sendPhoto")!.caption).toBe(
+      [
+        "<b>Elsewhere ✓ · OpenSea</b>",
+        "",
+        `<code>floor    ${ethText(12_000_000_000_000_000n, 2500)}</code>`,
+        `<code>volume   ${ethText(1_500_000_000_000_000_000n, 2500)} (24h)</code>`,
+        "<code>sales    42 (24h)</code>",
+        "<code>holders  321</code>",
+        "",
+        `CA   <code>${ELSE}</code>`,
+        '<a href="https://x.com/elsewhereink">X</a> · <a href="https://else.example/">Website</a>',
+      ].join("\n"),
+    )
+  })
+
+  it("sends the live card and the NFT card without waiting for Telegram to answer the tap", async () => {
+    await boot()
+    let release!: (v: boolean) => void
+    h.on("answerCallbackQuery", () => new Promise((r) => (release = r)))
+    const within = (p: Promise<unknown>) =>
+      Promise.race([p, new Promise((r) => setTimeout(r, 1000))])
+    await within(h.tap(`nc:${ELSE}:t24`))
+    expect(h.last("sendPhoto")?.caption).toContain("Elsewhere")
+    await within(h.tap(`ni:${WIRED}:4164`))
+    expect(h.last("sendPhoto")?.caption).toContain("#4164")
+    release(true)
+  })
+
+  it("opens a collection it has no trending entry for as a live card from OpenSea", async () => {
+    await boot()
+    await h.tap(`nc:${ELSE}:t24`)
+    const p = h.last("sendPhoto")!
+    expect(p.caption).toBe(
+      [
+        "<b>Elsewhere ✓ · OpenSea</b>",
+        "",
+        `<code>floor    ${ethText(12_000_000_000_000_000n, 2500)}</code>`,
+        `<code>volume   ${ethText(1_500_000_000_000_000_000n, 2500)} (24h)</code>`,
+        "<code>sales    42 (24h)</code>",
+        "<code>supply   1,000</code>",
+        "<code>holders  321</code>",
+        "",
+        `CA   <code>${ELSE}</code>`,
+        '<a href="https://x.com/elsewhereink">X</a> · <a href="https://else.example/">Website</a>',
+      ].join("\n"),
+    )
+    expect(kbOf(p)).toEqual([
+      [
+        { text: "Watch", callback_data: `nwa:${ELSE}` },
+        { text: "View", url: "https://go.makobot.xyz/n/c/elsewhere" },
+      ],
+    ])
+  })
+
+  it("says some details are unavailable when the live read fails", async () => {
+    route = (p) => (p.includes("/collections/elsewhere") ? json({}, 500) : okRoute()(p))
+    await boot()
+    await h.tap(`nc:${ELSE}:t24`)
+    const m = h.last("sendMessage")!
+    expect(m.text).toBe(
+      [
+        `<b>${ELSE.slice(0, 6)}…${ELSE.slice(-4)} · OpenSea</b>`,
+        "",
+        "Some details are unavailable right now.",
+        "",
+        `CA   <code>${ELSE}</code>`,
+      ].join("\n"),
+    )
+    expect(kbOf(m)).toEqual([
+      [
+        { text: "Watch", callback_data: `nwa:${ELSE}` },
+        { text: "View", url: `https://go.makobot.xyz/n/a/${ELSE}` },
+      ],
+    ])
+  })
+
+  it("has the title, the timeframe buttons and Back", async () => {
     await boot()
     await h.tap("nl:t24")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Trending</b>")
+    expect(m.text).toBe(
+      "<b>Trending NFTs (24h)</b>\n\nThe Ink collections trending on OpenSea for the selected timeframe with its current floor price.",
+    )
     const kb = kbOf(m)
     expect(kb[0]).toEqual([
       { text: "1h", callback_data: "nl:t1" },
       { text: "24h", callback_data: "nl:t24", style: "success" },
       { text: "7d", callback_data: "nl:t7" },
     ])
-    expect(kb[1]![0]!.text).toMatch(/^WIRED · .* floor$/)
-    expect(kb[1]![0]!.callback_data).toBe(`nc:${WIRED}:t24`)
     expect(kb.at(-1)).toEqual([{ text: "Back", callback_data: "nfts" }])
-    expect(kb).toHaveLength(3)
   })
 
   it("says so when nothing is trending or OpenSea cannot be reached", async () => {
@@ -328,12 +558,12 @@ describe("NFT card", () => {
     await boot()
     await h.tap("nl:t1")
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>Trending</b>\nNo Ink collections are trending in this timeframe.",
+      "<b>Trending NFTs (1h)</b>\n\nNo Ink collections are trending in this timeframe.",
     )
     route = () => json({}, 500)
     await h.tap("nl:t7")
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>Trending</b>\nTrending isn't available right now. Try again in a few minutes.",
+      "<b>Trending NFTs (7d)</b>\n\nTrending isn't available right now. Try again in a few minutes.",
     )
   })
 

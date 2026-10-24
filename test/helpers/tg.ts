@@ -1,5 +1,6 @@
 import type { Bot } from "grammy"
 import type { Update, UserFromGetMe } from "grammy/types"
+import { FULL_WIDTH } from "../../src/platforms/telegram/ui"
 
 export const BOT_INFO = {
   id: 999,
@@ -52,8 +53,14 @@ export function harness(bot: Bot) {
   const responders = new Map<string, Responder>()
   bot.api.config.use(async (_prev, method, payload) => {
     const p = (payload ?? {}) as Payload
-    calls.push({ method, payload: p })
-    const r = responders.has(method) ? responders.get(method)!(p) : defaults(method, p)
+    // Menus end with the full-width line; tests read the text without it and check `padded` instead.
+    const padded = typeof p.text === "string" && p.text.endsWith(FULL_WIDTH)
+    calls.push({
+      method,
+      payload: padded ? { ...p, text: p.text.slice(0, -FULL_WIDTH.length), padded } : p,
+    })
+    // A responder may return a promise, to hold a call open.
+    const r = responders.has(method) ? await responders.get(method)!(p) : defaults(method, p)
     if (r && typeof r === "object" && "error" in r) {
       return {
         ok: false,

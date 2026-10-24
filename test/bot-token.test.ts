@@ -99,8 +99,8 @@ describe("token card", () => {
       ],
     ])
     expect(img.fetchFn).toHaveBeenCalledOnce()
-    expect((img.fetchFn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toContain(
-      encodeURIComponent("https://images.inkypump.com/original/abc.jpg"),
+    expect((img.fetchFn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toBe(
+      "https://images.inkypump.com/original/abc.jpg",
     )
     // The uploaded photo's file_id is reused by the next card for the token.
     h.clear()
@@ -397,16 +397,44 @@ describe("discovery lists", () => {
     ])
   })
 
-  it("a token card opened from a list ends with Back to that list, and keeps it on Refresh", async () => {
+  it("a token card opened from a list arrives as a new message without Back, also after Refresh", async () => {
     await h.tap(`t:${A}:near`)
     const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
-    expect(kb.at(-1)).toEqual([{ text: "Back", callback_data: "l:near" }])
-    expect(kb[1]![0]).toEqual({ text: "Refresh", callback_data: `tr:${A}:near` })
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
+    expect(kb[1]![0]).toEqual({ text: "Refresh", callback_data: `tr:${A}` })
     h.clear()
+    // An older Refresh button that carries the list still works.
     await h.tap(`tr:${A}:near`, { photo: true })
-    expect(kbOf(h.last("editMessageCaption")).at(-1)).toEqual([
-      { text: "Back", callback_data: "l:near" },
+    expect(
+      kbOf(h.last("editMessageCaption"))
+        .flat()
+        .some((b) => b.text === "Back"),
+    ).toBe(false)
+  })
+
+  it("sends the card from a list without waiting for Telegram to answer the tap", async () => {
+    let release!: (v: boolean) => void
+    h.on("answerCallbackQuery", () => new Promise((r) => (release = r)))
+    await Promise.race([h.tap(`t:${A}:hot`), new Promise((r) => setTimeout(r, 1000))])
+    expect(h.last("sendPhoto") ?? h.last("sendMessage")).toBeDefined()
+    release(true)
+  })
+
+  it("skips tokens without a name and a ticker", async () => {
+    const [B, C] = [addr(0xb1), addr(0xc2)]
+    await insertEvents(sql, [
+      trade({ token: B, blockNumber: "1002" }),
+      launch({ token: C, ticker: "", name: "Cee", blockNumber: "1003" }),
+      trade({ token: C, blockNumber: "1004" }),
     ])
+    await setCursorBlock(sql, 1004)
+    await h.tap("l:hot")
+    const m = h.last("editMessageText")!
+    expect(m.text).toBe("<b>Hot now (24h)</b>\n\n1. $GOBLO · Goblo · 1 trade (24h)")
+    expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "Back"])
+    await sql`delete from indexer.events where entity = ${A}`
+    await h.tap("l:hot")
+    expect(h.last("editMessageText")!.text).toBe(`<b>Hot now</b>\n\n${EMPTY.hot}`)
   })
 
   it("falls back to 7 days for hot tokens and says so in the title", async () => {
@@ -421,7 +449,7 @@ describe("discovery lists", () => {
     await setCursorBlock(sql, 1001 + 700_000)
     await h.tap("l:hot")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe(`<b>Hot now</b>\n${EMPTY.hot}`)
+    expect(m.text).toBe(`<b>Hot now</b>\n\n${EMPTY.hot}`)
     expect(kbOf(m)).toEqual([[{ text: "Back", callback_data: "tk" }]])
   })
 
@@ -441,7 +469,7 @@ describe("discovery lists", () => {
     await setCursorBlock(sql, 1010)
     await h.tap("l:near")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Near bonding</b>\n1. $GOBLO · Goblo · 80%\n2. $BEE · Bee · 30%")
+    expect(m.text).toBe("<b>Near bonding</b>\n\n1. $GOBLO · Goblo · 80%\n2. $BEE · Bee · 30%")
     expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "$BEE", "Back"])
   })
 
@@ -461,7 +489,19 @@ describe("discovery lists", () => {
     expect(h.last("editMessageText")!.text).toContain("1. $GOBLO · Goblo · bonded ")
     await sql`delete from indexer.events where type = 'launchpad.bond'`
     await h.tap("l:bonded")
-    expect(h.last("editMessageText")!.text).toBe(`<b>Recently bonded</b>\n${EMPTY.bonded}`)
+    expect(h.last("editMessageText")!.text).toBe(`<b>Recently bonded</b>\n\n${EMPTY.bonded}`)
+  })
+
+  it("lists bonds of the last 7 days, and says so when there are none", async () => {
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002" })])
+    await setCursorBlock(sql, 1002 + 600_000)
+    await h.tap("l:bonded")
+    expect(h.last("editMessageText")!.text).toContain("1. $GOBLO · Goblo · bonded ")
+    await setCursorBlock(sql, 1002 + 700_000)
+    await h.tap("l:bonded")
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Recently bonded</b>\n\nNo tokens have bonded in the last 7 days.",
+    )
   })
 
   it.each([["hot"], ["near"], ["bonded"]] as const)("shows an empty state for %s", async (kind) => {

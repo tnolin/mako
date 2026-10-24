@@ -1,6 +1,5 @@
 import type { Bot, Context } from "grammy"
 import { clean, escapeHtml } from "../format"
-import { LAUNCHPADS } from "../launchpads"
 import { btn, COMMUNITY_URL, type Kb, link, show } from "../platforms/telegram/ui"
 import {
   ALERT_DESC,
@@ -47,8 +46,6 @@ export const GROUP_COMMANDS = [
   { command: "help", description: "Help" },
 ]
 
-export const X_URL = "https://x.com/MakoInkBot"
-
 /** The greeting uses the first name from the incoming update only: it is never stored or logged. */
 export function menuText(firstName?: string): string {
   const name = clean(firstName, 32)
@@ -67,14 +64,13 @@ export function menuKb(botUsername: string): Kb {
   return [
     [
       link(
-        "Add to group or channel ↗",
+        "Add to group or channel",
         `https://t.me/${botUsername}?startgroup=setup&admin=post_messages+manage_topics`,
       ),
     ],
     [btn("Tokens", "tk"), btn("NFTs", "nfts")],
     [btn("My alerts", "al:u"), btn("Settings", "st")],
-    [btn("Help", "h")],
-    [link("Community ↗", COMMUNITY_URL), link("X ↗", X_URL)],
+    [btn("Help", "h"), link("Community", COMMUNITY_URL)],
   ]
 }
 
@@ -85,17 +81,15 @@ export const showMenu = (ctx: Context) =>
 // The main menu is a DM screen: its button does nothing in a group, so groups don't get it.
 const menuRow = (dm: boolean) => (dm ? [btn("Menu", "m")] : [])
 
-const tokensText = (linksBase: string): string =>
-  [
-    "<b>Tokens</b>",
-    "Alerts and lists for tokens launched on Ink.",
-    `Supported: ${Object.entries(LAUNCHPADS)
-      .map(([key, l]) => `<a href="${linksBase}/${key}">${escapeHtml(l.name)}</a>`)
-      .join(", ")}`,
-    "",
-    "/t &lt;address&gt; look up a token",
-    "/watch &lt;address&gt; watch a token",
-  ].join("\n")
+const TOKENS_TEXT = [
+  "<b>Tokens</b>",
+  "",
+  "Alerts and lists for tokens launched on Ink.",
+  "",
+  "Available Commands:",
+  "/t &lt;address&gt; - Looks up a token.",
+  "/watch &lt;address&gt; - Adds a token to your watchlist.",
+].join("\n")
 
 const nftsText = (linksBase: string): string =>
   [
@@ -108,6 +102,7 @@ const nftsText = (linksBase: string): string =>
   ].join("\n")
 
 const b = (s: string) => `<b>${escapeHtml(s)}</b>`
+const u = (s: string) => `<u>${escapeHtml(s)}</u>`
 // The Help lines are the alert-screen lines at the default thresholds.
 const defaults = basicPreset("private")
 const lines = (kinds: readonly AlertKind[]) => kinds.map((k) => escapeHtml(ALERT_DESC(k, defaults)))
@@ -116,13 +111,16 @@ export const HELP = {
   index:
     "<b>Help</b>\nMAKO posts alerts for Ink tokens and NFTs in your DM, your groups and your channels.",
   alerts: [
-    b("Alerts explained"),
-    b("Token alerts"),
+    b("Alerts Explained"),
+    "",
+    u("Token Alerts"),
     ...lines(TOKEN_ALERTS),
     "Percentages in token alerts are a share of the token's total supply.",
-    b("NFT alerts"),
+    "",
+    u("NFT Alerts"),
     ...lines(NFT_ALL_ALERTS),
-    b("Watched NFTs only"),
+    "",
+    u("Watched NFT Alerts"),
     ...lines(NFT_WATCHED_ALERTS),
   ].join("\n"),
   watched: [
@@ -157,7 +155,7 @@ export const HELP = {
 const helpKb = (dm: boolean): Kb => [
   [btn("Alerts explained", "h:alerts"), btn("Group setup", "h:group")],
   [btn("Watched & Muted", "h:watched"), btn("Privacy", "h:privacy")],
-  [link("Community ↗", COMMUNITY_URL), ...menuRow(dm)],
+  [link("Community", COMMUNITY_URL), ...menuRow(dm)],
 ]
 const back = (dm: boolean): Kb => [[btn("Help", "h"), ...menuRow(dm)]]
 const isDm = (ctx: Context) => ctx.chat?.type === "private"
@@ -171,7 +169,7 @@ export function registerMain(bot: Bot, deps: BotDeps): void {
   pm.callbackQuery("m", showMenu)
   // The list screens' Back buttons lead here, in a group too, so Menu is left out there.
   bot.callbackQuery("tk", (ctx) =>
-    show(ctx, tokensText(deps.linksBase), [
+    show(ctx, TOKENS_TEXT, [
       [btn("Hot now", "l:hot"), btn("Near bonding", "l:near")],
       [btn("Recently bonded", "l:bonded"), ...menuRow(isDm(ctx))],
     ]),
@@ -184,9 +182,11 @@ export function registerMain(bot: Bot, deps: BotDeps): void {
   )
   bot.command("help", (ctx) => show(ctx, HELP.index, helpKb(isDm(ctx))))
   bot.callbackQuery("h", (ctx) => show(ctx, HELP.index, helpKb(isDm(ctx))))
-  bot.callbackQuery(/^h:(alerts|group|watched|privacy)$/, (ctx) =>
-    show(ctx, HELP[ctx.match[1] as keyof typeof HELP], back(isDm(ctx))),
-  )
+  bot.callbackQuery(/^h:(alerts|group|watched|privacy)$/, (ctx) => {
+    const page = ctx.match[1] as keyof typeof HELP
+    // Alerts Explained ends with Help alone.
+    return show(ctx, HELP[page], page === "alerts" ? [[btn("Help", "h")]] : back(isDm(ctx)))
+  })
   pm.callbackQuery("st", (ctx) =>
     show(ctx, "<b>Settings</b>", [
       [btn("Groups & channels", "gc"), btn("Delete my data", "dd")],

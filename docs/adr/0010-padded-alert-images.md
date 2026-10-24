@@ -5,6 +5,8 @@ Status: Accepted
 
 Supersedes ADR 0007.
 
+Amended by ADR 0016: the bot fetches and pads images itself with sharp, waits up to 3 seconds for a first image, and keeps a late one for the next send.
+
 ## Context
 
 ADR 0007 showed token images as a link preview. Telegram sizes the whole message to the preview image, so portrait and small images squeezed the text and the buttons.

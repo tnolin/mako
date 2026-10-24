@@ -1,9 +1,12 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { NOT_FOUND } from "../src/menus/copy"
+import type { NftAlertCard } from "../src/nft/card"
+import { mintRules } from "../src/nft/rules/mint"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { watch } from "../src/nft/watches"
 import { createBot } from "../src/platforms/telegram/bot"
+import { renderNftAlert } from "../src/platforms/telegram/render"
 import type { Prices } from "../src/prices"
 import { addUser } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
@@ -96,6 +99,43 @@ function hornet() {
 }
 
 describe("collection card", () => {
+  it("reads Minting now while a mint runs, with no stage or price, and leaves the row out once it stopped", async () => {
+    const stage = (endTime: number) => ({
+      type: "public",
+      label: "Public",
+      priceWei: eth(0.0005),
+      startTime: NOW - 2 * H,
+      endTime,
+      maxPerWallet: null,
+      allowlistCount: null,
+    })
+    const mint = (contract: `0x${string}`) =>
+      nftMint({
+        contract,
+        stageIndex: 0,
+        stageLabel: "Public",
+        minted: "1104",
+        maxSupply: "2222",
+        blockTimestamp: NOW - 2 * H,
+        stageStartTs: NOW - 2 * H,
+        mintStartTs: NOW - 2 * H,
+      })
+    const ended = addr(0xc5)
+    await boot([
+      nftCollection(),
+      nftDrop({ stages: [stage(NOW + 2 * H)] }),
+      mint(C),
+      nftCollection({ contract: ended, name: "Ended", slug: "ended" }),
+      nftDrop({ contract: ended, stages: [stage(NOW - H)] }),
+      mint(ended),
+    ])
+    mkBot()
+    await h.text(`/nft ${C}`)
+    expect(h.last("sendPhoto")!.caption).toContain("<code>mint     Minting now</code>")
+    await h.text(`/nft ${ended}`)
+    expect(h.last("sendPhoto")!.caption).not.toContain("<code>mint")
+  })
+
   it("opens from /nft by slug with the card rows, as a photo with the card as caption", async () => {
     await boot(hornet())
     mkBot()
@@ -305,20 +345,38 @@ describe("lists", () => {
     await watch(sql, { userId: u }, addr(0xc3))
     await h.tap("nl:m")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Minting now</b>")
+    expect(m.text).toBe(
+      [
+        "<b>Minting Now</b>",
+        "",
+        "NFT collections with an active mint stage are displayed below, regardless of your eligibility. Tap one of the buttons below to view more details about that collection.",
+        "",
+        "Percentage values are total mint progress. E.g., 50% is 50/100 mints.",
+      ].join("\n"),
+    )
     expect(texts(m)).toEqual([["Ink Hornet · FCFS · 49%"], ["Watched One · FCFS · 49%"], ["Back"]])
     expect(kbOf(m)[0]![0]!.callback_data).toBe(`nc:${addr(0xc1)}:m`)
     expect(kbOf(m).at(-1)![0]!.callback_data).toBe("nfts")
     for (const row of texts(m)) expect(row[0]!.length).toBeLessThanOrEqual(30)
   })
 
-  it("a card opened from a list ends with Back to that list", async () => {
+  it("sends a card from a list without waiting for Telegram to answer the tap", async () => {
+    await boot([...live(addr(0xc1), "Ink Hornet")])
+    mkBot()
+    let release!: (v: boolean) => void
+    h.on("answerCallbackQuery", () => new Promise((r) => (release = r)))
+    await Promise.race([h.tap(`nc:${addr(0xc1)}:m`), new Promise((r) => setTimeout(r, 1000))])
+    expect(h.last("sendPhoto")).toBeDefined()
+    release(true)
+  })
+
+  it("a card opened from a list arrives as a new message without Back", async () => {
     await boot([...live(addr(0xc1), "Ink Hornet")])
     mkBot()
     await h.tap(`nc:${addr(0xc1)}:m`)
     const kb = kbOf(h.last("sendPhoto"))
-    expect(kb.at(-1)).toEqual([{ text: "Back", callback_data: "nl:m" }])
-    expect(kb[0]![0]!.callback_data).toBe(`nw:${addr(0xc1)}:1h:m`)
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
+    expect(kb[0]![0]!.callback_data).toBe(`nw:${addr(0xc1)}:1h`)
   })
 
   it("Upcoming lists the next 7 days by start time", async () => {
@@ -343,14 +401,51 @@ describe("lists", () => {
     // NOW = T0 + 40 days = Nov 1 2026 (T0 is 1,790,000,000 → Sep 21 2026 + 40d).
     await h.tap("nl:u")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Upcoming</b>")
+    expect(m.text).toBe(
+      [
+        "<b>Upcoming Mints</b>",
+        "",
+        "NFT collections with a mint stage starting in the next 7 days. If you want to be notified of all mint stages of a collection, add it to your watchlist with /watch &lt;collection name&gt;.",
+      ].join("\n"),
+    )
     expect(texts(m)).toEqual([["Sooner · Nov 2 17:00 UTC"], ["Later · Nov 3 10:00 UTC"], ["Back"]])
+  })
+
+  it("opens a collection from Upcoming as the UPCOMING MINT alert, with its DM buttons", async () => {
+    const stage = (label: string, at: number, price: string) => ({
+      type: "allow_list",
+      label,
+      priceWei: price,
+      startTime: at,
+      endTime: null,
+      maxPerWallet: null,
+      allowlistCount: 100,
+    })
+    const drop = nftDrop({
+      stages: [stage("GTD", NOW + 26 * H, "0"), stage("Public", NOW + 30 * H, eth(0.0005))],
+      blockTimestamp: NOW,
+    })
+    await boot([nftCollection({ name: "Ink Hornet" }), drop])
+    mkBot()
+    const user = await addUser(sql, 100)
+    await watch(sql, { userId: user }, C)
+    await h.tap(`nc:${C}:u`)
+    const p = h.last("sendPhoto")!
+    const alert = mintRules({ id: "x", p: drop } as never, null, { nft: state, now: () => NOW })[0]!
+    expect(p.caption).toBe(renderNftAlert(alert.card as NftAlertCard))
+    expect(p.caption).not.toContain("volume")
+    const kb = kbOf(p)
+    expect(texts(p)).toEqual([["View", "Watching", "Mute"], ["Remind me"]])
+    expect(kb[0]!.slice(1).map((b) => b.callback_data)).toEqual([`nws:${C}`, `nm:${C}`])
+    expect(kb[1]![0]!.callback_data).toBe(`nrm:${C}`)
   })
 
   it("says so when a list is empty", async () => {
     await boot(hornet())
     mkBot()
     await h.tap("nl:u")
-    expect(h.last("editMessageText")!.text).toBe("<b>Upcoming</b>\nNo results in the next 7 days.")
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Upcoming Mints</b>\n\nNo results in the next 7 days.",
+    )
   })
 })

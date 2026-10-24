@@ -57,6 +57,20 @@ function xUrl(v: string | null | undefined): string | null {
   return handle ? `https://x.com/${handle[1]}` : safeUrl(v)
 }
 
+/** X, Website and Discord links from creator-set values: http(s) only, an X handle becomes its x.com page. */
+export function collectionLinks(
+  l: { twitter: string | null; website: string | null; discord: string | null } | undefined,
+): NftAlertCard["links"] {
+  const links: NftAlertCard["links"] = []
+  const x = xUrl(l?.twitter)
+  const site = safeUrl(l?.website)
+  const discord = safeUrl(l?.discord)
+  if (x) links.push({ label: "X", url: x })
+  if (site) links.push({ label: "Website", url: site })
+  if (discord) links.push({ label: "Discord", url: discord })
+  return links
+}
+
 /** The `creator` row: the OpenSea username (with ✓ when verified), else the short address; null when unknown. */
 export function creatorRow(col: NftCollectionEvent | null): [string, string] | null {
   const c = col?.creator
@@ -85,13 +99,7 @@ export function makeNftAlertCard(
 ): NftAlertCard {
   const contract = col?.contract ?? opts.contract ?? ""
   const item = opts.tokenId !== undefined && opts.imageUrl ? opts.imageUrl : null
-  const links: NftAlertCard["links"] = []
-  const x = xUrl(col?.links.twitter)
-  const site = safeUrl(col?.links.website)
-  const discord = safeUrl(col?.links.discord)
-  if (x) links.push({ label: "X", url: x })
-  if (site) links.push({ label: "Website", url: site })
-  if (discord) links.push({ label: "Discord", url: discord })
+  const links = collectionLinks(col?.links)
   return {
     alert,
     title,

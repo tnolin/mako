@@ -23,6 +23,7 @@ import { sendWelcome } from "./welcome"
 export const SETUP_LINE = "Run /setup in the topic where MAKO should post alerts."
 export const GUIDE = [
   "<b>Set up MAKO in a group</b>",
+  "",
   "1. Run /setup in the topic where alerts should go (or in the chat if it has no topics).",
   "2. Optional: run /route in other topics to send chosen alerts there.",
   "3. Tap Open settings to choose feeds, thresholds and images in your DM with MAKO.",
@@ -274,7 +275,7 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
           `https://t.me/${ctx.me.username}?startgroup=setup&admin=post_messages+manage_topics`,
         ),
       ],
-      [btn("Add a channel", "gc:addch")],
+      [btn("Add to a channel", "gc:addch")],
       [btn("Menu", "m")],
     ])
   })

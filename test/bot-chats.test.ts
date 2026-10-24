@@ -276,6 +276,7 @@ describe("chat settings in the DM", () => {
         url: "https://t.me/makoinkbot?startgroup=setup&admin=post_messages+manage_topics",
       },
     ])
+    expect(kb[2]).toEqual([{ text: "Add to a channel", callback_data: "gc:addch" }])
   })
 })
 

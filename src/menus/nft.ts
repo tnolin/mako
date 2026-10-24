@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { age, clean, count, escapeHtml, inText, utcDate, utcTime } from "../format"
-import { creatorRow, ethText, makeNftAlertCard, shortAddr } from "../nft/card"
+import { collectionLinks, creatorRow, ethText, makeNftAlertCard, shortAddr } from "../nft/card"
 import { floorAt, lastSaleOf, recentSales, salesSince } from "../nft/history"
 import {
   type Match,
@@ -14,10 +14,12 @@ import {
 } from "../nft/match"
 import type { ItemData } from "../nft/opensea"
 import { isTeamStage } from "../nft/policy"
+import { mintLive, upcomingCard } from "../nft/rules/mint"
 import type { CollectionState } from "../nft/state"
+import { viewerState } from "../nft/watches"
 import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
-import { renderRows } from "../platforms/telegram/render"
+import { nftAlertKeyboard, renderNftAlert, renderRows } from "../platforms/telegram/render"
 import {
   btn,
   chosenBtn,
@@ -29,7 +31,6 @@ import {
   threadOf,
 } from "../platforms/telegram/ui"
 import { NATIVE } from "../prices"
-import { chatFromCode } from "./chat-code"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
@@ -47,7 +48,9 @@ export const COPY = {
   noMinting: "There are no live mints detected right now.",
   noUpcoming: "No results in the next 7 days.",
   noTrending: "No Ink collections are trending in this timeframe.",
-  trendingTitle: "Trending",
+  trendingTitle: "Trending NFTs",
+  trendingIntro:
+    "The Ink collections trending on OpenSea for the selected timeframe with its current floor price.",
   trendingDown: "Trending isn't available right now. Try again in a few minutes.",
 } as const
 const NO_RANK = "No rarity rank on OpenSea for this collection."
@@ -55,8 +58,6 @@ const PARTIAL = "Some details are unavailable right now."
 export const SHORT = "Send at least 3 characters"
 
 const nowS = (deps: BotDeps) => deps.now?.() ?? Math.floor(Date.now() / 1000)
-const sameDay = (a: number, b: number) => utcDate(a) === utcDate(b)
-const price = (wei: string) => (BigInt(wei) === 0n ? "free" : ethText(BigInt(wei), null))
 const knownMax = (m: string | null | undefined): m is string => !!m && BigInt(m) > 0n
 
 /** The latest minted count and supply the state saw, from the newest mint event. */
@@ -67,23 +68,10 @@ function latestMint(st: CollectionState) {
   return best ?? null
 }
 
-/** The `mint` row: where the mint stands now, or null for a collection with no mint phase. */
+/** The `mint` row: Minting now, or how long a sold-out mint took; null otherwise. */
 function mintRow(st: CollectionState, now: number): string | null {
   if (st.soldOut) return `sold out in ${age(st.soldOut.blockTimestamp - st.soldOut.mintStartTs)}`
-  const stages = (st.drop?.stages ?? []).filter((s) => !isTeamStage(s))
-  const cur = stages.find((s) => s.startTime <= now && (s.endTime === null || now < s.endTime))
-  if (cur) {
-    const end =
-      cur.endTime === null ? "" : `, ends ${utcTime(cur.endTime, !sameDay(cur.endTime, now))}`
-    return `${clean(cur.label, 12)} now · ${price(cur.priceWei)}${end}`
-  }
-  const next = stages.find((s) => s.startTime > now)
-  if (next)
-    return `next ${clean(next.label, 12)} ${utcTime(next.startTime, true)} · ${price(next.priceWei)}`
-  const m = latestMint(st)
-  return m && knownMax(m.maxSupply)
-    ? `${Number((BigInt(m.minted) * 100n) / BigInt(m.maxSupply))}% minted`
-    : null
+  return mintLive(st, now) ? "Minting now" : null
 }
 
 export type CollectionCard = {
@@ -184,21 +172,68 @@ async function isWatching(deps: BotDeps, ctx: Context, contract: string): Promis
   )
 }
 
-const suffix = (code?: string) => (code ? `:${code}` : "")
-/**
- * Back from a card opened in a list: w is Watched NFTs and x is Muted NFTs, z<chat code> is a group's
- * Watched NFTs (in the DM), the rest are the lists.
- */
-const backTo = (code: string) =>
-  code === "w"
-    ? "nwl"
-    : code === "x"
-      ? "nml"
-      : code.startsWith("z")
-        ? `gl:${chatFromCode(code.slice(1))}:n`
-        : `nl:${code}`
 const viewUrl = (deps: BotDeps, contract: string, slug: string | null) =>
   slug ? `${deps.linksBase}/n/c/${slug}` : `${deps.linksBase}/n/a/${contract}`
+
+/** Answers the tap without waiting for Telegram, so the card's reads and image start at once. */
+const answerTap = (ctx: Context) => {
+  if (ctx.callbackQuery) void ctx.answerCallbackQuery().catch(() => {})
+}
+
+/** Watch in a DM (green Watching when set), a deep link into the DM elsewhere. */
+const watchBtn = (ctx: Context, contract: string, watching: boolean): InlineKeyboardButton =>
+  ctx.chat?.type === "private"
+    ? stateBtn(
+        { on: watching, off: "Watch", onText: "Watching" },
+        `${watching ? "nws" : "nwa"}:${contract}`,
+      )
+    : link("Watch", `https://t.me/${ctx.me.username}?start=wn_${contract}`)
+
+/**
+ * A collection MAKO has no events for (one from Trending), read live from OpenSea and laid out like the
+ * collection card. Without MAKO's history it has no window or Recent sales buttons.
+ */
+async function sendLiveCard(ctx: Context, deps: BotDeps, contract: string): Promise<void> {
+  answerTap(ctx)
+  const live = deps.items ? await deps.items.collection(contract) : "unavailable"
+  const d = live === "unavailable" ? null : live
+  const rate = deps.prices.usd(NATIVE)
+  const rows: [string, string][] = []
+  if (d?.floorWei != null) rows.push(["floor", ethText(d.floorWei, rate)])
+  if (d?.volume24hWei != null) rows.push(["volume", `${ethText(d.volume24hWei, rate)} (24h)`])
+  if (d?.sales24h != null) rows.push(["sales", `${count(d.sales24h)} (24h)`])
+  if (d?.totalSupply) rows.push(["supply", count(d.totalSupply)])
+  if (d?.owners != null) rows.push(["holders", count(d.owners)])
+  const stats = d && (d.floorWei ?? d.volume24hWei ?? d.sales24h ?? d.owners) !== null
+  const name = clean(d?.name, 64) || shortAddr(contract)
+  const lines = [
+    `<b>${escapeHtml(name)}${d?.verified ? " ✓" : ""} · OpenSea</b>`,
+    "",
+    ...renderRows(rows),
+    ...(stats ? [] : [PARTIAL]),
+    "",
+    `CA   <code>${contract}</code>`,
+  ]
+  const links = collectionLinks(d?.links)
+  if (links.length > 0) {
+    lines.push(links.map((l) => `<a href="${escapeHtml(l.url)}">${l.label}</a>`).join(" · "))
+  }
+  await deps.images.send(ctx.api, {
+    chat: ctx.chat!.id,
+    thread: threadOf(ctx),
+    imageKey: `nft:${contract}`,
+    imageUrl: d?.imageUrl ?? null,
+    html: lines.join("\n"),
+    reply_markup: {
+      inline_keyboard: [
+        [
+          watchBtn(ctx, contract, await isWatching(deps, ctx, contract)),
+          link("View", viewUrl(deps, contract, d?.slug ?? null)),
+        ],
+      ],
+    },
+  })
+}
 
 function cardKb(
   deps: BotDeps,
@@ -207,39 +242,55 @@ function cardKb(
   contract: string,
   win: Window,
   watching: boolean,
-  code?: string,
 ): Kb {
-  const dm = ctx.chat?.type === "private"
-  const watch: InlineKeyboardButton = dm
-    ? stateBtn(
-        { on: watching, off: "Watch", onText: "Watching" },
-        `${watching ? "nws" : "nwa"}:${contract}`,
-      )
-    : link("Watch", `https://t.me/${ctx.me.username}?start=wn_${contract}`)
-  const kb: Kb = [
-    WINDOWS.map((w) => chosenBtn(w, w === win, `nw:${contract}:${w}${suffix(code)}`)),
+  const watch = watchBtn(ctx, contract, watching)
+  return [
+    WINDOWS.map((w) => chosenBtn(w, w === win, `nw:${contract}:${w}`)),
     [
       watch,
-      btn("Recent sales", `nr:${contract}:1${suffix(code)}`),
+      btn("Recent sales", `nr:${contract}:1`),
       link("View", viewUrl(deps, contract, card.slug)),
     ],
   ]
-  if (code) kb.push([btn("Back", backTo(code))])
-  return kb
+}
+
+/**
+ * A collection opened from the Upcoming list is shown as its UPCOMING MINT alert, with the buttons that
+ * alert has in this chat. False when the mint has started, so the caller sends the collection card.
+ */
+async function sendUpcomingCard(ctx: Context, deps: BotDeps, contract: string): Promise<boolean> {
+  const st = deps.nft?.()?.get(contract)
+  const card = st?.drop ? upcomingCard(st.col, st.drop, nowS(deps)) : null
+  if (!card) return false
+  answerTap(ctx)
+  const dm = ctx.chat?.type === "private"
+  const user = dm && ctx.from ? await findUser(deps.sql, ctx.from.id) : null
+  const state = user ? await viewerState(deps.sql, user.id, contract) : undefined
+  await deps.images.send(ctx.api, {
+    chat: ctx.chat!.id,
+    thread: threadOf(ctx),
+    imageKey: card.imageKey,
+    imageUrl: card.imageUrl,
+    html: renderNftAlert(card),
+    reply_markup: nftAlertKeyboard(card, {
+      chatType: ctx.chat!.type,
+      linksBase: deps.linksBase,
+      botUsername: ctx.me.username,
+      ...(state ? { state } : {}),
+    }),
+  })
+  return true
 }
 
 /** A new message: the card as a padded photo with the card as caption, or as text. */
-async function sendCard(
-  ctx: Context,
-  deps: BotDeps,
-  contract: string,
-  win: Window,
-  code?: string,
-): Promise<void> {
+async function sendCard(ctx: Context, deps: BotDeps, contract: string, win: Window): Promise<void> {
   const card = await collectionCard(deps, contract, win)
-  if (!card) return void (await show(ctx, COPY.none))
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
-  const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract), code)
+  if (!card) {
+    if (deps.items) return sendLiveCard(ctx, deps, contract)
+    return void (await show(ctx, COPY.none))
+  }
+  answerTap(ctx)
+  const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract))
   await deps.images.send(ctx.api, {
     chat: ctx.chat!.id,
     thread: threadOf(ctx),
@@ -286,11 +337,10 @@ async function windowCard(
   deps: BotDeps,
   contract: string,
   win: Window,
-  code?: string,
 ): Promise<void> {
   const card = await collectionCard(deps, contract, win)
   if (!card) return void (await ctx.answerCallbackQuery({ text: COPY.none }).catch(() => {}))
-  const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract), code)
+  const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract))
   await editCard(ctx, deps, card.html, kb)
 }
 
@@ -300,7 +350,6 @@ async function salesPage(
   deps: BotDeps,
   contract: string,
   page: number,
-  code?: string,
 ): Promise<void> {
   const st = deps.nft?.()?.get(contract)
   if (!st) return void (await ctx.answerCallbackQuery({ text: COPY.none }).catch(() => {}))
@@ -324,12 +373,12 @@ async function salesPage(
     `page ${page} of ${pages}`,
   ].join("\n")
   const nav: InlineKeyboardButton[] = []
-  if (page > 1) nav.push(btn("‹ Newer", `nr:${contract}:${page - 1}${suffix(code)}`))
-  if (page < pages) nav.push(btn("Older ›", `nr:${contract}:${page + 1}${suffix(code)}`))
+  if (page > 1) nav.push(btn("‹ Newer", `nr:${contract}:${page - 1}`))
+  if (page < pages) nav.push(btn("Older ›", `nr:${contract}:${page + 1}`))
   const kb: Kb = []
   if (nav.length > 0) kb.push(nav)
   kb.push([
-    btn("Back", `nw:${contract}:24h${suffix(code)}`),
+    btn("Back", `nw:${contract}:24h`),
     link("OpenSea", slug ? `${deps.linksBase}/n/s/${slug}` : viewUrl(deps, contract, null)),
   ])
   await editCard(ctx, deps, html, kb)
@@ -413,7 +462,7 @@ async function sendItemCard(
     if (ctx.callbackQuery) return void (await ctx.answerCallbackQuery({ text }).catch(() => {}))
     return void (await show(ctx, text))
   }
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+  answerTap(ctx)
   const calc = deps.nft?.()?.get(contract)?.col?.rarityCalculatedAt
   const data = deps.items
     ? await deps.items.get(contract, tokenId, calc == null ? null : String(calc))
@@ -446,7 +495,7 @@ type ListRow = { contract: string; label: string }
 const TIMEFRAME = { t1: "one_hour", t24: "one_day", t7: "seven_days" } as const
 const TREND_LABEL = { t1: "1h", t24: "24h", t7: "7d" } as const
 
-/** OpenSea's trending Ink collections that MAKO knows, with their floor from its own stats. */
+/** OpenSea's trending Ink collections in its order, with the floor from MAKO's stats where it knows one. */
 async function trendingRows(
   deps: BotDeps,
   code: keyof typeof TIMEFRAME,
@@ -455,16 +504,12 @@ async function trendingRows(
   if (!state) return null
   const trending = deps.items ? await deps.items.trending(TIMEFRAME[code]) : "unavailable"
   if (trending === "unavailable") return "down"
-  const rows: ListRow[] = []
-  for (const t of trending) {
-    const hit = state.matches(t.slug).find((m) => m.tier === 1)?.state
-    const contract = hit?.col?.contract
-    if (!hit || !contract) continue
-    const floor = hit.stats?.floorWei ? ` · ${ethText(BigInt(hit.stats.floorWei), null)} floor` : ""
-    rows.push({ contract, label: withTail(clean(t.name, 64), floor, 30) })
-    if (rows.length === 10) break
-  }
-  return rows
+  // OpenSea's trending response has no prices, so the floor is MAKO's own, when it has one.
+  return trending.slice(0, 10).map((t) => {
+    const floorWei = state.get(t.contract)?.stats?.floorWei
+    const floor = floorWei ? ` · ${ethText(BigInt(floorWei), null)} floor` : ""
+    return { contract: t.contract, label: withTail(clean(t.name, 64), floor, 30) }
+  })
 }
 
 async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<ListRow[] | null> {
@@ -523,8 +568,17 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
   return null
 }
 
-const LIST_TITLE: Record<string, string> = { m: "Minting now", u: "Upcoming" }
+const LIST_TITLE: Record<string, string> = { m: "Minting Now", u: "Upcoming Mints" }
 const LIST_EMPTY: Record<string, string> = { m: COPY.noMinting, u: COPY.noUpcoming }
+/** Shown under the title when the list has rows. */
+const LIST_INTRO: Record<string, string> = {
+  m: [
+    "NFT collections with an active mint stage are displayed below, regardless of your eligibility. Tap one of the buttons below to view more details about that collection.",
+    "",
+    "Percentage values are total mint progress. E.g., 50% is 50/100 mints.",
+  ].join("\n"),
+  u: "NFT collections with a mint stage starting in the next 7 days. If you want to be notified of all mint stages of a collection, add it to your watchlist with /watch &lt;collection name&gt;.",
+}
 
 async function showTrending(
   ctx: Context,
@@ -532,7 +586,7 @@ async function showTrending(
   code: keyof typeof TIMEFRAME,
 ): Promise<void> {
   const rows = await trendingRows(deps, code)
-  const title = `<b>${COPY.trendingTitle}</b>`
+  const title = `<b>${COPY.trendingTitle} (${TREND_LABEL[code]})</b>`
   const back: Kb = [[btn("Back", "nfts")]]
   const frames: Kb = [
     (Object.keys(TIMEFRAME) as (keyof typeof TIMEFRAME)[]).map((c) =>
@@ -544,11 +598,15 @@ async function showTrending(
     return void (await show(ctx, `${title}\n${COPY.trendingDown}`, [...frames, ...back]))
   if (rows.length === 0)
     return void (await show(ctx, `${title}\n${COPY.noTrending}`, [...frames, ...back]))
-  await show(ctx, title, [
+  await show(ctx, `${title}\n${COPY.trendingIntro}`, [
     ...frames,
     ...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]),
     ...back,
   ])
+  // Once the list is sent, the stats of the rows MAKO has no data for are read in the background, so a
+  // tap opens from the cache.
+  const state = deps.nft?.()
+  void deps.items?.prefetch(rows.map((r) => r.contract).filter((c) => !state?.get(c)))
 }
 
 async function showList(ctx: Context, deps: BotDeps, code: string): Promise<void> {
@@ -558,7 +616,11 @@ async function showList(ctx: Context, deps: BotDeps, code: string): Promise<void
   if (rows === null) return void (await show(ctx, COPY.loading, [[btn("Back", "nfts")]]))
   const back: Kb = [[btn("Back", "nfts")]]
   if (rows.length === 0) return void (await show(ctx, `${title}\n${LIST_EMPTY[code]}`, back))
-  await show(ctx, title, [...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]), ...back])
+  const intro = LIST_INTRO[code]
+  await show(ctx, intro ? `${title}\n${intro}` : title, [
+    ...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]),
+    ...back,
+  ])
 }
 
 /** `/nft <collection> [window]` and the pick list: sends the card, the pick list or the reason there is none. */
@@ -631,14 +693,17 @@ export async function tryNftPaste(ctx: Context, deps: BotDeps, text: string): Pr
 
 export function registerNft(bot: Bot, deps: BotDeps): void {
   bot.command("nft", (ctx) => nftCommand(ctx, deps, ctx.match))
-  bot.callbackQuery(/^nc:(0x[0-9a-f]{40})(?::([a-z0-9]+))?$/, (ctx) =>
-    sendCard(ctx, deps, ctx.match[1]!, "24h", ctx.match[2]),
-  )
+  bot.callbackQuery(/^nc:(0x[0-9a-f]{40})(?::([a-z0-9]+))?$/, async (ctx) => {
+    const contract = ctx.match[1]!
+    if (ctx.match[2] === "u" && (await sendUpcomingCard(ctx, deps, contract))) return
+    await sendCard(ctx, deps, contract, "24h")
+  })
+  // Older buttons carry the list a card came from; it no longer matters.
   bot.callbackQuery(/^nw:(0x[0-9a-f]{40}):(1h|24h|7d|30d)(?::([a-z0-9]+))?$/, (ctx) =>
-    windowCard(ctx, deps, ctx.match[1]!, ctx.match[2] as Window, ctx.match[3]),
+    windowCard(ctx, deps, ctx.match[1]!, ctx.match[2] as Window),
   )
   bot.callbackQuery(/^nr:(0x[0-9a-f]{40}):([0-9]{1,4})(?::([a-z0-9]+))?$/, (ctx) =>
-    salesPage(ctx, deps, ctx.match[1]!, Math.max(1, Number(ctx.match[2])), ctx.match[3]),
+    salesPage(ctx, deps, ctx.match[1]!, Math.max(1, Number(ctx.match[2]))),
   )
   bot.callbackQuery(/^ni:(0x[0-9a-f]{40}):([0-9]{1,78})$/, (ctx) =>
     sendItemCard(ctx, deps, ctx.match[1]!, ctx.match[2]!),

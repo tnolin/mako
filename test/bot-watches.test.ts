@@ -289,7 +289,7 @@ describe("from a group", () => {
     await h.tap("gl:-1001:n")
     const m = h.last("editMessageText")!
     expect(m.text).toBe(
-      "<b>Watched NFTs for Test Group</b>\nThese are all the NFT collections you are currently watching. If you no longer wish to receive alerts for these, simply click Remove next to each collection.",
+      "<b>Watched NFTs for Test Group</b>\n\nThese are all the NFT collections you are currently watching. If you no longer wish to receive alerts for these, simply click Remove next to each collection.",
     )
     expect(kbOf(m)).toEqual([
       [
@@ -319,17 +319,17 @@ describe("from a group", () => {
     await h.tap(`gl:-1001:n:${C}`)
     expect(popupText()).toBe(popup.stop(N))
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>Watched NFTs for Test Group</b>\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
+      "<b>Watched NFTs for Test Group</b>\n\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
     )
     expect(await rows("nft_watches")).toHaveLength(0)
   })
 
-  it("a collection opened from a group's list has Back to that list", async () => {
+  it("a collection opened from a group's list arrives without Back", async () => {
     await addChat(sql, -1001, "supergroup")
     await watch(sql, { chatId: "-1001" }, C)
     await h.tap(`nc:${C}:zs1`)
-    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
-    expect(back).toEqual([{ text: "Back", callback_data: "gl:-1001:n" }])
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
   })
 
   it("the Watched lists never open in a group", async () => {
@@ -376,7 +376,7 @@ describe("Watched NFTs and Muted NFTs", () => {
     await watch(sql, { userId }, C)
     await h.tap("nwl")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe(`<b>Watched NFTs</b>\n${WATCHED_INTRO}`)
+    expect(m.text).toBe(`<b>Watched NFTs</b>\n\n${WATCHED_INTRO}`)
     expect(kbOf(m)).toEqual([
       [
         { text: N, callback_data: `nc:${C}:w` },
@@ -400,7 +400,7 @@ describe("Watched NFTs and Muted NFTs", () => {
     await h.tap(`nwl:rm:${C}`)
     expect(popupText()).toBe(popup.stop(N))
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>Watched NFTs</b>\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
+      "<b>Watched NFTs</b>\n\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
     )
     expect(await rows("nft_watches")).toHaveLength(0)
   })
@@ -410,7 +410,7 @@ describe("Watched NFTs and Muted NFTs", () => {
     await h.tap("nml")
     const m = h.last("editMessageText")!
     expect(m.text).toBe(
-      "<b>Muted NFTs</b>\nI won't send you any alerts about these. Tap Unmute to undo.",
+      "<b>Muted NFTs</b>\n\nI won't send you any alerts about these. Tap Unmute to undo.",
     )
     expect(kbOf(m)).toEqual([
       [
@@ -422,14 +422,14 @@ describe("Watched NFTs and Muted NFTs", () => {
     h.clear()
     await h.tap(`nml:um:${C}`)
     expect(popupText()).toBe(popup.unmute(N))
-    expect(h.last("editMessageText")!.text).toBe("<b>Muted NFTs</b>\nYou haven't muted anything.")
+    expect(h.last("editMessageText")!.text).toBe("<b>Muted NFTs</b>\n\nYou haven't muted anything.")
   })
 
-  it("a collection opened from a list has Back to that list", async () => {
+  it("a collection opened from a list arrives without Back", async () => {
     await watch(sql, { userId }, C)
     await h.tap(`nc:${C}:w`)
-    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
-    expect(back).toEqual([{ text: "Back", callback_data: "nwl" }])
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
   })
 })
 

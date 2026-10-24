@@ -66,11 +66,10 @@ describe("main menu", () => {
     await h.text("/menu")
     const p = h.last("sendMessage")!
     expect(labels(p)).toEqual([
-      ["Add to group or channel ↗"],
+      ["Add to group or channel"],
       ["Tokens", "NFTs"],
       ["My alerts", "Settings"],
-      ["Help"],
-      ["Community ↗", "X ↗"],
+      ["Help", "Community"],
     ])
     const kb = rows(p)
     expect(kb[0]![0]!.url).toBe(
@@ -79,8 +78,10 @@ describe("main menu", () => {
     expect(kb[1]!.map((b) => b.callback_data)).toEqual(["tk", "nfts"])
     expect(kb[2]!.map((b) => b.callback_data)).toEqual(["al:u", "st"])
     expect(kb[3]![0]!.callback_data).toBe("h")
-    expect(kb[4]![0]!.url).toMatch(/^https:/)
-    expect(kb[4]![1]!.url).toBe("https://x.com/MakoInkBot")
+    expect(kb[3]![1]!.url).toBe("https://t.me/MakoOnInk")
+    expect(kb.flat().some((b) => b.url?.includes("x.com"))).toBe(false)
+    // Telegram marks link buttons itself, so no label carries an arrow.
+    expect(kb.flat().some((b) => b.text.includes("↗"))).toBe(false)
   })
 
   it("escapes and cuts the first name, and never stores or logs it", async () => {
@@ -185,17 +186,18 @@ describe("onboarding", () => {
 })
 
 describe("Tokens and NFTs screens", () => {
-  it("Tokens screen text is exact and links the launchpad through the redirect", async () => {
+  it("Tokens screen text is exact", async () => {
     await h.tap("tk")
     const p = h.last("editMessageText")!
     expect(p.text).toBe(
       [
         "<b>Tokens</b>",
-        "Alerts and lists for tokens launched on Ink.",
-        'Supported: <a href="https://go.makobot.xyz/inkypump">InkyPump</a>',
         "",
-        "/t &lt;address&gt; look up a token",
-        "/watch &lt;address&gt; watch a token",
+        "Alerts and lists for tokens launched on Ink.",
+        "",
+        "Available Commands:",
+        "/t &lt;address&gt; - Looks up a token.",
+        "/watch &lt;address&gt; - Adds a token to your watchlist.",
       ].join("\n"),
     )
     expect(labels(p)).toEqual([
@@ -215,6 +217,7 @@ describe("Tokens and NFTs screens", () => {
     expect(p.text).toBe(
       [
         "<b>NFTs</b>",
+        "",
         "Alerts and lists for NFT collections on Ink.",
         'Supported: <a href="https://go.makobot.xyz/p/opensea">OpenSea</a>, <a href="https://go.makobot.xyz/p/chimera">Chimera</a>',
         "",
@@ -302,12 +305,12 @@ describe("Help", () => {
     await h.tap("h")
     const p = h.last("editMessageText")!
     expect(p.text).toBe(
-      "<b>Help</b>\nMAKO posts alerts for Ink tokens and NFTs in your DM, your groups and your channels.",
+      "<b>Help</b>\n\nMAKO posts alerts for Ink tokens and NFTs in your DM, your groups and your channels.",
     )
     expect(labels(p)).toEqual([
       ["Alerts explained", "Group setup"],
       ["Watched & Muted", "Privacy"],
-      ["Community ↗", "Menu"],
+      ["Community", "Menu"],
     ])
     expect(
       rows(p)
@@ -315,7 +318,7 @@ describe("Help", () => {
         .map((b) => b.callback_data),
     ).toEqual(["h:alerts", "h:group", "h:watched", "h:privacy", undefined, "m"])
     await h.tap("h", { chat: G })
-    expect(labels(h.last("editMessageText"))[2]).toEqual(["Community ↗"])
+    expect(labels(h.last("editMessageText"))[2]).toEqual(["Community"])
   })
 
   it("Alerts explained uses the alert-screen lines at the default thresholds", async () => {
@@ -323,17 +326,20 @@ describe("Help", () => {
     const p = h.last("editMessageText")!
     expect(p.text).toBe(
       [
-        "<b>Alerts explained</b>",
-        "<b>Token alerts</b>",
+        "<b>Alerts Explained</b>",
+        "",
+        "<u>Token Alerts</u>",
         ...DEFAULTS.token,
         "Percentages in token alerts are a share of the token's total supply.",
-        "<b>NFT alerts</b>",
+        "",
+        "<u>NFT Alerts</u>",
         ...DEFAULTS.all,
-        "<b>Watched NFTs only</b>",
+        "",
+        "<u>Watched NFT Alerts</u>",
         ...DEFAULTS.watched,
       ].join("\n"),
     )
-    expect(labels(p)).toEqual([["Help", "Menu"]])
+    expect(labels(p)).toEqual([["Help"]])
   })
 
   it("Watched & Muted, Group setup and Privacy match the exact text", async () => {
@@ -341,6 +347,7 @@ describe("Help", () => {
     expect(h.last("editMessageText")!.text).toBe(
       [
         "<b>Watched &amp; Muted</b>",
+        "",
         "<b>Watching</b>: I'll send you every alert type for tokens or NFTs that you add to your watchlist, even for the alerts turned off. This also includes mint reminders 15 minutes before each mint stage.",
         "",
         "<b>Muted</b>: I won't send you any alerts on tokens or NFTs that you mute. If it is on your watchlist, it is removed automatically.",
@@ -352,6 +359,7 @@ describe("Help", () => {
     expect(h.last("editMessageText")!.text).toBe(
       [
         "<b>Group setup</b>",
+        "",
         "1. Tap Add to group or channel in the menu, and make MAKO an admin so it can post in topics.",
         "2. In the topic where alerts should go, send /setup. Every alert posts there by default.",
         "3. Want different alerts in different topics? Send /route in another topic and pick which alerts go there.",
@@ -368,6 +376,7 @@ describe("Help", () => {
     expect(h.last("editMessageText")!.text).toBe(
       [
         "<b>Privacy</b>",
+        "",
         "MAKO is an open-source project built to store as little data as possible. It does <b>not</b> store personal information like your name, username, phone number or messages. MAKO only stores your Telegram user ID, to remember your notification settings, the tokens and NFTs you watch or mute, your mint reminders, and the alerts queued for you (kept for 90 days).",
         "",
         "You can delete your data in Settings → Delete my data. Server backups are deleted after 14 days.",
@@ -376,7 +385,7 @@ describe("Help", () => {
   })
 
   it("ends every page with [Help] [Menu], and without Menu in a group", async () => {
-    for (const page of ["alerts", "group", "watched", "privacy"]) {
+    for (const page of ["group", "watched", "privacy"]) {
       await h.tap(`h:${page}`)
       expect(rows(h.last("editMessageText"))).toEqual([
         [
@@ -386,6 +395,46 @@ describe("Help", () => {
       ])
       await h.tap(`h:${page}`, { chat: G })
       expect(rows(h.last("editMessageText"))).toEqual([[{ text: "Help", callback_data: "h" }]])
+    }
+  })
+})
+
+describe("full-width line", () => {
+  it("ends every menu and list screen, and nothing without buttons", async () => {
+    await h.text("/start", { name: "Sam" })
+    const [menu, picker] = h.calls.filter((c) => c.method === "sendMessage").map((c) => c.payload)
+    expect(menu!.padded).toBe(true)
+    expect(picker!.padded).toBe(true)
+    for (const data of ["tk", "nfts", "l:hot", "l:near", "l:bonded", "nl:m", "nl:u", "h", "al:u"]) {
+      await h.tap(data)
+      expect(h.last("editMessageText")!.padded, data).toBe(true)
+    }
+    await h.text("/nft")
+    expect(h.last("sendMessage")!.padded).toBeUndefined()
+  })
+})
+
+describe("titles", () => {
+  it("leave one blank line before the first line of text on every screen", async () => {
+    await addUser(sql, 100)
+    for (const data of [
+      "tk",
+      "nfts",
+      "l:hot",
+      "l:near",
+      "l:bonded",
+      "h",
+      "h:alerts",
+      "h:watched",
+      "h:group",
+      "h:privacy",
+      "al:u",
+      "st",
+    ]) {
+      await h.tap(data)
+      const lines = (h.last("editMessageText")!.text as string).split("\n")
+      expect(lines[0], data).toMatch(/^<b>[^<]*<\/b>$/)
+      if (lines.length > 1) expect(lines[1], data).toBe("")
     }
   })
 })

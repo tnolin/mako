@@ -87,7 +87,9 @@ export async function cursorBlock(sql: Sql): Promise<string | null> {
 // shortcut: Ink makes one block per second, so the last day is the last 86,400 blocks.
 // Switch to blockTimestamp ranges if the block time changes.
 export const DAY_BLOCKS = 86_400
-const WEEK_BLOCKS = 7 * DAY_BLOCKS
+/** How far back the Near bonding and Recently bonded lists, and Hot now's fallback, look. */
+export const LIST_DAYS = 7
+const WEEK_BLOCKS = LIST_DAYS * DAY_BLOCKS
 
 function hottest(sql: Sql, blocks: number): Promise<{ token: string; trades: number }[]> {
   return sql<{ token: string; trades: number }[]>`
@@ -121,11 +123,13 @@ export function nearBonding(sql: Sql): Promise<{ token: string; soldBps: number 
     order by sold_bps desc, token limit 5`
 }
 
-/** Latest bonds. Uses events_type_id. */
+/** Latest bonds of the last 7 days. Uses events_type_id. */
 export function justBonded(sql: Sql): Promise<Row<BondEvent>[]> {
   return sql<Row<BondEvent>[]>`
     select id::text, payload as p from indexer.events
-    where type = 'launchpad.bond' order by events.id desc limit 5`
+    where type = 'launchpad.bond'
+      and block >= (select block - ${WEEK_BLOCKS} from indexer.cursors where source = 'inkypump')
+    order by events.id desc limit 5`
 }
 
 /**

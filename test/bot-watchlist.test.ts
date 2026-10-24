@@ -183,7 +183,7 @@ describe("Watched tokens and Muted tokens", () => {
     await h.tap("wl")
     const m = h.last("editMessageText")!
     expect(m.text).toBe(
-      "<b>Watched tokens</b>\nThese are all the tokens you are currently watching. If you no longer wish to receive alerts for these, simply click Remove next to each token.",
+      "<b>Watched tokens</b>\n\nThese are all the tokens you are currently watching. If you no longer wish to receive alerts for these, simply click Remove next to each token.",
     )
     expect(kbOf(m)).toEqual([
       [
@@ -199,7 +199,7 @@ describe("Watched tokens and Muted tokens", () => {
     await h.tap(`wl:rm:${A}`)
     expect(popupText()).toBe(popup.stop("$GOBLO"))
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>Watched tokens</b>\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
+      "<b>Watched tokens</b>\n\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
     )
   })
 
@@ -208,7 +208,7 @@ describe("Watched tokens and Muted tokens", () => {
     await h.tap("mu")
     const m = h.last("editMessageText")!
     expect(m.text).toBe(
-      "<b>Muted tokens</b>\nI won't send you any alerts about these. Tap Unmute to undo.",
+      "<b>Muted tokens</b>\n\nI won't send you any alerts about these. Tap Unmute to undo.",
     )
     expect(kbOf(m)).toEqual([
       [
@@ -220,13 +220,15 @@ describe("Watched tokens and Muted tokens", () => {
     h.clear()
     await h.tap(`um:${A}`)
     expect(popupText()).toBe(popup.unmute("$GOBLO"))
-    expect(h.last("editMessageText")!.text).toBe("<b>Muted tokens</b>\nYou haven't muted anything.")
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Muted tokens</b>\n\nYou haven't muted anything.",
+    )
   })
 
-  it("a token opened from a list has Back to that list", async () => {
+  it("a token opened from a list arrives without Back", async () => {
     await h.tap(`t:${A}:wl`)
-    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
-    expect(back).toEqual([{ text: "Back", callback_data: "wl" }])
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
   })
 
   it("creates no user from taps on old buttons after Delete my data", async () => {
@@ -323,7 +325,7 @@ describe("a group watches tokens", () => {
     await h.tap("gl:-1001:t")
     const m = h.last("editMessageText")!
     expect(m.text).toBe(
-      "<b>Watched tokens for Test Group</b>\nThese are all the tokens you are currently watching. If you no longer wish to receive alerts for these, simply click Remove next to each token.",
+      "<b>Watched tokens for Test Group</b>\n\nThese are all the tokens you are currently watching. If you no longer wish to receive alerts for these, simply click Remove next to each token.",
     )
     expect(kbOf(m)).toEqual([
       [
@@ -348,15 +350,15 @@ describe("a group watches tokens", () => {
     await h.tap(`gl:-1001:t:${A}`)
     expect(popupText()).toBe(popup.stop("$GOBLO"))
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>Watched tokens for Test Group</b>\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
+      "<b>Watched tokens for Test Group</b>\n\nYou're not watching anything yet. Tap Watch on any alert or card to add it here.",
     )
     expect(await groupWatches()).toEqual([])
   })
 
-  it("a token opened from the group's list has Back to that list", async () => {
+  it("a token opened from the group's list arrives without Back", async () => {
     await h.tap(`t:${A}:ys1`)
-    const back = kbOf(h.last("sendPhoto") ?? h.last("sendMessage")).at(-1)!
-    expect(back).toEqual([{ text: "Back", callback_data: "gl:-1001:t" }])
+    const kb = kbOf(h.last("sendPhoto") ?? h.last("sendMessage"))
+    expect(kb.flat().some((b) => b.text === "Back")).toBe(false)
   })
 
   it("the user's own Watched tokens never open in a group", async () => {

@@ -275,7 +275,7 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
           `https://t.me/${ctx.me.username}?startgroup=setup&admin=post_messages+manage_topics`,
         ),
       ],
-      [btn("Add a channel", "gc:addch")],
+      [btn("Add to a channel", "gc:addch")],
       [btn("Menu", "m")],
     ])
   })

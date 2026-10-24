@@ -99,7 +99,7 @@ it("names the top skipped feed in the throttled notice", () => {
 
 it("tells channels to re-add MAKO from the DM menu, not to run /setup or /route", () => {
   const removed = noticeText("removed", "News", { channel: true })
-  expect(removed).toContain("Add a channel")
+  expect(removed).toContain("Add to a channel")
   expect(removed).not.toContain("/setup")
   const throttled = noticeText("throttled", "News", {
     top: "new",
@@ -120,5 +120,5 @@ it("sends a channel its own removed notice", async () => {
     "removed",
   )
   const [n] = await notices()
-  expect((n!.card as { html: string }).html).toContain("Add a channel")
+  expect((n!.card as { html: string }).html).toContain("Add to a channel")
 })

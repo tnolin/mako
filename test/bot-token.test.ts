@@ -481,6 +481,18 @@ describe("discovery lists", () => {
     expect(h.last("editMessageText")!.text).toBe(`<b>Recently bonded</b>\n${EMPTY.bonded}`)
   })
 
+  it("lists bonds of the last 7 days, and says so when there are none", async () => {
+    await insertEvents(sql, [bond({ token: A, blockNumber: "1002" })])
+    await setCursorBlock(sql, 1002 + 600_000)
+    await h.tap("l:bonded")
+    expect(h.last("editMessageText")!.text).toContain("1. $GOBLO · Goblo · bonded ")
+    await setCursorBlock(sql, 1002 + 700_000)
+    await h.tap("l:bonded")
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Recently bonded</b>\nNo tokens have bonded in the last 7 days.",
+    )
+  })
+
   it.each([["hot"], ["near"], ["bonded"]] as const)("shows an empty state for %s", async (kind) => {
     await sql`delete from indexer.events`
     await h.tap(`l:${kind}`)

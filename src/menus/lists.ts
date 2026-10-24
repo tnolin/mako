@@ -1,13 +1,13 @@
 import type { Bot } from "grammy"
 import { age, clean, count, escapeHtml } from "../format"
-import { hotNow, justBonded, launchesOf, nearBonding } from "../history"
+import { hotNow, justBonded, LIST_DAYS, launchesOf, nearBonding } from "../history"
 import { btn, type Kb, show } from "../platforms/telegram/ui"
 import type { BotDeps } from "./deps"
 
 export const EMPTY = {
   hot: "Nothing traded in the last 7 days.",
   near: "No tokens at 10% or more traded in the last 7 days.",
-  bonded: "No tokens have bonded yet.",
+  bonded: `No tokens have bonded in the last ${LIST_DAYS} days.`,
 } as const
 const TITLE = { hot: "Hot now", near: "Near bonding", bonded: "Recently bonded" } as const
 type Kind = keyof typeof EMPTY

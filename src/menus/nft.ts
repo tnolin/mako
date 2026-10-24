@@ -513,7 +513,7 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
   return null
 }
 
-const LIST_TITLE: Record<string, string> = { m: "Minting Now", u: "Upcoming" }
+const LIST_TITLE: Record<string, string> = { m: "Minting Now", u: "Upcoming Mints" }
 const LIST_EMPTY: Record<string, string> = { m: COPY.noMinting, u: COPY.noUpcoming }
 /** Shown under the title when the list has rows. */
 const LIST_INTRO: Record<string, string> = {
@@ -522,6 +522,7 @@ const LIST_INTRO: Record<string, string> = {
     "",
     "Percentage values are total mint progress. E.g., 50% is 50/100 mints.",
   ].join("\n"),
+  u: "NFT collections with a mint stage starting in the next 7 days. If you want to be notified of all mint stages of a collection, add it to your watchlist with /watch &lt;collection name&gt;.",
 }
 
 async function showTrending(

@@ -391,7 +391,13 @@ describe("lists", () => {
     // NOW = T0 + 40 days = Nov 1 2026 (T0 is 1,790,000,000 → Sep 21 2026 + 40d).
     await h.tap("nl:u")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Upcoming</b>")
+    expect(m.text).toBe(
+      [
+        "<b>Upcoming Mints</b>",
+        "",
+        "NFT collections with a mint stage starting in the next 7 days. If you want to be notified of all mint stages of a collection, add it to your watchlist with /watch &lt;collection name&gt;.",
+      ].join("\n"),
+    )
     expect(texts(m)).toEqual([["Sooner · Nov 2 17:00 UTC"], ["Later · Nov 3 10:00 UTC"], ["Back"]])
   })
 
@@ -429,7 +435,7 @@ describe("lists", () => {
     mkBot()
     await h.tap("nl:u")
     expect(h.last("editMessageText")!.text).toBe(
-      "<b>Upcoming</b>\n\nNo results in the next 7 days.",
+      "<b>Upcoming Mints</b>\n\nNo results in the next 7 days.",
     )
   })
 })

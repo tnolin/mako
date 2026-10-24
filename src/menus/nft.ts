@@ -48,7 +48,9 @@ export const COPY = {
   noMinting: "There are no live mints detected right now.",
   noUpcoming: "No results in the next 7 days.",
   noTrending: "No Ink collections are trending in this timeframe.",
-  trendingTitle: "Trending",
+  trendingTitle: "Trending NFTs",
+  trendingIntro:
+    "The Ink collections trending on OpenSea for the selected timeframe with its current floor price.",
   trendingDown: "Trending isn't available right now. Try again in a few minutes.",
 } as const
 const NO_RANK = "No rarity rank on OpenSea for this collection."
@@ -531,7 +533,7 @@ async function showTrending(
   code: keyof typeof TIMEFRAME,
 ): Promise<void> {
   const rows = await trendingRows(deps, code)
-  const title = `<b>${COPY.trendingTitle}</b>`
+  const title = `<b>${COPY.trendingTitle} (${TREND_LABEL[code]})</b>`
   const back: Kb = [[btn("Back", "nfts")]]
   const frames: Kb = [
     (Object.keys(TIMEFRAME) as (keyof typeof TIMEFRAME)[]).map((c) =>
@@ -543,7 +545,7 @@ async function showTrending(
     return void (await show(ctx, `${title}\n${COPY.trendingDown}`, [...frames, ...back]))
   if (rows.length === 0)
     return void (await show(ctx, `${title}\n${COPY.noTrending}`, [...frames, ...back]))
-  await show(ctx, title, [
+  await show(ctx, `${title}\n${COPY.trendingIntro}`, [
     ...frames,
     ...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]),
     ...back,

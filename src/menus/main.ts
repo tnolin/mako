@@ -65,13 +65,13 @@ export function menuKb(botUsername: string): Kb {
   return [
     [
       link(
-        "Add to group or channel ↗",
+        "Add to group or channel",
         `https://t.me/${botUsername}?startgroup=setup&admin=post_messages+manage_topics`,
       ),
     ],
     [btn("Tokens", "tk"), btn("NFTs", "nfts")],
     [btn("My alerts", "al:u"), btn("Settings", "st")],
-    [btn("Help", "h"), link("Community ↗", COMMUNITY_URL)],
+    [btn("Help", "h"), link("Community", COMMUNITY_URL)],
   ]
 }
 
@@ -154,7 +154,7 @@ export const HELP = {
 const helpKb = (dm: boolean): Kb => [
   [btn("Alerts explained", "h:alerts"), btn("Group setup", "h:group")],
   [btn("Watched & Muted", "h:watched"), btn("Privacy", "h:privacy")],
-  [link("Community ↗", COMMUNITY_URL), ...menuRow(dm)],
+  [link("Community", COMMUNITY_URL), ...menuRow(dm)],
 ]
 const back = (dm: boolean): Kb => [[btn("Help", "h"), ...menuRow(dm)]]
 const isDm = (ctx: Context) => ctx.chat?.type === "private"

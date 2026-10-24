@@ -66,10 +66,10 @@ describe("main menu", () => {
     await h.text("/menu")
     const p = h.last("sendMessage")!
     expect(labels(p)).toEqual([
-      ["Add to group or channel ↗"],
+      ["Add to group or channel"],
       ["Tokens", "NFTs"],
       ["My alerts", "Settings"],
-      ["Help", "Community ↗"],
+      ["Help", "Community"],
     ])
     const kb = rows(p)
     expect(kb[0]![0]!.url).toBe(
@@ -80,6 +80,8 @@ describe("main menu", () => {
     expect(kb[3]![0]!.callback_data).toBe("h")
     expect(kb[3]![1]!.url).toBe("https://t.me/MakoOnInk")
     expect(kb.flat().some((b) => b.url?.includes("x.com"))).toBe(false)
+    // Telegram marks link buttons itself, so no label carries an arrow.
+    expect(kb.flat().some((b) => b.text.includes("↗"))).toBe(false)
   })
 
   it("escapes and cuts the first name, and never stores or logs it", async () => {
@@ -306,7 +308,7 @@ describe("Help", () => {
     expect(labels(p)).toEqual([
       ["Alerts explained", "Group setup"],
       ["Watched & Muted", "Privacy"],
-      ["Community ↗", "Menu"],
+      ["Community", "Menu"],
     ])
     expect(
       rows(p)
@@ -314,7 +316,7 @@ describe("Help", () => {
         .map((b) => b.callback_data),
     ).toEqual(["h:alerts", "h:group", "h:watched", "h:privacy", undefined, "m"])
     await h.tap("h", { chat: G })
-    expect(labels(h.last("editMessageText"))[2]).toEqual(["Community ↗"])
+    expect(labels(h.last("editMessageText"))[2]).toEqual(["Community"])
   })
 
   it("Alerts explained uses the alert-screen lines at the default thresholds", async () => {

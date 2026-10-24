@@ -92,7 +92,7 @@ it("puts Groups & channels in Settings and Community in Help", async () => {
   await h.tap("h")
   const rows = h.last("editMessageText")!.reply_markup.inline_keyboard
   const help = rows.flat()
-  expect(help.find((b: { text: string }) => b.text === "Community ↗")?.url).toMatch(/^https:/)
+  expect(help.find((b: { text: string }) => b.text === "Community")?.url).toMatch(/^https:/)
   expect(rows.every((r: unknown[]) => r.length <= 2)).toBe(true)
 })
 
@@ -123,7 +123,7 @@ it("offers the Menu button in a DM's help but not in a group's", async () => {
   expect(buttons(h.last("editMessageText"))).toContain("Menu")
   h.clear()
   await h.text("/help", { chat: group })
-  expect(buttons(h.last("sendMessage"))).toContain("Community ↗")
+  expect(buttons(h.last("sendMessage"))).toContain("Community")
   expect(buttons(h.last("sendMessage"))).not.toContain("Menu")
   await h.tap("h:alerts", { chat: group })
   expect(buttons(h.last("editMessageText"))).toEqual(["Help"])

@@ -1,5 +1,5 @@
 import type { Context } from "grammy"
-import { btn, type Kb, toggleBtn } from "../platforms/telegram/ui"
+import { btn, FULL_WIDTH, type Kb, toggleBtn } from "../platforms/telegram/ui"
 import { ALERT_HELP, ALERT_LABEL, type Settings, TOKEN_ALERTS } from "../settings"
 
 export function welcomeText(): string {
@@ -24,7 +24,7 @@ export function welcomeKb(s: Settings): Kb {
 
 /** The onboarding card for a user who was just created. */
 export async function sendWelcome(ctx: Context, settings: Settings): Promise<void> {
-  await ctx.reply(welcomeText(), {
+  await ctx.reply(welcomeText() + FULL_WIDTH, {
     parse_mode: "HTML",
     reply_markup: { inline_keyboard: welcomeKb(settings) },
   })

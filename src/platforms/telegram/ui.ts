@@ -70,8 +70,18 @@ export function threadOf(ctx: Context): number | undefined {
   return m && "is_topic_message" in m && m.is_topic_message ? m.message_thread_id : undefined
 }
 
-/** Shows a screen: edits the tapped message, or replies in the same topic. Identical edits count as success. */
-export async function show(ctx: Context, html: string, kb: Kb = []): Promise<void> {
+/**
+ * Ends every menu and list message. Telegram sizes a message and its buttons to the widest line, so a line
+ * of blank Braille characters (U+2800, which Telegram does not trim) gives every screen the same full width.
+ */
+export const FULL_WIDTH = `\n${"\u2800".repeat(40)}`
+
+/**
+ * Shows a screen: edits the tapped message, or replies in the same topic. Identical edits count as success.
+ * A screen with buttons gets the full-width line.
+ */
+export async function show(ctx: Context, text: string, kb: Kb = []): Promise<void> {
+  const html = kb.length > 0 ? text + FULL_WIDTH : text
   const opts = {
     parse_mode: "HTML" as const,
     reply_markup: { inline_keyboard: kb },

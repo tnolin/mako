@@ -391,6 +391,21 @@ describe("Help", () => {
   })
 })
 
+describe("full-width line", () => {
+  it("ends every menu and list screen, and nothing without buttons", async () => {
+    await h.text("/start", { name: "Sam" })
+    const [menu, picker] = h.calls.filter((c) => c.method === "sendMessage").map((c) => c.payload)
+    expect(menu!.padded).toBe(true)
+    expect(picker!.padded).toBe(true)
+    for (const data of ["tk", "nfts", "l:hot", "l:near", "l:bonded", "nl:m", "nl:u", "h", "al:u"]) {
+      await h.tap(data)
+      expect(h.last("editMessageText")!.padded, data).toBe(true)
+    }
+    await h.text("/nft")
+    expect(h.last("sendMessage")!.padded).toBeUndefined()
+  })
+})
+
 describe("label lengths", () => {
   // About 20 characters with 2 buttons per row, 13 with 3, 30 full width.
   const limit = (perRow: number) => (perRow >= 3 ? 13 : perRow === 2 ? 20 : 30)

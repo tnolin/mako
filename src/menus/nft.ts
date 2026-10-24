@@ -513,8 +513,16 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
   return null
 }
 
-const LIST_TITLE: Record<string, string> = { m: "Minting now", u: "Upcoming" }
+const LIST_TITLE: Record<string, string> = { m: "Minting Now", u: "Upcoming" }
 const LIST_EMPTY: Record<string, string> = { m: COPY.noMinting, u: COPY.noUpcoming }
+/** Shown under the title when the list has rows. */
+const LIST_INTRO: Record<string, string> = {
+  m: [
+    "NFT collections with an active mint stage are displayed below, regardless of your eligibility. Tap one of the buttons below to view more details about that collection.",
+    "",
+    "Percentage values are total mint progress. E.g., 50% is 50/100 mints.",
+  ].join("\n"),
+}
 
 async function showTrending(
   ctx: Context,
@@ -548,7 +556,11 @@ async function showList(ctx: Context, deps: BotDeps, code: string): Promise<void
   if (rows === null) return void (await show(ctx, COPY.loading, [[btn("Back", "nfts")]]))
   const back: Kb = [[btn("Back", "nfts")]]
   if (rows.length === 0) return void (await show(ctx, `${title}\n${LIST_EMPTY[code]}`, back))
-  await show(ctx, title, [...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]), ...back])
+  const intro = LIST_INTRO[code]
+  await show(ctx, intro ? `${title}\n${intro}` : title, [
+    ...rows.map((r) => [btn(r.label, `nc:${r.contract}:${code}`)]),
+    ...back,
+  ])
 }
 
 /** `/nft <collection> [window]` and the pick list: sends the card, the pick list or the reason there is none. */

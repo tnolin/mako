@@ -345,7 +345,15 @@ describe("lists", () => {
     await watch(sql, { userId: u }, addr(0xc3))
     await h.tap("nl:m")
     const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Minting now</b>")
+    expect(m.text).toBe(
+      [
+        "<b>Minting Now</b>",
+        "",
+        "NFT collections with an active mint stage are displayed below, regardless of your eligibility. Tap one of the buttons below to view more details about that collection.",
+        "",
+        "Percentage values are total mint progress. E.g., 50% is 50/100 mints.",
+      ].join("\n"),
+    )
     expect(texts(m)).toEqual([["Ink Hornet · FCFS · 49%"], ["Watched One · FCFS · 49%"], ["Back"]])
     expect(kbOf(m)[0]![0]!.callback_data).toBe(`nc:${addr(0xc1)}:m`)
     expect(kbOf(m).at(-1)![0]!.callback_data).toBe("nfts")

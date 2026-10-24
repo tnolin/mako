@@ -1,3 +1,4 @@
+import sharp from "sharp"
 import { vi } from "vitest"
 import { createImages, type ImageCache } from "../../src/platforms/telegram/images"
 
@@ -15,9 +16,18 @@ export function memoryCache(initial: Record<string, string> = {}) {
   return { rows, cache }
 }
 
-export const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3])
+/** A real portrait JPEG (300×600, red), so padding has something to fit. */
+export const JPEG = new Uint8Array(
+  await sharp({ create: { width: 300, height: 600, channels: 3, background: "#ff0000" } })
+    .jpeg()
+    .toBuffer(),
+)
 
-/** A wsrv.nl answer: 200 with an image body unless overridden. */
+/** A DNS stand-in: localhost is loopback, every other host a public address. No network. */
+export const publicLookup = async (host: string) =>
+  host === "localhost" ? ["127.0.0.1"] : ["93.184.216.34"]
+
+/** The image host's answer: 200 with an image body unless overridden. */
 export const imageResponse = (
   o: {
     status?: number
@@ -42,8 +52,12 @@ export const photoResult = (largest = "BIG") => ({
   ],
 })
 
-/** Real image logic over an in-memory cache and a fake wsrv.nl; no network. */
+/** Real image logic over an in-memory cache, a fake image host and a fake DNS; no network. */
 export function testImages(fetchFn: typeof fetch = okFetch() as unknown as typeof fetch) {
   const { rows, cache } = memoryCache()
-  return { rows, fetchFn, images: createImages({ fetch: fetchFn, cache, log: () => {} }) }
+  return {
+    rows,
+    fetchFn,
+    images: createImages({ fetch: fetchFn, lookup: publicLookup, cache, log: () => {} }),
+  }
 }

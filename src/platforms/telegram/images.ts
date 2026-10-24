@@ -1,5 +1,8 @@
+import { lookup as dnsLookup } from "node:dns/promises"
+import { isIP } from "node:net"
 import { type Api, InputFile } from "grammy"
 import type { InlineKeyboardMarkup } from "grammy/types"
+import sharp from "sharp"
 import type { Sql } from "../../db"
 import type { Logger } from "../../log"
 import { classify } from "./errors"
@@ -13,6 +16,11 @@ const WAIT_MS = 3000
 /** Images that arrived after their send gave up, kept for the next send. */
 const READY_MAX = 100
 const MAX_BYTES = 5 * 1024 * 1024
+const MAX_REDIRECTS = 3
+/** Decoding stops above this many pixels, so a tiny file can't expand into gigabytes. */
+const MAX_PIXELS = 40_000_000
+const SIZE = 640
+const BACKGROUND = "#1a2236"
 const FAILURE_MEMORY_MS = 60 * 60 * 1000
 
 /** The file_id Telegram returned for each token's padded image. */
@@ -58,8 +66,41 @@ export type Images = {
   send(api: Pick<Api, "sendMessage" | "sendPhoto">, m: CardMessage): Promise<void>
 }
 
+/** A host's IP addresses. */
+export type Lookup = (host: string) => Promise<string[]>
+const systemLookup: Lookup = async (host) =>
+  (await dnsLookup(host, { all: true })).map((a) => a.address)
+
+/** Loopback, private, link-local, unique-local, shared, multicast and unspecified addresses. */
+export function isInternal(ip: string): boolean {
+  if (isIP(ip) === 4) {
+    const [a = 0, b = 0] = ip.split(".").map(Number)
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      a >= 224 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    )
+  }
+  const v = ip.toLowerCase()
+  const mapped = /^::ffff:(?:(\d+\.\d+\.\d+\.\d+)|([0-9a-f]{1,4}):([0-9a-f]{1,4}))$/.exec(v)
+  if (mapped) {
+    if (mapped[1]) return isInternal(mapped[1])
+    const hi = Number.parseInt(mapped[2]!, 16)
+    const lo = Number.parseInt(mapped[3]!, 16)
+    return isInternal(`${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}`)
+  }
+  return v === "::" || v === "::1" || /^f[cd]/.test(v) || /^fe[89ab]/.test(v) || v.startsWith("ff")
+}
+
 export type ImagesDeps = {
   fetch: typeof fetch
+  /** DNS for the image hosts; tests pass a stand-in. */
+  lookup?: Lookup
   cache: ImageCache
   log: Logger
   /** Milliseconds clock; tests move it. */
@@ -69,11 +110,36 @@ export type ImagesDeps = {
 }
 
 /** Square JPEG on the brand background, so every card has the same width whatever the creator uploaded. */
-const paddedUrl = (imageUrl: string) =>
-  `https://wsrv.nl/?url=${encodeURIComponent(imageUrl)}&w=640&h=640&fit=contain&cbg=1a2236&output=jpg`
+const pad = (bytes: Uint8Array): Promise<Buffer> =>
+  sharp(bytes, { limitInputPixels: MAX_PIXELS, animated: false })
+    .rotate()
+    .resize(SIZE, SIZE, { fit: "contain", background: BACKGROUND })
+    .flatten({ background: BACKGROUND })
+    .jpeg({ quality: 85 })
+    .toBuffer()
 
 export function createImages(deps: ImagesDeps): Images {
   const now = deps.now ?? Date.now
+  const lookup = deps.lookup ?? systemLookup
+
+  /**
+   * Creator URLs are attacker-controlled, so only https URLs whose host has no internal address are fetched.
+   * shortcut: the host is resolved here and again when fetch connects, so a host that changes its answer in
+   * between (DNS rebinding) could slip past; pin the checked address in a custom dispatcher to close that.
+   */
+  async function allowed(raw: string): Promise<boolean> {
+    let url: URL
+    try {
+      url = new URL(raw)
+    } catch {
+      return false
+    }
+    if (url.protocol !== "https:") return false
+    const host = url.hostname.replace(/^\[|\]$/g, "")
+    if (isIP(host)) return !isInternal(host)
+    const addresses = await lookup(host).catch(() => [])
+    return addresses.length > 0 && !addresses.some(isInternal)
+  }
   const waitMs = deps.waitMs ?? WAIT_MS
   // shortcut: in memory, at most READY_MAX images (oldest dropped); a restart loses them and the next
   // send fetches again.
@@ -106,25 +172,38 @@ export function createImages(deps: ImagesDeps): Images {
   const warnFailed = (token: string, reason: string) =>
     deps.log("warn", "image fetch failed", { token, reason })
 
-  /** Only the wsrv.nl URL is fetched: the creator's URL is attacker-controlled. Null on any failure, logged without the URL. */
+  /**
+   * Fetches the creator's image (following at most 3 https redirects, each checked like the first URL) and
+   * pads it. Null on any failure, logged without the URL.
+   */
   async function fetchPadded(token: string, imageUrl: string): Promise<Uint8Array | null> {
     const fail = (reason: string) => {
       warnFailed(token, reason)
       return null
     }
     try {
-      const res = await deps.fetch(paddedUrl(imageUrl), {
-        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
-        redirect: "manual",
-      })
+      const signal = AbortSignal.timeout(FETCH_TIMEOUT_MS)
+      let url = imageUrl
+      let res: Response
+      for (let hop = 0; ; hop++) {
+        if (!(await allowed(url))) return fail("blocked address")
+        res = await deps.fetch(url, { signal, redirect: "manual" })
+        if (res.status < 300 || res.status >= 400) break
+        void res.body?.cancel().catch(() => {})
+        const location = res.headers.get("location")
+        if (!location) return fail(`status ${res.status}`)
+        if (hop >= MAX_REDIRECTS) return fail("too many redirects")
+        url = new URL(location, url).toString()
+      }
       const type = res.headers.get("content-type")
       const reject = (reason: string) => {
         void res.body?.cancel().catch(() => {})
         return fail(reason)
       }
       if (res.status !== 200) return reject(`status ${res.status}`)
-      if (!type?.startsWith("image/"))
-        return reject(`content-type ${(type ?? "none").slice(0, 40)}`)
+      // Some image hosts (IPFS gateways) send octet-stream; decoding decides whether it is an image.
+      if (type && !type.startsWith("image/") && !type.startsWith("application/octet-stream"))
+        return reject(`content-type ${type.slice(0, 40)}`)
       if (Number(res.headers.get("content-length")) > MAX_BYTES) return reject("too large")
       const reader = res.body?.getReader()
       if (!reader) return fail("no body")
@@ -140,7 +219,8 @@ export function createImages(deps: ImagesDeps): Images {
         }
         chunks.push(value)
       }
-      return size > 0 ? Buffer.concat(chunks) : fail("empty body")
+      if (size === 0) return fail("empty body")
+      return await pad(Buffer.concat(chunks)).catch(() => fail("decode"))
     } catch (err) {
       return fail(err instanceof Error ? err.name : "error")
     }

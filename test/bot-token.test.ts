@@ -99,8 +99,8 @@ describe("token card", () => {
       ],
     ])
     expect(img.fetchFn).toHaveBeenCalledOnce()
-    expect((img.fetchFn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toContain(
-      encodeURIComponent("https://images.inkypump.com/original/abc.jpg"),
+    expect((img.fetchFn as ReturnType<typeof vi.fn>).mock.calls[0]![0]).toBe(
+      "https://images.inkypump.com/original/abc.jpg",
     )
     // The uploaded photo's file_id is reused by the next card for the token.
     h.clear()

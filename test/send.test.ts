@@ -4,7 +4,7 @@ import type { Card } from "../src/cards/card"
 import { createImages } from "../src/platforms/telegram/images"
 import { renderNewTokens } from "../src/platforms/telegram/render"
 import { createSend, type PendingRow } from "../src/platforms/telegram/send"
-import { imageResponse, memoryCache, okFetch, photoResult } from "./helpers/images"
+import { imageResponse, memoryCache, okFetch, photoResult, publicLookup } from "./helpers/images"
 
 const card: Card = {
   alert: "new",
@@ -41,7 +41,13 @@ function api() {
 function setup(cached: Record<string, string> = {}, fetchFn = okFetch()) {
   let clock = 1_000_000
   const { rows, cache } = memoryCache(cached)
-  const images = createImages({ fetch: fetchFn, cache, log: () => {}, now: () => clock })
+  const images = createImages({
+    lookup: publicLookup,
+    fetch: fetchFn,
+    cache,
+    log: () => {},
+    now: () => clock,
+  })
   const opts = { linksBase: "https://go.makobot.xyz", botUsername: "makoinkbot", images }
   return { rows, cache, fetchFn, opts, advance: (ms: number) => (clock += ms) }
 }
@@ -66,15 +72,13 @@ it("sends a cached file_id as a photo with the alert as caption, in the topic, w
   expect(s.fetchFn).not.toHaveBeenCalled()
 })
 
-it("fetches the padded image once, uploads it and stores the largest file_id", async () => {
+it("fetches the image once, uploads it padded and stores the largest file_id", async () => {
   const a = api()
   const s = setup()
   expect(await createSend(a, s.opts)(row())).toEqual({ ok: true })
   expect(s.fetchFn).toHaveBeenCalledOnce()
   const [url, init] = s.fetchFn.mock.calls[0] as unknown as [string, { signal: AbortSignal }]
-  expect(url).toBe(
-    `https://wsrv.nl/?url=${encodeURIComponent(card.imageUrl!)}&w=640&h=640&fit=contain&cbg=1a2236&output=jpg`,
-  )
+  expect(url).toBe(card.imageUrl)
   expect(init.signal).toBeInstanceOf(AbortSignal)
   const [, photo] = photoCall(a)
   expect(photo).toBeInstanceOf(InputFile)
@@ -85,12 +89,12 @@ it("fetches the padded image once, uploads it and stores the largest file_id", a
   expect(photoCall(a, 1)[1]).toBe("BIG")
 })
 
-it("never fetches anything but a wsrv.nl URL, whatever the creator's URL says", async () => {
+it("never fetches a creator URL that points inside the network", async () => {
   const s = setup()
   const hostile = [
     "https://169.254.169.254/latest/meta-data",
     "https://localhost:8080/x",
-    "https://evil.example/a.jpg?x=https://wsrv.nl/",
+    "http://ipfs.io/x",
   ]
   for (const [i, imageUrl] of hostile.entries()) {
     const token = `0x${String(i).padStart(40, "0")}`
@@ -99,11 +103,7 @@ it("never fetches anything but a wsrv.nl URL, whatever the creator's URL says", 
       s.opts,
     )(row({ token, card: { type: "card", card: { ...card, token, imageUrl }, image: true } }))
   }
-  expect(s.fetchFn).toHaveBeenCalledTimes(3)
-  for (const [url] of s.fetchFn.mock.calls as unknown as [string][]) {
-    expect(url.startsWith("https://wsrv.nl/?url=")).toBe(true)
-    expect(new URL(url).hostname).toBe("wsrv.nl")
-  }
+  expect(s.fetchFn).not.toHaveBeenCalled()
 })
 
 it("sends text with the preview disabled and does not fetch again for an hour after a failed fetch", async () => {

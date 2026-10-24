@@ -186,7 +186,7 @@ describe("onboarding", () => {
 })
 
 describe("Tokens and NFTs screens", () => {
-  it("Tokens screen text is exact and links the launchpad through the redirect", async () => {
+  it("Tokens screen text is exact", async () => {
     await h.tap("tk")
     const p = h.last("editMessageText")!
     expect(p.text).toBe(
@@ -194,10 +194,10 @@ describe("Tokens and NFTs screens", () => {
         "<b>Tokens</b>",
         "",
         "Alerts and lists for tokens launched on Ink.",
-        'Supported: <a href="https://go.makobot.xyz/inkypump">InkyPump</a>',
         "",
-        "/t &lt;address&gt; look up a token",
-        "/watch &lt;address&gt; watch a token",
+        "Available Commands:",
+        "/t &lt;address&gt; - Looks up a token.",
+        "/watch &lt;address&gt; - Adds a token to your watchlist.",
       ].join("\n"),
     )
     expect(labels(p)).toEqual([

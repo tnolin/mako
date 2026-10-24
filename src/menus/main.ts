@@ -1,6 +1,5 @@
 import type { Bot, Context } from "grammy"
 import { clean, escapeHtml } from "../format"
-import { LAUNCHPADS } from "../launchpads"
 import { btn, COMMUNITY_URL, type Kb, link, show } from "../platforms/telegram/ui"
 import {
   ALERT_DESC,
@@ -82,17 +81,15 @@ export const showMenu = (ctx: Context) =>
 // The main menu is a DM screen: its button does nothing in a group, so groups don't get it.
 const menuRow = (dm: boolean) => (dm ? [btn("Menu", "m")] : [])
 
-const tokensText = (linksBase: string): string =>
-  [
-    "<b>Tokens</b>",
-    "Alerts and lists for tokens launched on Ink.",
-    `Supported: ${Object.entries(LAUNCHPADS)
-      .map(([key, l]) => `<a href="${linksBase}/${key}">${escapeHtml(l.name)}</a>`)
-      .join(", ")}`,
-    "",
-    "/t &lt;address&gt; look up a token",
-    "/watch &lt;address&gt; watch a token",
-  ].join("\n")
+const TOKENS_TEXT = [
+  "<b>Tokens</b>",
+  "",
+  "Alerts and lists for tokens launched on Ink.",
+  "",
+  "Available Commands:",
+  "/t &lt;address&gt; - Looks up a token.",
+  "/watch &lt;address&gt; - Adds a token to your watchlist.",
+].join("\n")
 
 const nftsText = (linksBase: string): string =>
   [
@@ -168,7 +165,7 @@ export function registerMain(bot: Bot, deps: BotDeps): void {
   pm.callbackQuery("m", showMenu)
   // The list screens' Back buttons lead here, in a group too, so Menu is left out there.
   bot.callbackQuery("tk", (ctx) =>
-    show(ctx, tokensText(deps.linksBase), [
+    show(ctx, TOKENS_TEXT, [
       [btn("Hot now", "l:hot"), btn("Near bonding", "l:near")],
       [btn("Recently bonded", "l:bonded"), ...menuRow(isDm(ctx))],
     ]),

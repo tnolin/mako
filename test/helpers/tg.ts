@@ -59,7 +59,8 @@ export function harness(bot: Bot) {
       method,
       payload: padded ? { ...p, text: p.text.slice(0, -FULL_WIDTH.length), padded } : p,
     })
-    const r = responders.has(method) ? responders.get(method)!(p) : defaults(method, p)
+    // A responder may return a promise, to hold a call open.
+    const r = responders.has(method) ? await responders.get(method)!(p) : defaults(method, p)
     if (r && typeof r === "object" && "error" in r) {
       return {
         ok: false,

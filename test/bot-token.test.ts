@@ -412,6 +412,14 @@ describe("discovery lists", () => {
     ).toBe(false)
   })
 
+  it("sends the card from a list without waiting for Telegram to answer the tap", async () => {
+    let release!: (v: boolean) => void
+    h.on("answerCallbackQuery", () => new Promise((r) => (release = r)))
+    await Promise.race([h.tap(`t:${A}:hot`), new Promise((r) => setTimeout(r, 1000))])
+    expect(h.last("sendPhoto") ?? h.last("sendMessage")).toBeDefined()
+    release(true)
+  })
+
   it("skips tokens without a name and a ticker", async () => {
     const [B, C] = [addr(0xb1), addr(0xc2)]
     await insertEvents(sql, [

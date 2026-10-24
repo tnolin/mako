@@ -476,6 +476,19 @@ describe("NFT card", () => {
     )
   })
 
+  it("sends the live card and the NFT card without waiting for Telegram to answer the tap", async () => {
+    await boot()
+    let release!: (v: boolean) => void
+    h.on("answerCallbackQuery", () => new Promise((r) => (release = r)))
+    const within = (p: Promise<unknown>) =>
+      Promise.race([p, new Promise((r) => setTimeout(r, 1000))])
+    await within(h.tap(`nc:${ELSE}:t24`))
+    expect(h.last("sendPhoto")?.caption).toContain("Elsewhere")
+    await within(h.tap(`ni:${WIRED}:4164`))
+    expect(h.last("sendPhoto")?.caption).toContain("#4164")
+    release(true)
+  })
+
   it("opens a collection it has no trending entry for as a live card from OpenSea", async () => {
     await boot()
     await h.tap(`nc:${ELSE}:t24`)

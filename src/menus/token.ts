@@ -150,8 +150,8 @@ async function loadCard(
 export async function sendTokenCard(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
   const card = await loadCard(ctx, deps, raw)
   if (!card) return
-  // Fetching and uploading the image can take seconds; the tap is answered first.
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+  // The tap is answered without waiting, so the image work starts at once.
+  if (ctx.callbackQuery) void ctx.answerCallbackQuery().catch(() => {})
   await deps.images.send(ctx.api, {
     chat: ctx.chat!.id,
     thread: threadOf(ctx),

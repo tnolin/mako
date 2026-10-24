@@ -360,6 +360,16 @@ describe("lists", () => {
     for (const row of texts(m)) expect(row[0]!.length).toBeLessThanOrEqual(30)
   })
 
+  it("sends a card from a list without waiting for Telegram to answer the tap", async () => {
+    await boot([...live(addr(0xc1), "Ink Hornet")])
+    mkBot()
+    let release!: (v: boolean) => void
+    h.on("answerCallbackQuery", () => new Promise((r) => (release = r)))
+    await Promise.race([h.tap(`nc:${addr(0xc1)}:m`), new Promise((r) => setTimeout(r, 1000))])
+    expect(h.last("sendPhoto")).toBeDefined()
+    release(true)
+  })
+
   it("a card opened from a list arrives as a new message without Back", async () => {
     await boot([...live(addr(0xc1), "Ink Hornet")])
     mkBot()

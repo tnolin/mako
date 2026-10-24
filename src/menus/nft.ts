@@ -175,6 +175,11 @@ async function isWatching(deps: BotDeps, ctx: Context, contract: string): Promis
 const viewUrl = (deps: BotDeps, contract: string, slug: string | null) =>
   slug ? `${deps.linksBase}/n/c/${slug}` : `${deps.linksBase}/n/a/${contract}`
 
+/** Answers the tap without waiting for Telegram, so the card's reads and image start at once. */
+const answerTap = (ctx: Context) => {
+  if (ctx.callbackQuery) void ctx.answerCallbackQuery().catch(() => {})
+}
+
 /** Watch in a DM (green Watching when set), a deep link into the DM elsewhere. */
 const watchBtn = (ctx: Context, contract: string, watching: boolean): InlineKeyboardButton =>
   ctx.chat?.type === "private"
@@ -189,8 +194,8 @@ const watchBtn = (ctx: Context, contract: string, watching: boolean): InlineKeyb
  * collection card. Without MAKO's history it has no window or Recent sales buttons.
  */
 async function sendLiveCard(ctx: Context, deps: BotDeps, contract: string): Promise<void> {
+  answerTap(ctx)
   const live = deps.items ? await deps.items.collection(contract) : "unavailable"
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
   const d = live === "unavailable" ? null : live
   const rate = deps.prices.usd(NATIVE)
   const rows: [string, string][] = []
@@ -257,7 +262,7 @@ async function sendUpcomingCard(ctx: Context, deps: BotDeps, contract: string): 
   const st = deps.nft?.()?.get(contract)
   const card = st?.drop ? upcomingCard(st.col, st.drop, nowS(deps)) : null
   if (!card) return false
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+  answerTap(ctx)
   const dm = ctx.chat?.type === "private"
   const user = dm && ctx.from ? await findUser(deps.sql, ctx.from.id) : null
   const state = user ? await viewerState(deps.sql, user.id, contract) : undefined
@@ -284,7 +289,7 @@ async function sendCard(ctx: Context, deps: BotDeps, contract: string, win: Wind
     if (deps.items) return sendLiveCard(ctx, deps, contract)
     return void (await show(ctx, COPY.none))
   }
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+  answerTap(ctx)
   const kb = cardKb(deps, ctx, card, contract, win, await isWatching(deps, ctx, contract))
   await deps.images.send(ctx.api, {
     chat: ctx.chat!.id,
@@ -457,7 +462,7 @@ async function sendItemCard(
     if (ctx.callbackQuery) return void (await ctx.answerCallbackQuery({ text }).catch(() => {}))
     return void (await show(ctx, text))
   }
-  if (ctx.callbackQuery) await ctx.answerCallbackQuery().catch(() => {})
+  answerTap(ctx)
   const calc = deps.nft?.()?.get(contract)?.col?.rarityCalculatedAt
   const data = deps.items
     ? await deps.items.get(contract, tokenId, calc == null ? null : String(calc))

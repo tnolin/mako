@@ -69,8 +69,7 @@ describe("main menu", () => {
       ["Add to group or channel ↗"],
       ["Tokens", "NFTs"],
       ["My alerts", "Settings"],
-      ["Help"],
-      ["Community ↗", "X ↗"],
+      ["Help", "Community ↗"],
     ])
     const kb = rows(p)
     expect(kb[0]![0]!.url).toBe(
@@ -79,8 +78,8 @@ describe("main menu", () => {
     expect(kb[1]!.map((b) => b.callback_data)).toEqual(["tk", "nfts"])
     expect(kb[2]!.map((b) => b.callback_data)).toEqual(["al:u", "st"])
     expect(kb[3]![0]!.callback_data).toBe("h")
-    expect(kb[4]![0]!.url).toMatch(/^https:/)
-    expect(kb[4]![1]!.url).toBe("https://x.com/MakoInkBot")
+    expect(kb[3]![1]!.url).toBe("https://t.me/MakoOnInk")
+    expect(kb.flat().some((b) => b.url?.includes("x.com"))).toBe(false)
   })
 
   it("escapes and cuts the first name, and never stores or logs it", async () => {

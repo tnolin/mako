@@ -47,8 +47,6 @@ export const GROUP_COMMANDS = [
   { command: "help", description: "Help" },
 ]
 
-export const X_URL = "https://x.com/MakoInkBot"
-
 /** The greeting uses the first name from the incoming update only: it is never stored or logged. */
 export function menuText(firstName?: string): string {
   const name = clean(firstName, 32)
@@ -73,8 +71,7 @@ export function menuKb(botUsername: string): Kb {
     ],
     [btn("Tokens", "tk"), btn("NFTs", "nfts")],
     [btn("My alerts", "al:u"), btn("Settings", "st")],
-    [btn("Help", "h")],
-    [link("Community ↗", COMMUNITY_URL), link("X ↗", X_URL)],
+    [btn("Help", "h"), link("Community ↗", COMMUNITY_URL)],
   ]
 }
 

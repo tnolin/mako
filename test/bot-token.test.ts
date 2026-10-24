@@ -409,6 +409,23 @@ describe("discovery lists", () => {
     ])
   })
 
+  it("skips tokens without a name and a ticker", async () => {
+    const [B, C] = [addr(0xb1), addr(0xc2)]
+    await insertEvents(sql, [
+      trade({ token: B, blockNumber: "1002" }),
+      launch({ token: C, ticker: "", name: "Cee", blockNumber: "1003" }),
+      trade({ token: C, blockNumber: "1004" }),
+    ])
+    await setCursorBlock(sql, 1004)
+    await h.tap("l:hot")
+    const m = h.last("editMessageText")!
+    expect(m.text).toBe("<b>Hot now (24h)</b>\n1. $GOBLO · Goblo · 1 trade (24h)")
+    expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "Back"])
+    await sql`delete from indexer.events where entity = ${A}`
+    await h.tap("l:hot")
+    expect(h.last("editMessageText")!.text).toBe(`<b>Hot now</b>\n${EMPTY.hot}`)
+  })
+
   it("falls back to 7 days for hot tokens and says so in the title", async () => {
     await setCursorBlock(sql, 1001 + 100_000)
     await h.tap("l:hot")

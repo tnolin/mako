@@ -119,7 +119,7 @@ it("offers the Menu button in a DM's help but not in a group's", async () => {
   const group = { id: -1001, type: "supergroup" as const, title: "Alpha" }
   await h.text("/help")
   expect(buttons(h.last("sendMessage"))).toContain("Menu")
-  await h.tap("h:alerts")
+  await h.tap("h:privacy")
   expect(buttons(h.last("editMessageText"))).toContain("Menu")
   h.clear()
   await h.text("/help", { chat: group })

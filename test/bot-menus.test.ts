@@ -326,18 +326,20 @@ describe("Help", () => {
     const p = h.last("editMessageText")!
     expect(p.text).toBe(
       [
-        "<b>Alerts explained</b>",
+        "<b>Alerts Explained</b>",
         "",
-        "<b>Token alerts</b>",
+        "<u>Token Alerts</u>",
         ...DEFAULTS.token,
         "Percentages in token alerts are a share of the token's total supply.",
-        "<b>NFT alerts</b>",
+        "",
+        "<u>NFT Alerts</u>",
         ...DEFAULTS.all,
-        "<b>Watched NFTs only</b>",
+        "",
+        "<u>Watched NFT Alerts</u>",
         ...DEFAULTS.watched,
       ].join("\n"),
     )
-    expect(labels(p)).toEqual([["Help", "Menu"]])
+    expect(labels(p)).toEqual([["Help"]])
   })
 
   it("Watched & Muted, Group setup and Privacy match the exact text", async () => {
@@ -383,7 +385,7 @@ describe("Help", () => {
   })
 
   it("ends every page with [Help] [Menu], and without Menu in a group", async () => {
-    for (const page of ["alerts", "group", "watched", "privacy"]) {
+    for (const page of ["group", "watched", "privacy"]) {
       await h.tap(`h:${page}`)
       expect(rows(h.last("editMessageText"))).toEqual([
         [

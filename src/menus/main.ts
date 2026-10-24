@@ -102,6 +102,7 @@ const nftsText = (linksBase: string): string =>
   ].join("\n")
 
 const b = (s: string) => `<b>${escapeHtml(s)}</b>`
+const u = (s: string) => `<u>${escapeHtml(s)}</u>`
 // The Help lines are the alert-screen lines at the default thresholds.
 const defaults = basicPreset("private")
 const lines = (kinds: readonly AlertKind[]) => kinds.map((k) => escapeHtml(ALERT_DESC(k, defaults)))
@@ -110,13 +111,16 @@ export const HELP = {
   index:
     "<b>Help</b>\nMAKO posts alerts for Ink tokens and NFTs in your DM, your groups and your channels.",
   alerts: [
-    b("Alerts explained"),
-    b("Token alerts"),
+    b("Alerts Explained"),
+    "",
+    u("Token Alerts"),
     ...lines(TOKEN_ALERTS),
     "Percentages in token alerts are a share of the token's total supply.",
-    b("NFT alerts"),
+    "",
+    u("NFT Alerts"),
     ...lines(NFT_ALL_ALERTS),
-    b("Watched NFTs only"),
+    "",
+    u("Watched NFT Alerts"),
     ...lines(NFT_WATCHED_ALERTS),
   ].join("\n"),
   watched: [
@@ -178,9 +182,11 @@ export function registerMain(bot: Bot, deps: BotDeps): void {
   )
   bot.command("help", (ctx) => show(ctx, HELP.index, helpKb(isDm(ctx))))
   bot.callbackQuery("h", (ctx) => show(ctx, HELP.index, helpKb(isDm(ctx))))
-  bot.callbackQuery(/^h:(alerts|group|watched|privacy)$/, (ctx) =>
-    show(ctx, HELP[ctx.match[1] as keyof typeof HELP], back(isDm(ctx))),
-  )
+  bot.callbackQuery(/^h:(alerts|group|watched|privacy)$/, (ctx) => {
+    const page = ctx.match[1] as keyof typeof HELP
+    // Alerts Explained ends with Help alone.
+    return show(ctx, HELP[page], page === "alerts" ? [[btn("Help", "h")]] : back(isDm(ctx)))
+  })
   pm.callbackQuery("st", (ctx) =>
     show(ctx, "<b>Settings</b>", [
       [btn("Groups & channels", "gc"), btn("Delete my data", "dd")],

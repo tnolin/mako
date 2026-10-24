@@ -6,7 +6,12 @@ import { classify } from "./errors"
 
 /** Telegram's caption limit; longer cards go as text. */
 export const CAPTION_MAX = 1024
-const FETCH_TIMEOUT_MS = 5000
+/** How long a fetch may run in the background. */
+const FETCH_TIMEOUT_MS = 15_000
+/** How long a send waits for a first fetch before it goes as text; the fetch goes on without it. */
+const WAIT_MS = 3000
+/** Images that arrived after their send gave up, kept for the next send. */
+const READY_MAX = 100
 const MAX_BYTES = 5 * 1024 * 1024
 const FAILURE_MEMORY_MS = 60 * 60 * 1000
 
@@ -59,6 +64,8 @@ export type ImagesDeps = {
   log: Logger
   /** Milliseconds clock; tests move it. */
   now?: () => number
+  /** How long a send waits for a first fetch (tests shorten it). */
+  waitMs?: number
 }
 
 /** Square JPEG on the brand background, so every card has the same width whatever the creator uploaded. */
@@ -67,6 +74,23 @@ const paddedUrl = (imageUrl: string) =>
 
 export function createImages(deps: ImagesDeps): Images {
   const now = deps.now ?? Date.now
+  const waitMs = deps.waitMs ?? WAIT_MS
+  // shortcut: in memory, at most READY_MAX images (oldest dropped); a restart loses them and the next
+  // send fetches again.
+  const ready = new Map<string, Uint8Array>()
+  const keep = (key: string, bytes: Uint8Array) => {
+    ready.set(key, bytes)
+    if (ready.size > READY_MAX) ready.delete(ready.keys().next().value!)
+  }
+  const TOO_SLOW = Symbol("too slow")
+  /** The promise's value, or TOO_SLOW once `waitMs` has passed. */
+  const within = <T>(p: Promise<T>): Promise<T | typeof TOO_SLOW> => {
+    let timer: ReturnType<typeof setTimeout> | undefined
+    const late = new Promise<typeof TOO_SLOW>((r) => {
+      timer = setTimeout(() => r(TOO_SLOW), waitMs)
+    })
+    return Promise.race([p, late]).finally(() => clearTimeout(timer))
+  }
   // shortcut: failed tokens are remembered in this process for 1 hour; a restart forgets them and the
   // map grows by one entry per failing token. Upgrade path: a table with an expiry column.
   const failedUntil = new Map<string, number>()
@@ -194,20 +218,28 @@ export function createImages(deps: ImagesDeps): Images {
   // token is in flight; the other sends wait for it, then use the stored file_id (or the bytes).
   const inFlight = new Map<string, Promise<Uint8Array | null>>()
 
-  /** True when the photo went out. A media or rights failure returns false so the caller sends text. */
+  /**
+   * True when the photo went out. A media or rights failure, or an image not fetched within `waitMs`,
+   * returns false so the caller sends text. A slow fetch goes on, and its image waits for the next send.
+   */
   async function sendPhoto(api: Pick<Api, "sendPhoto">, m: CardMessage): Promise<boolean> {
     const cached = await cachedId(m.imageKey)
     if (cached) return sendCached(api, m, cached)
+    const early = ready.get(m.imageKey)
+    if (early) {
+      ready.delete(m.imageKey)
+      return upload(api, m, early)
+    }
     const pending = inFlight.get(m.imageKey)
     if (pending) {
-      const bytes = await pending
+      const bytes = await within(pending)
+      if (bytes === TOO_SLOW) return false
       const stored = await cachedId(m.imageKey)
       if (stored) return sendCached(api, m, stored)
       if (!bytes || recentlyFailed(m.imageKey)) return false
       return upload(api, m, bytes)
     }
     if (recentlyFailed(m.imageKey)) return false
-    let fetched: Uint8Array | null = null
     let settle!: (b: Uint8Array | null) => void
     inFlight.set(
       m.imageKey,
@@ -215,16 +247,24 @@ export function createImages(deps: ImagesDeps): Images {
         settle = r
       }),
     )
-    try {
-      fetched = await fetchPadded(m.imageKey, m.imageUrl!)
-      if (!fetched) {
-        failedUntil.set(m.imageKey, now() + FAILURE_MEMORY_MS)
-        return false
-      }
-      return await upload(api, m, fetched)
-    } finally {
+    const done = (bytes: Uint8Array | null) => {
+      if (!bytes) failedUntil.set(m.imageKey, now() + FAILURE_MEMORY_MS)
       inFlight.delete(m.imageKey)
-      settle(fetched)
+      settle(bytes)
+    }
+    const fetching = fetchPadded(m.imageKey, m.imageUrl!)
+    const bytes = await within(fetching)
+    if (bytes === TOO_SLOW) {
+      void fetching.then((late) => {
+        if (late) keep(m.imageKey, late)
+        done(late)
+      })
+      return false
+    }
+    try {
+      return bytes ? await upload(api, m, bytes) : false
+    } finally {
+      done(bytes)
     }
   }
 

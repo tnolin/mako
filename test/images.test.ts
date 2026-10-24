@@ -138,6 +138,45 @@ it("shares one fetch and one upload between concurrent first alerts for a token"
   expect(a.sendMessage).not.toHaveBeenCalled()
 })
 
+it("sends text when the image is slow, and the next send uploads the bytes that arrived later", async () => {
+  const a = api()
+  const gate = deferred<Response>()
+  const fetchFn = vi.fn(async (_url: unknown, _init?: unknown) => gate.promise)
+  const { cache, rows } = memoryCache()
+  const images = createImages({ fetch: fetchFn, cache, log: () => {}, waitMs: 20 })
+  await images.send(a, msg)
+  expect(a.sendMessage).toHaveBeenCalledOnce()
+  expect(a.sendPhoto).not.toHaveBeenCalled()
+  // The fetch goes on after the first send gave up on it.
+  gate.resolve(imageResponse())
+  await new Promise((r) => setTimeout(r, 10))
+  await images.send(a, other)
+  expect(fetchFn).toHaveBeenCalledOnce()
+  expect((a.sendPhoto.mock.calls[0] as unknown as [number, unknown])[1]).toBeInstanceOf(InputFile)
+  expect(rows.get("0xaa")).toBe("BIG")
+  await images.send(a, msg)
+  expect((a.sendPhoto.mock.calls[1] as unknown as [number, unknown])[1]).toBe("BIG")
+})
+
+it("remembers an image that failed after the send stopped waiting, and does not fetch it again", async () => {
+  const a = api()
+  const gate = deferred<Response>()
+  const fetchFn = vi.fn(async (_url: unknown, _init?: unknown) => gate.promise)
+  const images = createImages({
+    fetch: fetchFn,
+    cache: memoryCache().cache,
+    log: () => {},
+    waitMs: 20,
+  })
+  await images.send(a, msg)
+  gate.resolve(imageResponse({ status: 500 }))
+  await new Promise((r) => setTimeout(r, 10))
+  await images.send(a, other)
+  expect(fetchFn).toHaveBeenCalledOnce()
+  expect(a.sendPhoto).not.toHaveBeenCalled()
+  expect(a.sendMessage).toHaveBeenCalledTimes(2)
+})
+
 it("lets a waiting alert upload the fetched bytes when the first chat rejected the photo", async () => {
   const a = api()
   a.sendPhoto.mockRejectedValueOnce(

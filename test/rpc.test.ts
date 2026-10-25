@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from "vitest"
-import { type BalanceOf, isMissingState, readDevHolds, rpcBalanceOf } from "../src/rpc"
+import {
+  type BalanceOf,
+  isMissingState,
+  readDevHolds,
+  rpcBalanceOf,
+  rpcBlockNumber,
+} from "../src/rpc"
 
 const REQ = { token: "0xd1", holder: "0xc1", block: "57889269", totalSupply: String(10n ** 27n) }
 const BAL = 68n * 10n ** 24n // 6.8% of supply
@@ -91,5 +97,23 @@ describe("rpcBalanceOf", () => {
     await expect(
       rpcBalanceOf("u", f as unknown as typeof fetch)("0xd1", "0xc1", "0x1"),
     ).rejects.toThrow("missing trie node x")
+  })
+})
+
+describe("rpcBlockNumber", () => {
+  it("reads eth_blockNumber and throws the JSON-RPC error", async () => {
+    const f = vi.fn(
+      async () => new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result: "0x3e8" })),
+    )
+    expect(await rpcBlockNumber("https://rpc.example", f as unknown as typeof fetch)()).toBe(1000n)
+    const body = JSON.parse((f.mock.calls[0] as unknown as [string, RequestInit])[1].body as string)
+    expect(body.method).toBe("eth_blockNumber")
+    const bad = async () =>
+      new Response(
+        JSON.stringify({ jsonrpc: "2.0", id: 1, error: { code: -32003, message: "limit" } }),
+      )
+    await expect(
+      rpcBlockNumber("https://rpc.example", bad as unknown as typeof fetch)(),
+    ).rejects.toThrow("limit")
   })
 })

@@ -4,6 +4,7 @@ import { initCursor, nftCutoff, startPoller } from "./delivery/poller"
 import { startRetention } from "./delivery/retention"
 import { startSender } from "./delivery/sender"
 import { createViewer } from "./delivery/viewer"
+import { createHealth } from "./health"
 import { createHeartbeat } from "./heartbeat"
 import { cursorBlock } from "./history"
 import { referralLink, tradeLink } from "./launchpads"
@@ -19,7 +20,7 @@ import { createSend } from "./platforms/telegram/send"
 import { setButtonColours } from "./platforms/telegram/ui"
 import { rpcSqrtPrice } from "./pool"
 import { createPrices } from "./prices"
-import { DEFAULT_RPC, readDevHolds, rpcBalanceOf } from "./rpc"
+import { DEFAULT_RPC, readDevHolds, rpcBalanceOf, rpcBlockNumber } from "./rpc"
 import { initSentry } from "./sentry"
 
 const env = process.env
@@ -128,6 +129,19 @@ const heartbeat = createHeartbeat({
 })
 const heartbeatTimer = setInterval(() => void heartbeat.tick(), 60_000)
 void heartbeat.tick()
+const health = createHealth({
+  sql,
+  chainHead: rpcBlockNumber(env.INK_RPC_URL || DEFAULT_RPC),
+  verdictOf: (c) => nftState.current?.get(c)?.col?.verdict,
+  report: (e) => {
+    log(e.level === "error" ? "error" : "info", "health", { message: e.message.split("\n")[0] })
+    reporter.event(e)
+  },
+})
+const healthTick = () =>
+  void health.tick().catch((err) => log("warn", "health check failed", { error: String(err) }))
+const healthTimer = setInterval(healthTick, 5 * 60_000)
+healthTick()
 const stopRetention = startRetention(sql, log, report)
 
 let stopping = false
@@ -162,6 +176,7 @@ const shutdown = async () => {
   stopPrices()
   stopRetention()
   clearInterval(heartbeatTimer)
+  clearInterval(healthTimer)
   await bot.stop().catch(() => {})
   server.closeAllConnections()
   server.close()

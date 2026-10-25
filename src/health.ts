@@ -30,7 +30,7 @@ const age = (s: number) =>
   s >= 3600 ? `${Math.floor(s / 3600)}h ${Math.floor((s % 3600) / 60)}m` : `${Math.floor(s / 60)}m`
 
 /**
- * The outage checks (ADR 0010), run every 5 minutes. Each error fires once per incident, kept in
+ * The outage checks (ADR 0017), run every 5 minutes. Each error fires once per incident, kept in
  * `bot.state` so a restart doesn't fire it again, and sends a recovered note when it clears. A quiet
  * day with no alert sent gets one info note with a summary, at most once a day.
  */

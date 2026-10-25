@@ -18,7 +18,7 @@ import {
   type NftAlertKind,
   shortAddr,
 } from "../card"
-import { isTeamStage, LAUNCH_HOLD_S, MINT_RECENT_S } from "../policy"
+import { isTeamStage, LAUNCH_HOLD_S, MINT_RECENT_S, STAGE_START_MAX_S } from "../policy"
 import type { CollectionState } from "../state"
 
 type MintCtx = Pick<RuleCtx, "nft" | "now" | "nftSince">
@@ -54,6 +54,27 @@ export function mintLive(st: CollectionState, now: number): boolean {
   if (end != null) return end > now
   const seen = [st.lastStage, st.lastMark].filter((m) => m !== null).map((m) => m.blockTimestamp)
   return seen.length > 0 && now - Math.max(...seen) < MINT_RECENT_S
+}
+/**
+ * The indexer stamps a stage start at the first mint it stores, so a collection that minted before its
+ * history and mints again looks like a new mint. No mint alert for a `legacy` collection, or once every
+ * stage of a known schedule has ended.
+ */
+function oldMint(st: CollectionState, now: number): boolean {
+  if (st.col?.kind === "legacy") return true
+  const stages = st.drop?.stages.filter((s) => !isTeamStage(s)) ?? []
+  return stages.length > 0 && stages.every((s) => s.endTime != null && s.endTime <= now)
+}
+/** A known schedule needs an open stage whose scheduled start is within STAGE_START_MAX_S of now. */
+function startDue(st: CollectionState, now: number): boolean {
+  const stages = st.drop?.stages.filter((s) => !isTeamStage(s)) ?? []
+  return (
+    stages.length === 0 ||
+    stages.some(
+      (s) =>
+        Math.abs(now - s.startTime) <= STAGE_START_MAX_S && (s.endTime == null || s.endTime > now),
+    )
+  )
 }
 /** A mint with no stages (not a SeaDrop drop): its one `stage_start` reads MINT LIVE. */
 const stageless = (st: CollectionState): boolean => (st.col ? !st.col.seadrop : !st.drop)
@@ -286,9 +307,10 @@ export function mintRules(
       if (!isLate("upcoming", p.blockTimestamp, now)) out.push(upcoming(b, st, p, now))
       break
     case "nft.mint":
+      if (oldMint(st, now)) break
       if (p.kind === "stage_start") {
         const kind = stageless(st) ? "mintlive" : "mintstart"
-        if (!isLate(kind, p.blockTimestamp, now))
+        if (!isLate(kind, p.blockTimestamp, now) && startDue(st, now))
           out.push(stageStart(b, st, p, p.blockTimestamp, false))
       } else if (p.kind === "progress") {
         if (!isLate("minted", p.blockTimestamp, now)) out.push(minted(b, st, p))
@@ -318,7 +340,13 @@ export function mintRules(
       if (becameReal || becameEligible) {
         const up = upcomingEligible(p) && st.drop ? upcoming(b, st, st.drop, now) : null
         if (up) out.push({ ...up, eventTs: now })
-        else if (becameReal && st.lastStage && !st.soldOut && mintLive(st, now)) {
+        else if (
+          becameReal &&
+          st.lastStage &&
+          !st.soldOut &&
+          !oldMint(st, now) &&
+          mintLive(st, now)
+        ) {
           out.push(stageStart(b, st, st.lastStage, now, true))
         }
       }

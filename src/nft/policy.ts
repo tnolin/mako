@@ -47,6 +47,8 @@ export const RARE_PRICE_NUM = 11n
 export const RARE_PRICE_DEN = 10n
 export const WATCH_CAP_NFT = 50
 export const REMINDER_LEAD_S = 15 * 60
+/** MINT STARTING and MINT LIVE need a scheduled stage starting within this long of now, when the schedule is known. */
+export const STAGE_START_MAX_S = 10 * 60
 /** A catch-up for a mint with no stage end time needs a mint event at most this old. */
 export const MINT_RECENT_S = 3600
 /** A Chimera launch held for its OpenSea page is sent only this long after the launch. */

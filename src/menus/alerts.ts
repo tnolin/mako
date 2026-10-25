@@ -28,6 +28,7 @@ import {
   SETTINGS_LABEL,
   type Settings,
   TOKEN_ALERTS,
+  topicLabel,
 } from "../settings"
 import type { BotDeps } from "./deps"
 import { ensureUser, findUser, NO_USER, saveUserSettings } from "./users"
@@ -129,8 +130,6 @@ export async function chatKind(sql: BotDeps["sql"], chatId: string): Promise<Cha
 }
 
 const pct = (bps: number) => `${bps / 100}%`
-const where = (thread: number | null | undefined) =>
-  thread == null ? "General" : `topic ${thread}`
 
 type Screen = "tk" | "na" | "nw"
 const KINDS: Record<Screen, readonly AlertKind[]> = {
@@ -379,14 +378,26 @@ async function renderHub(ctx: Context, deps: BotDeps, sc: Scope): Promise<void> 
   const lines = [`<b>Alerts for ${escapeHtml(await chatTitle(ctx, sc.id))}</b>`]
   if (!sc.active)
     lines.push(`Paused${sc.paused && sc.paused !== "paused" ? ` (${sc.paused})` : ""}.`)
+  const blocks = [lines.join("\n")]
   // Channels have no topics.
   if (sc.chatType !== "channel") {
-    lines.push(`Posts to ${where(s.thread)}.`)
-    for (const a of ALERTS) {
-      if (s.routes?.[a] !== undefined) lines.push(`${ALERT_LABEL[a]} → topic ${s.routes[a]}`)
-    }
-    for (const a of s.pausedRoutes ?? []) {
-      lines.push(`${ALERT_LABEL[a]} paused: its topic is closed`)
+    const topic = (t: number | null | undefined) => escapeHtml(topicLabel(s, t))
+    blocks.push(
+      `Default topic: ${topic(s.thread)}\nAny alerts not set to a specific topic will appear here.`,
+    )
+    const paused = s.pausedRoutes ?? []
+    for (const [title, kinds] of [
+      ["Token Alerts", TOKEN_ALERTS],
+      ["NFT Alerts", [...NFT_ALL_ALERTS, ...NFT_WATCHED_ALERTS]],
+    ] as const) {
+      const routed = kinds
+        .filter((a) => s.routes?.[a] !== undefined && !paused.includes(a))
+        .map((a) => `${ALERT_LABEL[a]} → ${topic(s.routes![a])}`)
+      const stopped = kinds
+        .filter((a) => paused.includes(a))
+        .map((a) => `${ALERT_LABEL[a]} paused: its topic is closed`)
+      if (routed.length + stopped.length > 0)
+        blocks.push([`<u>${title}</u>`, ...routed, ...stopped].join("\n"))
     }
   }
   const row = []
@@ -394,7 +405,7 @@ async function renderHub(ctx: Context, deps: BotDeps, sc: Scope): Promise<void> 
   if (!sc.active || s.pausedRoutes?.length) row.push(btn("Resume", `gc:${sc.id}:resume`))
   if (sc.active) row.push(btn("Pause", `gc:${sc.id}:pause`))
   row.push(btn("Remove MAKO", `gc:${sc.id}:remove`))
-  await show(ctx, lines.join("\n"), [
+  await show(ctx, blocks.join("\n\n"), [
     [btn("Token alerts", `al:${sc.id}:tk`), btn("NFT alerts", `al:${sc.id}:na`)],
     [btn("Watched tokens", `gl:${sc.id}:t`), btn("Watched NFTs", `gl:${sc.id}:n`)],
     row,

@@ -134,6 +134,22 @@ The bot applies its database migrations when it starts. If a release changes `sc
 
 To roll back, restore the snapshot. Checking out the previous tag without restoring it leaves queued NFT alert and reminder rows that the older bot can't send; they fail or age out within 30 minutes.
 
+## Monitoring
+
+Sentry's cron monitor `ink-pipeline` gets a check-in from the bot every minute. It reports `error` when the indexer cursor hasn't moved for 10 minutes, and a missed check-in means the bot or the server is down.
+
+The bot also runs health checks every 5 minutes and reports them to the same Sentry project (ADR 0017):
+
+| Check | Level | Fires when |
+| - | - | - |
+| Indexer events | error | the newest event is more than 60 minutes old |
+| Indexer cursor | error | the cursor is more than 100 blocks behind the chain head |
+| Bot lag | error | the bot is more than 500 events behind the indexer for 10 minutes |
+| Failed deliveries | error | 10 or more failed in the last hour |
+| Quiet day | info | no alert was sent in 24 hours, at most once a day, with a summary of the day |
+
+Each error opens one Sentry issue per incident, and a `Health recovered` info note follows when it clears. Open incidents are kept in `bot.state` under `health:<check>`, so a restart doesn't repeat them. To get the info notes by email too, add an alert rule for the project that covers info-level issues.
+
 ## Restore drill
 
 From the local dump:

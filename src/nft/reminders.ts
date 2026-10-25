@@ -69,14 +69,14 @@ export async function queueReminders(deps: RemindersDeps): Promise<void> {
   const lead = REMINDER_LEAD_S
   for (const st of nft.upcoming(now, lead + WINDOW_S)) {
     const drop = st.drop!
-    for (const [i, stage] of drop.stages.entries()) {
+    for (const stage of drop.stages) {
       const ahead = stage.startTime - now
       if (isTeamStage(stage) || ahead < lead - WINDOW_S || ahead > lead + WINDOW_S) continue
       const contract = drop.contract
       const payload = { type: "nftalert", card: reminderCard(st, stage, now), image: true }
       await deps.sql`
         insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
-        select u.platform_user_id, 'private', 'reminder', ${contract}, ${`reminder:${contract}:${i}`},
+        select u.platform_user_id, 'private', 'reminder', ${contract}, ${`reminder:${contract}:${stage.startTime}`},
           ${PRIORITY.reminder}, to_timestamp(${now}), ${deps.sql.json(payload as unknown as postgres.JSONValue)}
         from bot.users u
         where u.blocked_at is null

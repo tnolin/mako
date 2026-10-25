@@ -64,7 +64,7 @@ describe("MINT REMINDER scheduler", () => {
     expect(r).toMatchObject({
       chat_type: "private",
       alert: "reminder",
-      dedupe_key: `reminder:${C}:1`,
+      dedupe_key: `reminder:${C}:${START}`,
       priority: 2,
       status: "pending",
     })
@@ -105,7 +105,7 @@ describe("MINT REMINDER scheduler", () => {
   it("sends nothing for a Team stage", async () => {
     await remind(sql, await addUser(sql, 101), C)
     await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 })
-    expect((await cards()).map((r) => r.dedupe_key)).toEqual([`reminder:${C}:1`])
+    expect((await cards()).map((r) => r.dedupe_key)).toEqual([`reminder:${C}:${START}`])
     state.apply({ id: "3", p: nftDrop({ stages: [stage("Team", { allowlistCount: 3 })] }) })
     await sql`delete from bot.deliveries`
     await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 })
@@ -156,6 +156,23 @@ describe("MINT REMINDER scheduler", () => {
     await sql`select 1 from bot.nft_watches where user_id = ${c} and not reminders_off`.then((r) =>
       expect(r).toHaveLength(1),
     )
+  })
+
+  it("does not double-send when the drop's stage list changes order in the same window", async () => {
+    await remind(sql, await addUser(sql, 101), C)
+    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 })
+    state.apply({
+      id: "3",
+      p: nftDrop({
+        stages: [
+          stage("Team", { allowlistCount: 3 }),
+          stage("GTD", { startTime: START + 3600 }),
+          stage("FCFS"),
+        ],
+      }),
+    })
+    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 + 30 })
+    expect(await cards()).toHaveLength(1)
   })
 
   it("does not double-send when a restart lands in the same window", async () => {

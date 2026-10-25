@@ -921,3 +921,85 @@ describe("an old mint that mints again", () => {
     expect(process(legacyCol({ verdict: "real", blockTimestamp: now + 15 }))).toEqual([])
   })
 })
+
+// SeaDrop numbers the public stage 0, while OpenSea's drop lists the presales first. Stages are matched
+// by time, as the indexer names them, never by list position.
+describe("stage matching", () => {
+  const T = SEP6 + 10 * H
+  const ORDERED = [
+    stage("GTD", 10, 0n, { endTime: T + 60, maxPerWallet: 1, allowlistCount: 24 }),
+    stage("WL", 10, 0n, {
+      startTime: T + 60,
+      endTime: T + 120,
+      maxPerWallet: 1,
+      allowlistCount: 24,
+    }),
+    stage("Public", 10, 2n * 10n ** 13n, {
+      startTime: T + 120,
+      endTime: T + 30 * 24 * H,
+      maxPerWallet: 8888,
+    }),
+  ]
+  const publicStart = (o: Partial<ReturnType<typeof nftMint>> = {}) =>
+    nftMint({
+      stageIndex: 0,
+      stageLabel: "Public",
+      stagePriceWei: String(2n * 10n ** 13n),
+      minted: "40",
+      maxSupply: "8888",
+      mintStartTs: T,
+      stageStartTs: T + 120,
+      blockTimestamp: T + 120,
+      ...o,
+    })
+
+  it("MINT STARTING shows the public stage's end and limit for SeaDrop stage 0", () => {
+    now = T + 120
+    process(nftCollection({ creator, maxSupply: "8888" }))
+    process(nftDrop({ stages: ORDERED, blockTimestamp: T - H }))
+    expect(rows(only(process(publicStart())))).toEqual([
+      "price|0.00002 ETH",
+      "ends|Oct 6 10:00 UTC (in 29d 23h)",
+      "limit|8888 per wallet",
+      "minted|40 / 8,888 (0%)",
+      "creator|INKHornetDEV",
+    ])
+  })
+
+  it("a catch-up reads the public stage's end, not the first listed stage's", () => {
+    process(nftCollection({ verdict: "pending", maxSupply: "8888" }))
+    process(nftDrop({ stages: ORDERED, blockTimestamp: T - H }))
+    now = T + 120
+    process(publicStart())
+    now = T + 2 * H
+    expect(only(process(nftCollection({ verdict: "real", blockTimestamp: now }))).alert).toBe(
+      "mintstart",
+    )
+  })
+
+  it("SOLD OUT prices each stage by its own label", () => {
+    now = T + 3 * H
+    process(nftCollection({ maxSupply: "100" }))
+    process(nftDrop({ stages: ORDERED, maxSupply: "100", blockTimestamp: T - H }))
+    const c = only(
+      process(
+        nftMint({
+          kind: "sold_out",
+          stageIndex: 0,
+          stageLabel: "Public",
+          stagePriceWei: String(2n * 10n ** 13n),
+          minted: "100",
+          maxSupply: "100",
+          mintStartTs: T,
+          minters: 90,
+          stageCounts: [
+            { stageIndex: 0, label: "Public", minted: "60" },
+            { stageIndex: 1, label: "GTD", minted: "40" },
+          ],
+          blockTimestamp: now,
+        }),
+      ),
+    )
+    expect(rows(c)).toContain("mint|free – 0.00002 ETH")
+  })
+})

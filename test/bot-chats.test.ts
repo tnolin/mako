@@ -432,13 +432,64 @@ describe("chat settings details", () => {
     const CH = -100777
     await addChat(sql, CH, "channel")
     await h.tap(`al:${CH}`)
-    expect(h.last("editMessageText")!.text).not.toContain("Posts to")
+    expect(h.last("editMessageText")!.text).not.toContain("Default topic")
+    expect(h.last("editMessageText")!.text).not.toContain("Alerts</u>")
     await h.tap(`al:${CH}:reset:tk`)
     expect(
       await sql`select chat_type, chat_id::text, action, params from bot.user_actions where action = 'preset'`,
     ).toEqual([
       { chat_type: "channel", chat_id: String(CH), action: "preset", params: { choice: "reset" } },
     ])
+  })
+
+  it("shows the default topic and the routed and paused alerts by section, with topic names", async () => {
+    await addChat(sql, G.id, "supergroup", {
+      ...basicPreset("supergroup"),
+      thread: 5,
+      routes: { new: 9, bonding: 14, mintstart: 12 },
+      pausedRoutes: ["bonding"],
+      topicNames: { "5": "Alerts", "9": "Launches & <bonds>", "14": "Bonding" },
+    })
+    await h.tap(`gc:${G.id}`)
+    const [, ...rest] = h.last("editMessageText")!.text.split("\n")
+    expect(rest).toEqual([
+      "",
+      "Default topic: Alerts",
+      "Any alerts not set to a specific topic will appear here.",
+      "",
+      "<u>Token Alerts</u>",
+      "NEW TOKEN → Launches &amp; &lt;bonds&gt;",
+      "BONDING paused: its topic is closed",
+      "",
+      "<u>NFT Alerts</u>",
+      // Saved before names were stored.
+      "MINT STARTING → topic 12",
+    ])
+  })
+
+  it("leaves out a section with nothing routed, and reads General for the General topic", async () => {
+    await addChat(sql, G.id, "supergroup", {
+      ...basicPreset("supergroup"),
+      thread: null,
+      routes: { bigsale: 9 },
+      topicNames: { "9": "Sales" },
+    })
+    await h.tap(`gc:${G.id}`)
+    const text = h.last("editMessageText")!.text
+    expect(text).toContain("Default topic: General\n")
+    expect(text).not.toContain("Token Alerts")
+    expect(text).toContain("<u>NFT Alerts</u>\nBIG SALE → Sales")
+  })
+
+  it("names the topic in /route's prompt, or says this topic when the name isn't known", async () => {
+    await addChat(sql, G.id, "supergroup", { ...basicPreset("supergroup"), thread: 5 })
+    await h.text("/route", { chat: G, thread: 9, topic: "Mints" })
+    expect(h.last("sendMessage")!.text).toBe("Post these alerts in Mints:")
+    // A reply in the topic carries no name: the stored one is used.
+    await h.text("/route", { chat: G, thread: 9 })
+    expect(h.last("sendMessage")!.text).toBe("Post these alerts in Mints:")
+    await h.text("/route", { chat: G, thread: 11 })
+    expect(h.last("sendMessage")!.text).toBe("Post these alerts in this topic:")
   })
 
   it("offers Resume for paused topics and clears them after the rights check", async () => {

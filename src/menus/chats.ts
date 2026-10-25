@@ -239,7 +239,9 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
     }
     const name = topicNameOf(ctx.msg)
     if (name) await saveTopicName(deps, ctx.chat.id, thread, name)
-    await ctx.reply("Post these alerts in this topic:", {
+    const known = name ?? s.topicNames?.[thread]
+    await ctx.reply(`Post these alerts in ${known ? escapeHtml(known) : "this topic"}:`, {
+      parse_mode: "HTML",
       message_thread_id: thread,
       reply_markup: { inline_keyboard: routeKb(s, thread) },
     })

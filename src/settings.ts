@@ -80,6 +80,10 @@ export type Settings = {
   topicNames?: Record<string, string>
 }
 
+/** A topic as the screens name it: General, its stored name, or its number for a route saved before names. */
+export const topicLabel = (s: Settings, thread: number | null | undefined): string =>
+  thread == null ? "General" : (s.topicNames?.[thread] ?? `topic ${thread}`)
+
 /** Telegram caps a topic name at 128 characters. */
 const TOPIC_NAME_MAX = 128
 

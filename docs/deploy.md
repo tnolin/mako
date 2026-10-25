@@ -136,9 +136,11 @@ To roll back, restore the snapshot. Checking out the previous tag without restor
 
 ## Monitoring
 
-Sentry's cron monitor `ink-pipeline` gets a check-in from the bot every minute. It reports `error` when the indexer cursor hasn't moved for 10 minutes, and a missed check-in means the bot or the server is down.
+Sentry is optional. Set `SENTRY_DSN` (and `SENTRY_RELEASE`) in `/etc/ink/mako.env` to your own Sentry project to get alerts by email. Without it, the same problems appear in the journal (`journalctl -u mako-bot`).
 
-The bot also runs health checks every 5 minutes and reports them to the same Sentry project (ADR 0017):
+With Sentry, the cron monitor `ink-pipeline` gets a check-in from the bot every minute. It reports `error` when the indexer cursor hasn't moved for 10 minutes, and a missed check-in means the bot or the server is down.
+
+The bot also runs health checks every 5 minutes (ADR 0017) and reports them to Sentry when it's set:
 
 | Check | Level | Fires when |
 | - | - | - |

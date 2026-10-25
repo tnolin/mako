@@ -829,3 +829,95 @@ it("shows no dollar amounts on any mint alert", () => {
   expect(all.length).toBeGreaterThanOrEqual(3)
   for (const c of all) for (const [, v] of card(c).rows) expect(v).not.toContain("$")
 })
+
+// Production, 2026-10-25: two collections that minted long before the indexer's history each had one
+// fresh mint. The indexer stamped that first stored mint as the stage start and crossed every mark at
+// once, and the rules judged lateness by the event's block time.
+describe("an old mint that mints again", () => {
+  const legacyCol = (o: Parameters<typeof nftCollection>[0] = {}) =>
+    nftCollection({
+      kind: "legacy",
+      seadrop: false,
+      maxSupply: "6500",
+      gates: { page: "pass", structure: "n/a", traits: "pending", farm: "n/a", farmShareBps: null },
+      ...o,
+    })
+  const fresh = (o: Partial<ReturnType<typeof nftMint>> = {}) =>
+    nftMint({
+      stageIndex: 0,
+      stageLabel: "Public",
+      minted: "5822",
+      maxSupply: "6500",
+      minters: 1,
+      mintStartTs: now,
+      stageStartTs: now,
+      blockTimestamp: now,
+      ...o,
+    })
+  // Ink ATM Gang's schedule: two one-minute presales, then a public stage from Sep 7.
+  const sep7 = SEP6 + 24 * H
+  const ATM_STAGES = [
+    stage("GTD", 24, 0n, { endTime: sep7 + 60, allowlistCount: 24 }),
+    stage("WL", 24, 0n, { startTime: sep7 + 60, endTime: sep7 + 120, allowlistCount: 24 }),
+    stage("Public", 24, 0n, { startTime: sep7 + 120, endTime: sep7 + 160 * 24 * H }),
+  ]
+
+  it("sends no MINT LIVE or MINTED for a legacy collection (Ink ATM Gang)", () => {
+    now = SEP6 + 48 * 24 * H
+    process(legacyCol())
+    expect(process(fresh())).toEqual([])
+    expect(process(fresh({ kind: "progress", markBps: 5000 }))).toEqual([])
+    expect(process(fresh({ kind: "sold_out", minted: "6500" }))).toEqual([])
+  })
+
+  it("sends no MINT STARTING or MINTED once every stage of the schedule has ended (Krak Mask)", () => {
+    now = SEP6 + 48 * 24 * H
+    process(nftCollection({ kind: "drop", seadrop: true }))
+    process(
+      nftDrop({
+        stages: [
+          stage("GTD", 0, 0n, { endTime: SEP6 + 60, allowlistCount: 24 }),
+          stage("Public", 0, 0n, { startTime: SEP6 + 60, endTime: SEP6 + 10 * 24 * H }),
+        ],
+        blockTimestamp: now - 60,
+      }),
+    )
+    expect(process(fresh())).toEqual([])
+    expect(process(fresh({ kind: "progress", markBps: 5000 }))).toEqual([])
+  })
+
+  it("sends no MINT STARTING when the scheduled stage started long ago and is still open", () => {
+    now = SEP6 + 48 * 24 * H
+    process(nftCollection({ kind: "drop", seadrop: true }))
+    process(nftDrop({ stages: ATM_STAGES, blockTimestamp: now - 60 }))
+    expect(process(fresh())).toEqual([])
+  })
+
+  it("still sends MINT STARTING for a stage whose scheduled start is a few minutes ago", () => {
+    now = sep7 + 120 + 5 * 60
+    process(nftCollection({ kind: "drop", seadrop: true }))
+    process(nftDrop({ stages: ATM_STAGES, blockTimestamp: sep7 - H }))
+    expect(only(process(fresh({ minted: "12" }))).alert).toBe("mintstart")
+  })
+
+  it("sends nothing for a drop change once the mint has started or ended", () => {
+    now = SEP6 + 48 * 24 * H
+    process(nftCollection({ kind: "drop", seadrop: true }))
+    expect(process(nftDrop({ stages: ATM_STAGES, blockTimestamp: now }))).toEqual([])
+    expect(
+      process(
+        nftDrop({
+          stages: [stage("Public", 0, 0n, { endTime: SEP6 + 24 * H })],
+          blockTimestamp: now,
+        }),
+      ),
+    ).toEqual([])
+  })
+
+  it("sends no catch-up when a legacy collection turns real", () => {
+    now = SEP6 + 48 * 24 * H
+    process(legacyCol({ verdict: "pending" }))
+    process(fresh())
+    expect(process(legacyCol({ verdict: "real", blockTimestamp: now + 15 }))).toEqual([])
+  })
+})

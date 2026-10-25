@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.1 (2026-10-25)
+
+### Fixed
+
+- No MINT STARTING, MINT LIVE, MINTED or SOLD OUT alerts for a collection that finished minting long ago and mints again.
+
 ## v0.2.0 (2026-10-25)
 
 MAKO now covers NFTs on Ink. Get alerts for new mints, sell-outs and big sales across every collection, and watch the collections you care about for floor moves, rare listings and sweeps. Groups can watch tokens too.

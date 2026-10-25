@@ -1,5 +1,12 @@
 # Changelog
 
+## v0.2.2 (2026-10-25)
+
+### Fixed
+
+- MINT STARTING, SOLD OUT and the collection card read the right stage's end time, limit and price when the drop lists its stages in a different order.
+- A MINT REMINDER is not sent twice when a drop's stage list changes order.
+
 ## v0.2.1 (2026-10-25)
 
 ### Fixed

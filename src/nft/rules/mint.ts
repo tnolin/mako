@@ -46,11 +46,27 @@ const feedOk = (st: CollectionState) => st.col?.verdict === "real"
 const pageOk = (col: { name: string | null; imageUrl: string | null } | null | undefined) =>
   !!col?.name && !!col.imageUrl
 /**
+ * The drop stage running at `ts`. SeaDrop numbers its stages its own way (the public stage is 0) and
+ * OpenSea lists them in another order, so a mint's stage is matched by time, as the indexer names it:
+ * the latest-starting stage whose `[startTime, endTime)` holds `ts`. Null when none does.
+ */
+function stageAt(drop: NftDropEvent | null, ts: number): NftDropStage | null {
+  let best: NftDropStage | null = null
+  for (const s of drop?.stages ?? [])
+    if (
+      s.startTime <= ts &&
+      (s.endTime == null || ts < s.endTime) &&
+      (!best || s.startTime > best.startTime)
+    )
+      best = s
+  return best
+}
+/**
  * Whether the mint is still running: its stage ends in the future, or, with no end time, the newest mint
  * event is under an hour old. The catch-up and the collection card's mint row both use it.
  */
 export function mintLive(st: CollectionState, now: number): boolean {
-  const end = st.lastStage && st.drop?.stages[st.lastStage.stageIndex]?.endTime
+  const end = st.lastStage && stageAt(st.drop, st.lastStage.stageStartTs)?.endTime
   if (end != null) return end > now
   const seen = [st.lastStage, st.lastMark].filter((m) => m !== null).map((m) => m.blockTimestamp)
   return seen.length > 0 && now - Math.max(...seen) < MINT_RECENT_S
@@ -164,7 +180,7 @@ function stageStart(
     const card = makeNftAlertCard("mintlive", "MINT LIVE", st.col, rows, { contract: b.contract })
     return cand(b, "mintlive", `mintlive:${b.contract}`, card, at, feedOk(st))
   }
-  const stage = st.drop?.stages[ev.stageIndex]
+  const stage = stageAt(st.drop, ev.stageStartTs)
   if (isTeamStage({ label: ev.stageLabel, allowlistCount: stage?.allowlistCount ?? null }))
     return null
   const rows: Rows = []
@@ -227,10 +243,11 @@ function soldOut(b: Base, st: CollectionState, ev: NftMintEvent): Candidate {
   const rows: Rows = [
     ["minted", `${count(Number(ev.minted))} in ${age(ev.blockTimestamp - ev.mintStartTs)}`],
   ]
-  // The stages that sold something, without Team stages: their prices and counts.
+  // The stages that sold something, without Team stages: their prices and counts. A count names its
+  // stage by the label the indexer matched by time, so the drop stage is found by that label.
   const stages = (ev.stageCounts ?? [])
     .filter((s) => Number(s.minted) > 0)
-    .map((s) => ({ ...s, def: st.drop?.stages[s.stageIndex] }))
+    .map((s) => ({ ...s, def: st.drop?.stages.find((d) => d.label === s.label) }))
     .filter((s) => !isTeamStage({ label: s.label, allowlistCount: s.def?.allowlistCount ?? null }))
   const prices =
     stages.length > 0

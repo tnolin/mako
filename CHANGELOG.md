@@ -1,5 +1,15 @@
 # Changelog
 
+## v0.2.4 (2026-10-25)
+
+### Added
+
+- Health checks every 5 minutes: they report when the indexer stops writing events, falls behind the chain, the bot falls behind the indexer, or deliveries keep failing, and again when it clears. A day with no alerts sent gets one note with a summary. Reports go to the log and, when set, to Sentry.
+
+### Changed
+
+- A group's settings show the default topic and its routed alerts by topic name, in Token Alerts and NFT Alerts sections. `/route` names the topic it routes to.
+
 ## v0.2.3 (2026-10-25)
 
 ### Fixed

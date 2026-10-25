@@ -1,5 +1,6 @@
 import type { Sql } from "./db"
 import { cursorBlock } from "./history"
+import type { Logger } from "./log"
 import { DEFAULT_BIGSALE_WEI, ethTrim } from "./nft/policy"
 
 export type HealthEvent = {
@@ -17,6 +18,8 @@ export type HealthDeps = {
   /** A collection's current verdict, from the bot's NFT state. */
   verdictOf: (contract: string) => string | undefined
   report: (e: HealthEvent) => void
+  /** Every report is also logged as `health`, and each run as `health checks`, for instances without Sentry. */
+  log: Logger
   /** Unix seconds. */
   now?: () => number
 }
@@ -103,33 +106,42 @@ export function createHealth(deps: HealthDeps) {
     return new Map(rows.map((r) => [r.key.slice("health:".length), Number(r.value)]))
   }
 
-  async function runCheck(c: Check, incidents: Map<string, number>): Promise<void> {
+  function emit(kind: "error" | "recovered" | "quiet", check: string, e: HealthEvent): void {
+    deps.log(e.level, "health", { kind, check, message: e.message })
+    deps.report(e)
+  }
+
+  async function runCheck(
+    c: Check,
+    incidents: Map<string, number>,
+  ): Promise<"ok" | "failing" | "skipped"> {
     const r = await c.run()
-    if (r === null) return
+    if (r === null) return "skipped"
     const t = now()
     const started = incidents.get(c.name)
     if (!r.bad) {
       badSince.delete(c.name)
-      if (started === undefined) return
+      if (started === undefined) return "ok"
       await sql`delete from bot.state where key = ${`health:${c.name}`}`
-      deps.report({
+      emit("recovered", c.name, {
         level: "info",
         message: `Health recovered: ${c.label} (lasted ${age(t - started)})`,
         fingerprint: ["health", c.name, String(started), "recovered"],
       })
-      return
+      return "ok"
     }
     const since = badSince.get(c.name) ?? t
     badSince.set(c.name, since)
-    if (started !== undefined || t - since < c.forS) return
+    if (started !== undefined || t - since < c.forS) return "failing"
     await sql`insert into bot.state (key, value) values (${`health:${c.name}`}, ${String(t)})
       on conflict (key) do nothing`
-    deps.report({
+    emit("error", c.name, {
       level: "error",
       message: r.message,
       fingerprint: ["health", c.name, String(t)],
       extra: r.extra,
     })
+    return "failing"
   }
 
   async function quietDay(): Promise<void> {
@@ -140,7 +152,7 @@ export function createHealth(deps: HealthDeps) {
     if (r!.sent || (r!.last !== null && t - Number(r!.last) < DAY_S)) return
     await sql`insert into bot.state (key, value) values (${QUIET_KEY}, ${String(t)})
       on conflict (key) do update set value = excluded.value`
-    deps.report({
+    emit("quiet", "quiet", {
       level: "info",
       message: ["Health: no alert sent in 24 hours", ...(await summary())].join("\n"),
       fingerprint: ["health", "quiet", String(t)],
@@ -177,7 +189,9 @@ export function createHealth(deps: HealthDeps) {
   return {
     async tick(): Promise<void> {
       const incidents = await open()
-      for (const c of checks) await runCheck(c, incidents)
+      const results: Record<string, string> = {}
+      for (const c of checks) results[c.name] = await runCheck(c, incidents)
+      deps.log("info", "health checks", results)
       await quietDay()
     },
   }

@@ -18,6 +18,7 @@ The `ink-pipeline` cron monitor catches a dead bot or host and an indexer cursor
 - Each error fires once per incident. The incident's start time is kept in `bot.state` (`health:<check>`), so a restart doesn't fire it again. When the check clears, the bot sends an info note, `Health recovered: … (lasted …)`, and deletes the row.
 - Each incident has its own fingerprint (`health`, the check, the start time), so it opens a new Sentry issue and the project's new-issue email rule sends it. The recovered note has its own fingerprint too.
 - The checks read only the newest event by id and the last 86,400 blocks, through existing indexes.
+- Every report is also written to the bot's log as `health`, and each run as `health checks` with every check's result, so an instance without Sentry still sees them.
 
 ## Consequences
 

@@ -9,6 +9,7 @@ const MIN = 60
 const NOW = 1_800_000_000
 let sql: Sql
 let events: HealthEvent[]
+let lines: { level: string; msg: string; fields?: Record<string, unknown> }[]
 let now: number
 let head: bigint | Error
 
@@ -16,6 +17,7 @@ beforeEach(async () => {
   await sql?.end()
   sql = await resetDb(inject("databaseUrl"))
   events = []
+  lines = []
   now = NOW
   head = 1000n
   await setCursorBlock(sql, 1000)
@@ -33,6 +35,7 @@ const health = () =>
     },
     verdictOf: (c) => (c === REAL ? "real" : c === JUNK ? "filtered" : undefined),
     report: (e) => events.push(e),
+    log: (level, msg, fields) => lines.push({ level, msg, fields }),
     now: () => now,
   })
 /** One fresh indexer event, written `ageS` seconds before now, with the bot caught up to it. */
@@ -170,4 +173,49 @@ it("sends no quiet-day note while alerts go out", async () => {
   await sentAlert(23 * 60 * MIN)
   await health().tick()
   expect(events).toEqual([])
+})
+
+it("logs every report with the health prefix, and one line per run with each check's result", async () => {
+  await sentAlert(MIN)
+  await freshEvent(61 * MIN)
+  head = new Error("rpc down")
+  const h = health()
+  await h.tick()
+  expect(lines.filter((l) => l.msg === "health")).toEqual([
+    {
+      level: "error",
+      msg: "health",
+      fields: {
+        kind: "error",
+        check: "events",
+        message: "Health: no new indexer events for 60 minutes",
+      },
+    },
+  ])
+  expect(lines.find((l) => l.msg === "health checks")).toEqual({
+    level: "info",
+    msg: "health checks",
+    fields: { events: "failing", cursor: "skipped", lag: "ok", failed: "ok" },
+  })
+  head = 1000n
+  await freshEvent(0)
+  await h.tick()
+  expect(lines.filter((l) => l.msg === "health").at(-1)).toMatchObject({
+    level: "info",
+    fields: { kind: "recovered", check: "events" },
+  })
+  expect(lines.filter((l) => l.msg === "health checks").at(-1)!.fields).toEqual({
+    events: "ok",
+    cursor: "ok",
+    lag: "ok",
+    failed: "ok",
+  })
+})
+
+it("logs the quiet-day note with its summary", async () => {
+  await freshEvent(0)
+  await health().tick()
+  const quiet = lines.find((l) => l.msg === "health")!
+  expect(quiet).toMatchObject({ level: "info", fields: { kind: "quiet", check: "quiet" } })
+  expect(quiet.fields!.message).toContain("Health: no alert sent in 24 hours\nEvents: nft.sale 1")
 })

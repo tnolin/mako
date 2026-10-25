@@ -133,10 +133,8 @@ const health = createHealth({
   sql,
   chainHead: rpcBlockNumber(env.INK_RPC_URL || DEFAULT_RPC),
   verdictOf: (c) => nftState.current?.get(c)?.col?.verdict,
-  report: (e) => {
-    log(e.level === "error" ? "error" : "info", "health", { message: e.message.split("\n")[0] })
-    reporter.event(e)
-  },
+  report: (e) => reporter.event(e),
+  log,
 })
 const healthTick = () =>
   void health.tick().catch((err) => log("warn", "health check failed", { error: String(err) }))

@@ -150,6 +150,12 @@ The bot also runs health checks every 5 minutes and reports them to the same Sen
 
 Each error opens one Sentry issue per incident, and a `Health recovered` info note follows when it clears. Open incidents are kept in `bot.state` under `health:<check>`, so a restart doesn't repeat them. To get the info notes by email too, add an alert rule for the project that covers info-level issues.
 
+The same reports go to the bot's log, so an instance without `SENTRY_DSN` sees them too. Each report is a `"msg":"health"` line with its `kind` (`error`, `recovered` or `quiet`), the check and the message. Each run writes one `"msg":"health checks"` line with every check's result: `ok`, `failing` or `skipped`.
+
+```bash
+journalctl -u mako-bot --since "-1h" -o cat | grep '"msg":"health'
+```
+
 ## Restore drill
 
 From the local dump:

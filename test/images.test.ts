@@ -103,6 +103,50 @@ it("accepts a body of exactly 5 MB", async () => {
   expect(a.sendPhoto).toHaveBeenCalledOnce()
 })
 
+const MIB = 1024 * 1024
+const bigImage = (size: number) => {
+  const body = new Uint8Array(size)
+  body.set(JPEG)
+  return body
+}
+const NFT_KEY = "nft:0x7c701c0148e0e965065aa05e008ac9341e6efc6c:1938"
+
+async function sendKeyed(imageKey: string, res: () => Response) {
+  const a = api()
+  const log = vi.fn()
+  const images = createImages({
+    lookup: publicLookup,
+    fetch: vi.fn(async () => res()),
+    cache: memoryCache().cache,
+    log,
+  })
+  await images.send(a, { ...msg, imageKey })
+  return Object.assign(a, { log })
+}
+
+it("lets an NFT image up to 10 MiB through, and no further", async () => {
+  const ok = await sendKeyed(NFT_KEY, () => imageResponse({ body: bigImage(5.5 * MIB) }))
+  expect(ok.sendPhoto).toHaveBeenCalledOnce()
+  const collection = await sendKeyed("nft:0x7c70", () =>
+    imageResponse({ body: bigImage(10 * MIB) }),
+  )
+  expect(collection.sendPhoto).toHaveBeenCalledOnce()
+  for (const res of [
+    () => imageResponse({ body: bigImage(10 * MIB + 1) }),
+    () => imageResponse({ headers: { "content-length": String(10 * MIB + 1) } }),
+  ]) {
+    const a = await sendKeyed(NFT_KEY, res)
+    expect(a.sendPhoto).not.toHaveBeenCalled()
+    expect((a.log.mock.calls[0]![2] as { reason: string }).reason).toBe("too large")
+  }
+})
+
+it("keeps a token image at 5 MiB", async () => {
+  const a = await sendKeyed("0xaa", () => imageResponse({ body: bigImage(5.5 * MIB) }))
+  expect(a.sendPhoto).not.toHaveBeenCalled()
+  expect((a.log.mock.calls[0]![2] as { reason: string }).reason).toBe("too large")
+})
+
 it("pads the image itself to a 640×640 JPEG on the brand background", async () => {
   const a = await sendWith(() => imageResponse())
   const file = (a.sendPhoto.mock.calls[0] as unknown as [number, InputFile])[1]

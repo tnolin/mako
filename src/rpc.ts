@@ -32,6 +32,22 @@ export function rpcBalanceOf(url: string = DEFAULT_RPC, fetchFn: typeof fetch = 
   }
 }
 
+/** `eth_blockNumber`, for the health check's cursor lag. 5 s timeout. */
+export function rpcBlockNumber(url: string = DEFAULT_RPC, fetchFn: typeof fetch = fetch) {
+  return async (): Promise<bigint> => {
+    const res = await fetchFn(url, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_blockNumber", params: [] }),
+      signal: AbortSignal.timeout(5000),
+    })
+    const j = (await res.json()) as { result?: string; error?: { message?: string } }
+    if (j.error) throw new Error(j.error.message ?? "rpc error")
+    if (j.result === undefined) throw new Error(`empty eth_blockNumber result (HTTP ${res.status})`)
+    return BigInt(j.result)
+  }
+}
+
 export type HoldsReq = { token: string; holder: string; block: string; totalSupply: string }
 export type DevHolds = { pct: number; now: boolean } | null
 

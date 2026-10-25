@@ -1,5 +1,6 @@
 import * as Sentry from "@sentry/node"
 import { GrammyError } from "grammy"
+import type { HealthEvent } from "./health"
 
 const NAMED = new Set(["user", "chat", "from", "chat_id", "user_id"])
 const KEYISH = /user|chat|from/i
@@ -61,6 +62,8 @@ export function plainError(err: unknown): unknown {
 export type Reporter = {
   capture(err: unknown, extra?: Record<string, unknown>): void
   message(msg: string): void
+  /** A health check's error or recovered note (ADR 0017). */
+  event(e: HealthEvent): void
   checkIn(status: "ok" | "error"): void
   flush(ms: number): Promise<boolean>
 }
@@ -68,6 +71,7 @@ export type Reporter = {
 export const noopReporter: Reporter = {
   capture() {},
   message() {},
+  event() {},
   checkIn() {},
   flush: async () => true,
 }
@@ -102,6 +106,12 @@ export function initSentry(env: Record<string, string | undefined>, sdk: Sdk = S
         extra ? { extra: scrub(extra) as Record<string, unknown> } : undefined,
       ),
     message: (msg) => void sdk.captureMessage(msg),
+    event: (e) =>
+      void sdk.captureMessage(e.message, {
+        level: e.level,
+        fingerprint: e.fingerprint,
+        extra: e.extra ? (scrub(e.extra) as Record<string, unknown>) : undefined,
+      }),
     checkIn: (status) =>
       void sdk.captureCheckIn(
         { monitorSlug: "ink-pipeline", status },

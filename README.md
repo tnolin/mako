@@ -110,6 +110,7 @@ You can delete your data in Settings → Delete my data. Server backups are dele
 
 - [Architecture](docs/architecture.md)
 - [Deployment](docs/deploy.md)
+- [Reliability](docs/reliability.md)
 - [Decision records](docs/adr)
 - [AGENTS.md](AGENTS.md), for coding agents
 

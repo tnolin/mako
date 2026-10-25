@@ -109,4 +109,20 @@ describe("initSentry", () => {
       { schedule: { type: "interval", value: 1, unit: "minute" }, checkinMargin: 2, maxRuntime: 1 },
     )
   })
+
+  it("sends a health event as a message with its level and fingerprint, scrubbing extras", () => {
+    const s = sdk()
+    const r = initSentry({ SENTRY_DSN: "https://k@o1.ingest.sentry.io/1" }, s)
+    r.event({
+      level: "error",
+      message: "Health: 12 failed deliveries in the last hour",
+      fingerprint: ["health", "failed", "1800000000"],
+      extra: { chat_id: 5, head: "1000" },
+    })
+    expect(s.captureMessage).toHaveBeenCalledWith("Health: 12 failed deliveries in the last hour", {
+      level: "error",
+      fingerprint: ["health", "failed", "1800000000"],
+      extra: { head: "1000" },
+    })
+  })
 })

@@ -235,3 +235,11 @@ it('ALERT_DESC reads "at any price" when the SOLD minimum is any', () => {
   s.alerts.sale.minWei = "0"
   expect(ALERT_DESC("sale", s)).toBe("SOLD - an item sells at any price.")
 })
+
+it("keeps stored topic names with a topic number and a non-empty name, cut to 128 characters", () => {
+  const s = readSettings(
+    { topicNames: { "9": "  Mints ", x: "Bad", "12": "", "13": 4, "14": "y".repeat(200) } },
+    "supergroup",
+  )
+  expect(s.topicNames).toEqual({ "9": "Mints", "14": "y".repeat(128) })
+})

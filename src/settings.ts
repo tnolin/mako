@@ -76,7 +76,16 @@ export type Settings = {
   routes?: Partial<Record<AlertKind, number>>
   /** Chats: alerts whose topic broke. */
   pausedRoutes?: AlertKind[]
+  /** Chats: names of the topics MAKO posts in, by topic number, as Telegram sent them. */
+  topicNames?: Record<string, string>
 }
+
+/** A topic as the screens name it: General, its stored name, or its number for a route saved before names. */
+export const topicLabel = (s: Settings, thread: number | null | undefined): string =>
+  thread == null ? "General" : (s.topicNames?.[thread] ?? `topic ${thread}`)
+
+/** Telegram caps a topic name at 128 characters. */
+const TOPIC_NAME_MAX = 128
 
 export const PRIORITY = {
   notice: 0,
@@ -303,6 +312,13 @@ export function readSettings(raw: unknown, chatType: ChatType): Settings {
   }
   if (Array.isArray(raw.pausedRoutes)) {
     s.pausedRoutes = ALERTS.filter((a) => (raw.pausedRoutes as unknown[]).includes(a))
+  }
+  if (isObj(raw.topicNames)) {
+    s.topicNames = Object.fromEntries(
+      Object.entries(raw.topicNames)
+        .filter(([k, v]) => /^\d+$/.test(k) && typeof v === "string" && v.trim() !== "")
+        .map(([k, v]) => [k, (v as string).trim().slice(0, TOPIC_NAME_MAX)]),
+    )
   }
   return s
 }

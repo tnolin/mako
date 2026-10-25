@@ -8,6 +8,6 @@ Read AGENTS.md first.
 - Record significant technical decisions as a new dated ADR in `docs/adr/`.
 - Public docs state what the project does, with no comparisons to other projects.
 - Never commit secrets. `.env.example` keeps empty values.
-- Privacy: the only user identifier stored is the numeric Telegram user id in `bot.users`. Never store or log usernames, names, message text, IPs or user agents.
+- Privacy: the only user identifier stored is the numeric Telegram user id in `bot.users`. Never store or log people's names or usernames, message text, IPs or user agents. Group, channel and topic names aren't personal data and may be stored.
 - User-facing text never names a launchpad directly; use `src/launchpads.ts`.
 - Mark a deliberate simplification with a `shortcut:` comment that names its limit and the upgrade path, for example `// shortcut: loads every user per batch; filter in SQL past ~50K users`.

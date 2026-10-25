@@ -16,6 +16,8 @@ const WAIT_MS = 3000
 /** Images that arrived after their send gave up, kept for the next send. */
 const READY_MAX = 100
 const MAX_BYTES = 5 * 1024 * 1024
+/** NFT art is often animated and over 5 MB (WIRED's WebPs reach 5.7 MB); only the first frame is decoded. */
+const MAX_NFT_BYTES = 10 * 1024 * 1024
 const MAX_REDIRECTS = 3
 /** Decoding stops above this many pixels, so a tiny file can't expand into gigabytes. */
 const MAX_PIXELS = 40_000_000
@@ -195,6 +197,7 @@ export function createImages(deps: ImagesDeps): Images {
         if (hop >= MAX_REDIRECTS) return fail("too many redirects")
         url = new URL(location, url).toString()
       }
+      const maxBytes = token.startsWith("nft:") ? MAX_NFT_BYTES : MAX_BYTES
       const type = res.headers.get("content-type")
       const reject = (reason: string) => {
         void res.body?.cancel().catch(() => {})
@@ -204,7 +207,7 @@ export function createImages(deps: ImagesDeps): Images {
       // Some image hosts (IPFS gateways) send octet-stream; decoding decides whether it is an image.
       if (type && !type.startsWith("image/") && !type.startsWith("application/octet-stream"))
         return reject(`content-type ${type.slice(0, 40)}`)
-      if (Number(res.headers.get("content-length")) > MAX_BYTES) return reject("too large")
+      if (Number(res.headers.get("content-length")) > maxBytes) return reject("too large")
       const reader = res.body?.getReader()
       if (!reader) return fail("no body")
       const chunks: Uint8Array[] = []
@@ -213,7 +216,7 @@ export function createImages(deps: ImagesDeps): Images {
         const { done, value } = await reader.read()
         if (done) break
         size += value.length
-        if (size > MAX_BYTES) {
+        if (size > maxBytes) {
           await reader.cancel()
           return fail("too large")
         }

@@ -1,5 +1,11 @@
 # Changelog
 
+## v0.2.3 (2026-10-25)
+
+### Fixed
+
+- NFT alerts keep their image when the artwork is an animated file over 5 MB, such as WIRED. NFT images up to 10 MB are accepted.
+
 ## v0.2.2 (2026-10-25)
 
 ### Fixed

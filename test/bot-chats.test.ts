@@ -178,6 +178,47 @@ describe("groups", () => {
     expect((await chat(G.id))?.settings.routes).toEqual({ mintstart: 9 })
   })
 
+  it("stores the topic's name from /setup and /route, and follows a rename", async () => {
+    await addUser(sql, 100)
+    await h.update(member(G, "left", "member"))
+    await h.text("/setup", { chat: G, thread: 5, topic: "Alerts" })
+    expect((await chat(G.id))?.settings.topicNames).toEqual({ "5": "Alerts" })
+    await h.text("/route", { chat: G, thread: 9, topic: "Mints" })
+    expect((await chat(G.id))?.settings.topicNames).toEqual({ "5": "Alerts", "9": "Mints" })
+    const renamed = (thread: number, name: string) =>
+      h.update({
+        message: {
+          message_id: 77,
+          date: 0,
+          chat: G,
+          from: { id: 100, is_bot: false, first_name: "U" },
+          message_thread_id: thread,
+          is_topic_message: true,
+          forum_topic_edited: { name },
+        },
+      })
+    await renamed(9, "NFT mints")
+    // A topic MAKO doesn't post in is not stored.
+    await renamed(12, "Off topic")
+    expect((await chat(G.id))?.settings.topicNames).toEqual({ "5": "Alerts", "9": "NFT mints" })
+  })
+
+  it("names a routed topic on rename even when the route was saved before names", async () => {
+    await addChat(sql, G.id, "supergroup", { ...basicPreset("supergroup"), routes: { new: 9 } })
+    await h.update({
+      message: {
+        message_id: 77,
+        date: 0,
+        chat: G,
+        from: { id: 100, is_bot: false, first_name: "U" },
+        message_thread_id: 9,
+        is_topic_message: true,
+        forum_topic_edited: { name: "Launches" },
+      },
+    })
+    expect((await chat(G.id))?.settings.topicNames).toEqual({ "9": "Launches" })
+  })
+
   it("asks for a topic when /route runs outside one", async () => {
     await addChat(sql, G.id, "supergroup")
     await h.text("/route", { chat: G })

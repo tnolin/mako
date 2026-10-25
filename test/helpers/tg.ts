@@ -83,7 +83,15 @@ export function harness(bot: Bot) {
     },
     async text(
       text: string,
-      o: { from?: number; name?: string; chat?: Chat; thread?: number; replyTo?: string } = {},
+      o: {
+        from?: number
+        name?: string
+        chat?: Chat
+        thread?: number
+        replyTo?: string
+        /** The topic's name: Telegram attaches the topic's creation message to a message in a topic. */
+        topic?: string
+      } = {},
     ) {
       const from = user(o.from ?? 100, o.name)
       const chat = o.chat ?? privateChat(from.id)
@@ -98,6 +106,19 @@ export function harness(bot: Bot) {
           text,
           ...(cmd ? { entities: [{ type: "bot_command", offset: 0, length: cmd }] } : {}),
           ...(o.thread ? { message_thread_id: o.thread, is_topic_message: true } : {}),
+          ...(o.topic && o.thread
+            ? {
+                reply_to_message: {
+                  message_id: o.thread,
+                  date: 0,
+                  chat,
+                  from,
+                  message_thread_id: o.thread,
+                  forum_topic_created: { name: o.topic, icon_color: 7322096 },
+                  is_topic_message: true,
+                },
+              }
+            : {}),
           ...(o.replyTo
             ? {
                 reply_to_message: {

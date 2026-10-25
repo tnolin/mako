@@ -1,5 +1,5 @@
 import type { Bot, Context } from "grammy"
-import type { ChatAdministratorRights, ChatMember } from "grammy/types"
+import type { ChatAdministratorRights, ChatMember, Message } from "grammy/types"
 import type postgres from "postgres"
 import { logAction } from "../actions"
 import { moveChat } from "../chat-move"
@@ -124,6 +124,22 @@ const setupKb = (bot: string, chatId: number): Kb => [
   [link("Open settings", `https://t.me/${bot}?start=s_${chatId}`)],
 ]
 
+/**
+ * A topic's name. Telegram attaches the topic's creation message to a message in a topic, unless the
+ * message replies to another one. Undefined outside a topic or when it isn't attached.
+ */
+const topicNameOf = (m: Message | undefined): string | undefined =>
+  m?.is_topic_message ? m.reply_to_message?.forum_topic_created?.name : undefined
+
+/** Stores one topic's name in the chat's settings, without rewriting the rest of them. */
+async function saveTopicName(deps: BotDeps, chatId: number, thread: number, name: string) {
+  await deps.sql`
+    update bot.chats
+    set settings = jsonb_set(settings, '{topicNames}',
+      coalesce(settings->'topicNames', '{}') || jsonb_build_object(${String(thread)}::text, ${name}::text))
+    where chat_id = ${chatId}`
+}
+
 // MINT REMINDER goes to DMs only, so it has no route.
 const ROUTED = ALERTS.filter((a) => a !== "reminder")
 
@@ -158,6 +174,19 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
   groups.command("start", (ctx) =>
     ctx.reply(SETUP_LINE, { reply_markup: { inline_keyboard: guideKb() } }),
   )
+  // A rename of a topic MAKO posts in: the default topic, a routed one or one already named.
+  groups.on("message:forum_topic_edited", async (ctx) => {
+    const name = ctx.msg.forum_topic_edited.name
+    const thread = ctx.msg.message_thread_id
+    if (!name || thread === undefined) return
+    const s = await chatSettings(deps, ctx.chat.id)
+    const used =
+      s &&
+      (s.thread === thread ||
+        Object.values(s.routes ?? {}).includes(thread) ||
+        s.topicNames?.[thread] !== undefined)
+    if (used) await saveTopicName(deps, ctx.chat.id, thread, name)
+  })
   groups.on("message:migrate_to_chat_id", async (ctx) => {
     const from = ctx.chat.id
     const to = ctx.msg.migrate_to_chat_id
@@ -178,6 +207,8 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
     const s = (await chatSettings(deps, ctx.chat.id)) ?? basicPreset(ctx.chat.type as ChatType)
     s.thread = thread
     s.pausedRoutes = []
+    const name = topicNameOf(ctx.msg)
+    if (thread !== null && name) s.topicNames = { ...s.topicNames, [thread]: name }
     const setupBy = (await findUser(deps.sql, ctx.from.id))?.id ?? null
     // shortcut: writes the whole settings JSON (read-modify-write); a concurrent sender write to
     // pausedRoutes can be overwritten. Upgrade to a targeted jsonb_set update.
@@ -206,6 +237,8 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
       await ctx.reply("Run /route inside the topic that should get those alerts.")
       return
     }
+    const name = topicNameOf(ctx.msg)
+    if (name) await saveTopicName(deps, ctx.chat.id, thread, name)
     await ctx.reply("Post these alerts in this topic:", {
       message_thread_id: thread,
       reply_markup: { inline_keyboard: routeKb(s, thread) },

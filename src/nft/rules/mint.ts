@@ -18,7 +18,13 @@ import {
   type NftAlertKind,
   shortAddr,
 } from "../card"
-import { isTeamStage, LAUNCH_HOLD_S, MINT_RECENT_S, STAGE_START_MAX_S } from "../policy"
+import {
+  CATCH_UP_MAX_S,
+  isTeamStage,
+  LAUNCH_HOLD_S,
+  MINT_RECENT_S,
+  STAGE_START_MAX_S,
+} from "../policy"
 import type { CollectionState } from "../state"
 
 type MintCtx = Pick<RuleCtx, "nft" | "now" | "nftSince">
@@ -306,7 +312,8 @@ function newCollection(
 /**
  * Candidates for a mint, drop, collection or launch event. The state already holds the event, and `prev` is
  * the collection snapshot it replaced. A collection that turns `real` (or first passes the page and structure gates) after
- * its mint started gets one catch-up alert for the current state, stamped with the receipt time.
+ * its mint started gets one catch-up alert for the current state, stamped with the receipt time, only if the
+ * stage it reports started at most CATCH_UP_MAX_S ago. A stage that has been open longer is not news.
  */
 export function mintRules(
   ev: Row<NftMintEvent | NftDropEvent | NftCollectionEvent | NftLaunchEvent>,
@@ -361,6 +368,7 @@ export function mintRules(
           becameReal &&
           st.lastStage &&
           !st.soldOut &&
+          now - st.lastStage.stageStartTs <= CATCH_UP_MAX_S &&
           !oldMint(st, now) &&
           mintLive(st, now)
         ) {

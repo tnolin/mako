@@ -51,6 +51,8 @@ export const REMINDER_LEAD_S = 15 * 60
 export const STAGE_START_MAX_S = 10 * 60
 /** A catch-up for a mint with no stage end time needs a mint event at most this old. */
 export const MINT_RECENT_S = 3600
+/** A catch-up MINT STARTING or MINT LIVE needs a stage that started at most this long ago. */
+export const CATCH_UP_MAX_S = 3600
 /** A Chimera launch held for its OpenSea page is sent only this long after the launch. */
 export const LAUNCH_HOLD_S = 7 * 24 * 3600
 export const ITEM_CACHE_RANK_S = 7 * 24 * 3600

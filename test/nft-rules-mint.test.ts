@@ -2,6 +2,7 @@ import type { NftDropStage, NftEvent } from "@ink-indexer/events"
 import { beforeEach, describe, expect, it } from "vitest"
 import type { Row } from "../src/history"
 import type { NftAlertCard } from "../src/nft/card"
+import { CATCH_UP_MAX_S } from "../src/nft/policy"
 import { mintRules } from "../src/nft/rules/mint"
 import { createNftState, type NftState } from "../src/nft/state"
 import type { Candidate } from "../src/rules/index"
@@ -596,7 +597,7 @@ describe("catch-up when a collection turns real", () => {
     expect(process(nftCollection({ verdict: "real", blockTimestamp: now }))).toEqual([])
   })
 
-  it("without a stage end time, catches up only within an hour of the latest mint", () => {
+  it("without a stage end time, catches up only within an hour of the stage start", () => {
     const start = SEP6 + 17 * H
     const publicStart = () => {
       process(nftCollection({ verdict: "pending" }))
@@ -631,9 +632,7 @@ describe("catch-up when a collection turns real", () => {
       }),
     )
     now = start + 2 * H + 30 * 60
-    expect(only(process(nftCollection({ verdict: "real", blockTimestamp: now }))).alert).toBe(
-      "mintstart",
-    )
+    expect(process(nftCollection({ verdict: "real", blockTimestamp: now }))).toEqual([])
     now = start + 3 * H + 60
     expect(process(nftCollection({ verdict: "pending", blockTimestamp: now }))).toEqual([])
     expect(process(nftCollection({ verdict: "real", blockTimestamp: now }))).toEqual([])
@@ -647,6 +646,99 @@ describe("catch-up when a collection turns real", () => {
     expect(
       process(nftCollection({ seadrop: false, verdict: "real", blockTimestamp: now })),
     ).toEqual([])
+  })
+
+  describe("age of the stage", () => {
+    const start = SEP6
+    const openStage = [stage("Public", 0, 5n * 10n ** 14n, { endTime: start + 30 * 24 * H })]
+    /** A Public stage that started at `start` and ends in a month, with a mint a few minutes before `at`. */
+    const mintingSince = (at: number) => {
+      process(nftCollection({ verdict: "pending" }))
+      process(nftDrop({ stages: openStage, blockTimestamp: start - H }))
+      now = start
+      process(
+        nftMint({
+          stageIndex: 0,
+          stageLabel: "Public",
+          blockTimestamp: start,
+          stageStartTs: start,
+          mintStartTs: start,
+        }),
+      )
+      process(
+        nftMint({
+          kind: "progress",
+          markBps: 2500,
+          stageIndex: 0,
+          stageLabel: "Public",
+          blockTimestamp: at - 300,
+          stageStartTs: start,
+          mintStartTs: start,
+        }),
+      )
+      now = at
+    }
+
+    it("sends no catch-up when the collection turns real 3 days after the stage started", () => {
+      mintingSince(start + 3 * 24 * H)
+      expect(process(nftCollection({ verdict: "real", blockTimestamp: now }))).toEqual([])
+    })
+
+    it("sends one catch-up when the collection turns real 30 minutes after the stage started", () => {
+      mintingSince(start + 30 * 60)
+      const c = only(process(nftCollection({ verdict: "real", blockTimestamp: now })))
+      expect(c.alert).toBe("mintstart")
+      expect(rows(c)[0]).toBe("started|30m ago")
+    })
+
+    it("sends the catch-up at exactly CATCH_UP_MAX_S after the stage started, and not a second later", () => {
+      mintingSince(start + CATCH_UP_MAX_S)
+      expect(only(process(nftCollection({ verdict: "real", blockTimestamp: now }))).alert).toBe(
+        "mintstart",
+      )
+      state = createNftState()
+      mintingSince(start + CATCH_UP_MAX_S + 1)
+      expect(process(nftCollection({ verdict: "real", blockTimestamp: now }))).toEqual([])
+    })
+
+    it("sends no MINT LIVE catch-up for a stage-less mint that started 3 days ago and minted 10 minutes ago", () => {
+      process(nftCollection({ seadrop: false, verdict: "pending" }))
+      process(
+        nftMint({
+          stageLabel: "Mint",
+          blockTimestamp: start,
+          mintStartTs: start,
+          stageStartTs: start,
+        }),
+      )
+      now = start + 3 * 24 * H
+      process(
+        nftMint({
+          kind: "progress",
+          markBps: 2500,
+          stageLabel: "Mint",
+          blockTimestamp: now - 600,
+          mintStartTs: start,
+          stageStartTs: start,
+        }),
+      )
+      expect(
+        process(nftCollection({ seadrop: false, verdict: "real", blockTimestamp: now })),
+      ).toEqual([])
+    })
+
+    it("still sends UPCOMING MINT when the first stage is days ahead", () => {
+      now = start
+      process(nftCollection({ verdict: "pending" }))
+      process(
+        nftDrop({
+          stages: [stage("Public", 3 * 24, 5n * 10n ** 14n)],
+          blockTimestamp: now,
+        }),
+      )
+      const c = only(process(nftCollection({ verdict: "real", blockTimestamp: now })))
+      expect(c).toMatchObject({ alert: "upcoming", dedupeKey: `upcoming:${C}` })
+    })
   })
 
   it("sends nothing on a verdict change to real when there is no drop and no mint", () => {
@@ -971,7 +1063,7 @@ describe("stage matching", () => {
     process(nftDrop({ stages: ORDERED, blockTimestamp: T - H }))
     now = T + 120
     process(publicStart())
-    now = T + 2 * H
+    now = T + 30 * 60
     expect(only(process(nftCollection({ verdict: "real", blockTimestamp: now }))).alert).toBe(
       "mintstart",
     )

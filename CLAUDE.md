@@ -5,6 +5,7 @@ Read AGENTS.md first.
 - The root holds only README, LICENSE, CONTRIBUTING, CHANGELOG, SECURITY, AGENTS.md, CLAUDE.md and config files. Code lives in `src/`, tests in `test/`, tooling in `scripts/`, docs in `docs/`.
 - No scratch folders, generated output, local data or `.env` files in git.
 - Write the failing test first. Conventional commits. CI must pass before merge.
+- Write commit messages, PR descriptions, comments and docs for outside readers: say what changed and why. Comments explain why non-obvious code works as it does, not how it came to be written.
 - Record significant technical decisions as a new dated ADR in `docs/adr/`.
 - Public docs state what the project does, with no comparisons to other projects.
 - Never commit secrets. `.env.example` keeps empty values.

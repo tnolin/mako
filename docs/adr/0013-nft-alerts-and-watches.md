@@ -3,7 +3,7 @@
 Date: 2026-10-23
 Status: Accepted
 
-Amended 2026-10-26: the catch-up rule applies only to a stage that started within the last hour, so a collection that turns real during a long-running mint gets no MINT STARTING or MINT LIVE for it. A stage start still alerts live, and the UPCOMING MINT catch-up is unchanged.
+Amended: the catch-up rule applies only to a stage that started within the last hour, so a collection that turns real during a long-running mint gets no MINT STARTING or MINT LIVE for it. A stage start still alerts live, and the UPCOMING MINT catch-up is unchanged.
 
 ## Context
 

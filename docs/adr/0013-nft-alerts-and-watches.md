@@ -3,6 +3,8 @@
 Date: 2026-10-23
 Status: Accepted
 
+Amended 2026-10-26: the catch-up rule applies only to a stage that started within the last hour, so a collection that turns real during a long-running mint gets no MINT STARTING or MINT LIVE for it. A stage start still alerts live, and the UPCOMING MINT catch-up is unchanged.
+
 ## Context
 
 The indexer's `events-v2` schema adds NFT events: collections, launches, drops, mints, listings, sales and stats. Mint alerts are useful to everyone in a feed. Market alerts (listings, floor moves, sweeps) are only useful for collections a person watches, and would flood a feed if sent for every collection. Groups and channels need the same choice as DMs.
@@ -17,7 +19,7 @@ The indexer's `events-v2` schema adds NFT events: collections, launches, drops, 
 - **Group settings open in the admin's DM,** never in the group. The group's settings screen links to its alert screens and its Watched tokens and Watched NFTs lists, and checks admin rights live on every tap.
 - **Storage.** Token watches of a chat are in `bot.chat_token_watches`. Collection watches and mutes are in `bot.nft_watches` and `bot.collection_mutes`, for a user or a chat. None has a foreign key on the chat id, because chat rows are soft-removed. A group that becomes a supergroup carries all of them to its new chat id.
 - **Limits.** At most 3 UNDER FLOOR or RARE LISTING alerts per collection per chat per hour. One FLOOR MOVE per collection and direction per chat every 6 hours. UNDER FLOOR needs a floor read from the last 2 hours. One alert per event per chat, the highest priority first.
-- **Catch-up rule.** When a collection turns real after its mint started, the chat gets one MINT STARTING that reads "started Nm ago", with no back-filled marks and no duplicate when the stage's own event is processed later.
+- **Catch-up rule.** When a collection turns real after its mint started, the chat gets one MINT STARTING that reads "started Nm ago", with no back-filled marks and no duplicate when the stage's own event is processed later. The catch-up is sent only when that stage started at most an hour ago (`CATCH_UP_MAX_S`), so a public stage that has been open for days does not alert when the collection turns real.
 - **Backfilled history never alerts.** NFT events older than the alerts start time update the in-memory collection state but skip the rules.
 
 ## Consequences

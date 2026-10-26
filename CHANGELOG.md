@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- A collection that turns real while its mint is already running no longer gets a MINT STARTING or MINT LIVE alert unless the stage started within the last hour. Long-running public stages used to alert days after they began.
+
 ## v0.2.4 (2026-10-25)
 
 ### Added

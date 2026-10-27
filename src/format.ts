@@ -59,6 +59,20 @@ export function compact(n: number): string {
 export const pct1 = (n: number): string => `${n.toFixed(1)}%`
 export const count = (n: number): string => n.toLocaleString("en-US")
 
+/** OpenSea's rarity tiers, as a percent of the collection. */
+const RANK_TIERS = [1, 10, 25] as const
+/** The smallest tier a rank falls in (rank / maxRank at or below the share), or null outside the top 25%. */
+export function rankTier(rank: number, maxRank: number | null): number | null {
+  if (!maxRank || maxRank <= 0) return null
+  return RANK_TIERS.find((t) => rank * 100 <= maxRank * t) ?? null
+}
+/** `2 / 865 (top 1%)`; just the rank when the collection's size is unknown. */
+export function rankText(rank: number, maxRank: number | null): string {
+  if (!maxRank) return count(rank)
+  const tier = rankTier(rank, maxRank)
+  return `${count(rank)} / ${count(maxRank)}${tier ? ` (top ${tier}%)` : ""}`
+}
+
 export function age(seconds: number): string {
   const m = Math.floor(seconds / 60)
   if (m < 60) return `${Math.max(1, m)}m`

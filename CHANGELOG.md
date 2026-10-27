@@ -2,9 +2,18 @@
 
 ## Unreleased
 
+### Added
+
+- Rank rows show OpenSea's rarity tier when the rank is in the top 1%, 10% or 25% of the collection, for example `2 / 865 (top 1%)`. It appears on UNDER FLOOR, RARE LISTING and sale cards and in the collection menu.
+
 ### Changed
 
-- A mint without stages now sends MINT STARTING, titled without a stage label, instead of MINT LIVE. The MINT STARTING setting covers both and the MINT LIVE setting is gone. A mint that already sent MINT LIVE does not send a second card.
+- A mint without stages now sends MINT STARTING, titled without a stage label. The MINT STARTING setting covers it, and a mint that already sent MINT LIVE does not send a second card.
+- RARE LISTING shows the same tier as the other cards (top 1%, 10% or 25%) in place of a rounded percentage.
+
+### Removed
+
+- The MINT LIVE alert and its setting.
 
 ## v0.2.7 (2026-10-27)
 

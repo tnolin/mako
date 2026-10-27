@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- A mint without stages now sends MINT STARTING, titled without a stage label, instead of MINT LIVE. The MINT STARTING setting covers both and the MINT LIVE setting is gone. A mint that already sent MINT LIVE does not send a second card.
+
 ## v0.2.7 (2026-10-27)
 
 ### Changed

@@ -3,7 +3,7 @@
 Date: 2026-10-23
 Status: Accepted
 
-Amended: the catch-up rule applies only to a stage that started within the last hour, so a collection that turns real during a long-running mint gets no MINT STARTING or MINT LIVE for it. A stage start still alerts live, and the UPCOMING MINT catch-up is unchanged.
+Amended: the catch-up rule applies only to a stage that started within the last hour, so a collection that turns real during a long-running mint gets no MINT STARTING for it. A stage start still alerts live, and the UPCOMING MINT catch-up is unchanged.
 
 ## Context
 
@@ -11,7 +11,7 @@ The indexer's `events-v2` schema adds NFT events: collections, launches, drops, 
 
 ## Decision
 
-- **Two groups of alerts.** All collections: UPCOMING MINT, MINT STARTING, MINT LIVE, MINTED, SOLD OUT, NEW COLLECTION and BIG SALE. Watched only: UNDER FLOOR, RARE LISTING, FLOOR MOVE, SWEEP, SOLD and the mint reminders. Each group has its own settings screen.
+- **Two groups of alerts.** All collections: UPCOMING MINT, MINT STARTING, MINTED, SOLD OUT, NEW COLLECTION and BIG SALE. Watched only: UNDER FLOOR, RARE LISTING, FLOOR MOVE, SWEEP, SOLD and the mint reminders. Each group has its own settings screen.
 - **A collection is in the feed when it passes MAKO's quality checks** (the indexer's `real` verdict). An All collections alert reaches a chat when the collection is in the feed and the alert is on, or when the chat watches the collection; a watch ignores the switch and the verdict but keeps the thresholds. A Watched only alert needs the watch, the switch and the thresholds.
 - **Defaults depend on the chat type, not on whether the settings are new.** In DMs the All collections alerts are on. In groups and channels they are off. The Watched only alerts are on everywhere except SOLD, which is off with a 0.05 ETH minimum.
 - **One verb, Watch,** for tokens and collections. An item is watched, muted or neither: Mute also stops watching, and Watch on a muted item removes the mute. Remind me is for NFT mints only. It sends a message 15 minutes before each stage that isn't a Team stage, removes a mute on the collection, and works without a watch. Removing a reminder keeps the watch but stops its reminders.

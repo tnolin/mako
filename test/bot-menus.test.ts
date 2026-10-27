@@ -283,8 +283,7 @@ const DEFAULTS = {
   ],
   all: [
     "UPCOMING MINT - When a new mint is scheduled.",
-    "MINT STARTING - A mint stage has opened (other than Team's).",
-    "MINT LIVE - A mint without any mint stages goes live.",
+    "MINT STARTING - A mint or a mint stage has opened (other than Team's).",
     "MINTED - When a collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints).",
     "SOLD OUT - When a collection completely mints out.",
     "NEW COLLECTION - A new Chimera collection is detected.",

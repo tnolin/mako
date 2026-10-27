@@ -248,7 +248,7 @@ describe("MINT STARTING", () => {
   })
 })
 
-describe("MINT LIVE", () => {
+describe("MINT STARTING without stages", () => {
   it("is the stage-less non-SeaDrop mint, reading minting for 32m", () => {
     process(
       nftCollection({
@@ -279,12 +279,13 @@ describe("MINT LIVE", () => {
       ),
     )
     expect(c).toMatchObject({
-      alert: "mintlive",
+      alert: "mintstart",
+      // Keeps the key MINT LIVE used, so a mint that already alerted is not sent again.
       dedupeKey: `mintlive:${C}`,
       priority: 2,
       feedEligible: true,
     })
-    expect(card(c)).toMatchObject({ title: "MINT LIVE", name: "PRTSCN", verified: true })
+    expect(card(c)).toMatchObject({ title: "MINT STARTING", name: "PRTSCN", verified: true })
     expect(rows(c)).toEqual([
       "minting|for 32m",
       "minted|2,960 / 4,440 (66%)",
@@ -564,13 +565,13 @@ describe("catch-up when a collection turns real", () => {
     expect(c.alert).toBe("upcoming")
   })
 
-  it("sends MINT LIVE for a stage-less mint, and nothing once it sold out", () => {
+  it("sends MINT STARTING for a stage-less mint, and nothing once it sold out", () => {
     const start = SEP6
     process(nftCollection({ seadrop: false, verdict: "pending" }))
     now = start + 40 * 60
     process(nftMint({ stageLabel: "Mint", blockTimestamp: now, mintStartTs: start }))
     const c = only(process(nftCollection({ seadrop: false, verdict: "real", blockTimestamp: now })))
-    expect(c).toMatchObject({ alert: "mintlive", dedupeKey: `mintlive:${C}`, eventTs: now })
+    expect(c).toMatchObject({ alert: "mintstart", dedupeKey: `mintlive:${C}`, eventTs: now })
     expect(rows(c)[0]).toBe("minting|for 40m")
     state = createNftState()
     process(nftCollection({ verdict: "pending" }))
@@ -638,7 +639,7 @@ describe("catch-up when a collection turns real", () => {
     expect(process(nftCollection({ verdict: "real", blockTimestamp: now }))).toEqual([])
   })
 
-  it("sends no MINT LIVE catch-up when the latest mint is over an hour old", () => {
+  it("sends no MINT STARTING catch-up when the latest mint is over an hour old", () => {
     process(nftCollection({ seadrop: false, verdict: "pending" }))
     now = SEP6 + 40 * 60
     process(nftMint({ stageLabel: "Mint", blockTimestamp: now, mintStartTs: SEP6 }))
@@ -701,7 +702,7 @@ describe("catch-up when a collection turns real", () => {
       expect(process(nftCollection({ verdict: "real", blockTimestamp: now }))).toEqual([])
     })
 
-    it("sends no MINT LIVE catch-up for a stage-less mint that started 3 days ago and minted 10 minutes ago", () => {
+    it("sends no MINT STARTING catch-up for a stage-less mint that started 3 days ago and minted 10 minutes ago", () => {
       process(nftCollection({ seadrop: false, verdict: "pending" }))
       process(
         nftMint({
@@ -954,7 +955,7 @@ describe("an old mint that mints again", () => {
     stage("Public", 24, 0n, { startTime: sep7 + 120, endTime: sep7 + 160 * 24 * H }),
   ]
 
-  it("sends no MINT LIVE or MINTED for a legacy collection (Ink ATM Gang)", () => {
+  it("sends no MINT STARTING or MINTED for a legacy collection (Ink ATM Gang)", () => {
     now = SEP6 + 48 * 24 * H
     process(legacyCol())
     expect(process(fresh())).toEqual([])

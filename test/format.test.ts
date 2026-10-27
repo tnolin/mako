@@ -10,6 +10,8 @@ import {
   count,
   escapeHtml,
   pct1,
+  rankText,
+  rankTier,
   safeUrl,
   units,
   usd,
@@ -92,5 +94,30 @@ describe("creator text", () => {
     expect(safeUrl("javascript:alert(1)")).toBeNull()
     expect(safeUrl("t.me/fin")).toBeNull()
     expect(safeUrl(null)).toBeNull()
+  })
+})
+
+describe("rankTier", () => {
+  it("is the smallest OpenSea tier the rank falls in", () => {
+    expect(rankTier(1, 1000)).toBe(1)
+    expect(rankTier(10, 1000)).toBe(1)
+    expect(rankTier(11, 1000)).toBe(10)
+    expect(rankTier(100, 1000)).toBe(10)
+    expect(rankTier(101, 1000)).toBe(25)
+    expect(rankTier(250, 1000)).toBe(25)
+    expect(rankTier(251, 1000)).toBeNull()
+  })
+
+  it("has no tier without a max rank", () => {
+    expect(rankTier(1, null)).toBeNull()
+    expect(rankTier(1, 0)).toBeNull()
+  })
+})
+
+describe("rankText", () => {
+  it("appends the tier to rank / max", () => {
+    expect(rankText(2, 865)).toBe("2 / 865 (top 1%)")
+    expect(rankText(3232, 4440)).toBe("3,232 / 4,440")
+    expect(rankText(752, null)).toBe("752")
   })
 })

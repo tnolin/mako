@@ -1,5 +1,5 @@
 import type { NftListingEvent, NftSaleEvent, NftStatsEvent } from "@ink-indexer/events"
-import { age, clean, count, inText } from "../../format"
+import { age, clean, count, inText, rankText } from "../../format"
 import type { Row } from "../../history"
 import { NATIVE } from "../../prices"
 import type { Candidate, RuleCtx } from "../../rules/types"
@@ -66,8 +66,8 @@ const itemName = (
   contract: string,
   tokenId: string,
 ) => clean(name, 64) || `${clean(st?.col?.name, 64) || shortAddr(contract)} #${tokenId}`
-const rankText = (rank: number | null, max: number | null) =>
-  rank !== null && max !== null ? `${count(rank)} / ${count(max)}` : null
+const rankRow = (rank: number | null, max: number | null) =>
+  rank !== null && max !== null ? rankText(rank, max) : null
 
 function listing(ev: Row<NftListingEvent>, ctx: RuleCtx, rate: number | null): Candidate[] {
   const p = ev.p
@@ -83,7 +83,7 @@ function listing(ev: Row<NftListingEvent>, ctx: RuleCtx, rate: number | null): C
   const key = `list:${p.contract}:${p.tokenId}:${p.priceWei}`
   const opts = { contract: p.contract, tokenId: p.tokenId, imageUrl: p.imageUrl }
   const item = itemName(st, p.itemName, p.contract, p.tokenId)
-  const rank = rankText(p.rank, p.maxRank)
+  const rank = rankRow(p.rank, p.maxRank)
   const expires: [string, string] = ["expires", `in ${inText(p.expiresAt - ctx.now())}`]
   const out: Candidate[] = []
 
@@ -116,7 +116,7 @@ function listing(ev: Row<NftListingEvent>, ctx: RuleCtx, rate: number | null): C
     if (rankBps <= 1000) {
       const rows: Rows = [
         ["item", item],
-        ["rank", `${rank} (top ${Math.max(1, Math.ceil(rankBps / 100))}%)`],
+        ["rank", rank ?? ""],
         ["price", ethText(price, rate)],
         ["floor", `${ethText(floor, null)} ${premium(price, floor)}`],
         expires,
@@ -179,7 +179,7 @@ async function sale(
   const opts = { contract: p.contract, tokenId: p.tokenId, imageUrl: p.imageUrl }
   const item = itemName(st, p.itemName, p.contract, p.tokenId)
   const floor = p.floorWei !== null && BigInt(p.floorWei) > 0n ? BigInt(p.floorWei) : null
-  const rank = rankText(p.rank, p.maxRank)
+  const rank = rankRow(p.rank, p.maxRank)
   const key = `${p.txHash}:${p.logIndex}:${p.tokenId}`
 
   if (!isLate("sale", p.blockTimestamp, ctx.now())) {

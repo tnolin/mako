@@ -203,7 +203,6 @@ describe("groups", () => {
       "BIG BUY/SELL",
       "UPCOMING MINT",
       "MINT STARTING",
-      "MINT LIVE",
       "MINTED",
       "SOLD OUT",
       "NEW COLLECTION",

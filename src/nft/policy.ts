@@ -38,7 +38,8 @@ export const TEAM_ALLOWLIST_MAX = 10
 export const LISTING_CAP = 3
 export const LISTING_CAP_WINDOW_S = 3600
 export const FLOOR_COOLDOWN_S = 6 * 3600
-export const FLOOR_MAX_AGE_S = 7200
+/** UNDER FLOOR and RARE LISTING need a floor read within this long of the listing. */
+export const FLOOR_MAX_AGE_S = 15 * 60
 export const SWEEP_WINDOW_S = 600
 /** UNDER FLOOR and RARE LISTING ignore listings that expire within this long (relist bots). */
 export const MIN_LISTING_LIFE_S = 3600

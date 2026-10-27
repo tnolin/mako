@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Listing alerts (UNDER FLOOR, RARE LISTING) now compare against a floor read within the last 15 minutes, down from 2 hours, so a stale floor no longer triggers or hides an alert.
+
 ## v0.2.5 (2026-10-26)
 
 ### Fixed

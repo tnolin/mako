@@ -67,8 +67,7 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 | Alert | Fires when |
 | --- | --- |
 | UPCOMING MINT | A mint is scheduled |
-| MINT STARTING | A mint stage opens, other than a Team stage |
-| MINT LIVE | A mint without stages goes live |
+| MINT STARTING | A mint stage opens, other than a Team stage; a mint without stages sends it with no stage label |
 | MINTED | A collection's mint passes a mark (25%, 50% or 75%) |
 | SOLD OUT | A collection mints out |
 | NEW COLLECTION | A new Chimera collection has a name and an image |
@@ -94,7 +93,7 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 - One alert per event per chat, the highest priority first. Paused and topic routes apply to every kind.
 - Defaults depend on the chat type: the All collections alerts are on in DMs and off in groups and channels. The Watched only alerts are on everywhere except SOLD.
 - At most 3 UNDER FLOOR or RARE LISTING alerts per collection per chat per hour, and one FLOOR MOVE per collection and direction per chat every 6 hours. UNDER FLOOR and RARE LISTING need a floor read within 15 minutes of the listing (ADR 0018).
-- Priorities, from first to last: DEV SELL; BONDED, SOLD OUT; BONDING, MINT STARTING, MINT LIVE, MINT REMINDER, RARE LISTING; PUMPING, UPCOMING MINT, MINTED, UNDER FLOOR, SWEEP, BIG SALE, NEW COLLECTION; BIG BUY/SELL, FLOOR MOVE; NEW TOKEN, SOLD.
+- Priorities, from first to last: DEV SELL; BONDED, SOLD OUT; BONDING, MINT STARTING, MINT REMINDER, RARE LISTING; PUMPING, UPCOMING MINT, MINTED, UNDER FLOOR, SWEEP, BIG SALE, NEW COLLECTION; BIG BUY/SELL, FLOOR MOVE; NEW TOKEN, SOLD.
 - A collection that turns real after its mint started gets one MINT STARTING that reads "started Nm ago", with no back-filled marks.
 - A user or chat watches up to 50 tokens and 50 collections, counted separately.
 

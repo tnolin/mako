@@ -73,8 +73,7 @@ const ALL_BODY = [
   "",
   "<b>Alert Types</b>",
   "UPCOMING MINT - When a new mint is scheduled.",
-  "MINT STARTING - A mint stage has opened (other than Team's).",
-  "MINT LIVE - A mint without any mint stages goes live.",
+  "MINT STARTING - A mint or a mint stage has opened (other than Team's).",
   "MINTED - When a collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints).",
   "SOLD OUT - When a collection completely mints out.",
   "NEW COLLECTION - A new Chimera collection is detected.",
@@ -191,7 +190,6 @@ describe("NFT alerts", () => {
     expect(labels(screen())).toEqual([
       ["UPCOMING MINT", "Show Image"],
       ["MINT STARTING", "Show Image"],
-      ["MINT LIVE", "Show Image"],
       ["MINTED", "Show Image"],
       ["SOLD OUT", "Show Image"],
       ["NEW COLLECTION", "Show Image"],
@@ -202,7 +200,7 @@ describe("NFT alerts", () => {
     ])
     expect(
       rows(screen())
-        .slice(0, 7)
+        .slice(0, 6)
         .flat()
         .every((b) => b.style === "success"),
     ).toBe(true)

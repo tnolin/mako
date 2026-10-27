@@ -56,7 +56,6 @@ it("orders priorities as decided", () => {
     soldout: 1,
     bonding: 2,
     mintstart: 2,
-    mintlive: 2,
     reminder: 2,
     rare: 2,
     pumping: 3,
@@ -74,8 +73,7 @@ it("orders priorities as decided", () => {
 })
 
 it("gives the 3-minute NFT kinds no long window and the others 30 minutes", () => {
-  for (const k of ["mintstart", "mintlive", "reminder", "under", "rare"])
-    expect(LONG_WINDOW).not.toContain(k)
+  for (const k of ["mintstart", "reminder", "under", "rare"]) expect(LONG_WINDOW).not.toContain(k)
   for (const k of ["upcoming", "minted", "soldout", "launch", "floor", "sweep", "bigsale", "sale"])
     expect(LONG_WINDOW).toContain(k)
 })
@@ -227,7 +225,9 @@ it("ALERT_DESC follows the chosen thresholds", () => {
   expect(ALERT_DESC("sweep", s)).toBe("SWEEP - one wallet buys 10+ items in 10 min.")
   expect(ALERT_DESC("sale", s)).toBe("SOLD - an item sells for 0.05 ETH or more.")
   expect(ALERT_DESC("reminder", s)).toBe("REMINDERS - a message 15 min before each mint stage.")
-  expect(ALERT_DESC("mintlive", s)).toBe("MINT LIVE - A mint without any mint stages goes live.")
+  expect(ALERT_DESC("mintstart", s)).toBe(
+    "MINT STARTING - A mint or a mint stage has opened (other than Team's).",
+  )
 })
 
 it('ALERT_DESC reads "at any price" when the SOLD minimum is any', () => {
@@ -242,4 +242,18 @@ it("keeps stored topic names with a topic number and a non-empty name, cut to 12
     "supergroup",
   )
   expect(s.topicNames).toEqual({ "9": "Mints", "14": "y".repeat(128) })
+})
+
+it("loads stored settings that still hold a mintlive alert or route", () => {
+  const s = readSettings(
+    {
+      alerts: { mintlive: { on: false, image: true } },
+      routes: { mintlive: 5, mintstart: 6 },
+      pausedRoutes: ["mintlive"],
+    },
+    "supergroup",
+  )
+  expect(s.alerts).not.toHaveProperty("mintlive")
+  expect(s.routes).toEqual({ mintstart: 6 })
+  expect(s.pausedRoutes).toEqual([])
 })

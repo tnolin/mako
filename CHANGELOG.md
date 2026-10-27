@@ -8,7 +8,12 @@
 
 ### Changed
 
+- A mint without stages now sends MINT STARTING, titled without a stage label. The MINT STARTING setting covers it, and a mint that already sent MINT LIVE does not send a second card.
 - RARE LISTING shows the same tier as the other cards (top 1%, 10% or 25%) in place of a rounded percentage.
+
+### Removed
+
+- The MINT LIVE alert and its setting.
 
 ## v0.2.7 (2026-10-27)
 

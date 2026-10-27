@@ -118,10 +118,10 @@ describe("renderNftAlert matches the expected text", () => {
     expect(renderNftAlert(pub)).toContain("<code>ends     Sep 27 17:00 UTC (in 21d)</code>")
   })
 
-  it("MINT LIVE with a verified collection", () => {
+  it("MINT STARTING without a stage label", () => {
     const card = base({
-      alert: "mintlive",
-      title: "MINT LIVE",
+      alert: "mintstart",
+      title: "MINT STARTING",
       name: "PRTSCN",
       verified: true,
       contract: PRTSCN,
@@ -133,7 +133,7 @@ describe("renderNftAlert matches the expected text", () => {
     })
     expect(renderNftAlert(card)).toBe(
       [
-        "<b>MINT LIVE</b>",
+        "<b>MINT STARTING</b>",
         "PRTSCN ✓ · OpenSea",
         "",
         ...code("minting  for 32m", "minted   2,960 / 4,440 (66%)", "creator  0x7171…7866"),
@@ -531,7 +531,6 @@ describe("nftAlertKeyboard", () => {
     expect(texts(nftAlertKeyboard(k("upcoming"), grp))).toEqual([["View", "Watch"], ["Remind me"]])
     for (const a of [
       "mintstart",
-      "mintlive",
       "minted",
       "soldout",
       "launch",

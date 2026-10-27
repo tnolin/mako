@@ -21,7 +21,6 @@ export const TOKEN_ALERTS = ["new", "bonding", "pumping", "bonded", "devsell", "
 export const NFT_ALL_ALERTS = [
   "upcoming",
   "mintstart",
-  "mintlive",
   "minted",
   "soldout",
   "launch",
@@ -55,7 +54,6 @@ export type Settings = {
     big: Toggle & { pctBps: BigBps }
     upcoming: Toggle
     mintstart: Toggle
-    mintlive: Toggle
     minted: Toggle & { marks: NftMark[] }
     soldout: Toggle
     launch: Toggle
@@ -95,7 +93,6 @@ export const PRIORITY = {
   soldout: 1,
   bonding: 2,
   mintstart: 2,
-  mintlive: 2,
   reminder: 2,
   rare: 2,
   pumping: 3,
@@ -136,7 +133,6 @@ export const ALERT_LABEL: Record<AlertKind, string> = {
   big: "BIG BUY/SELL",
   upcoming: "UPCOMING MINT",
   mintstart: "MINT STARTING",
-  mintlive: "MINT LIVE",
   minted: "MINTED",
   soldout: "SOLD OUT",
   launch: "NEW COLLECTION",
@@ -188,9 +184,7 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
     case "upcoming":
       return "UPCOMING MINT - When a new mint is scheduled."
     case "mintstart":
-      return "MINT STARTING - A mint stage has opened (other than Team's)."
-    case "mintlive":
-      return "MINT LIVE - A mint without any mint stages goes live."
+      return "MINT STARTING - A mint or a mint stage has opened (other than Team's)."
     case "minted":
       return "MINTED - When a collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints)."
     case "soldout":
@@ -230,7 +224,6 @@ export function basicPreset(chatType: ChatType): Settings {
       big: { ...t(), pctBps: 500 },
       upcoming: feed(),
       mintstart: feed(),
-      mintlive: feed(),
       minted: { ...feed(), marks: [5000] },
       soldout: feed(),
       launch: feed(),

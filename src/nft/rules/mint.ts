@@ -98,7 +98,7 @@ function startDue(st: CollectionState, now: number): boolean {
     )
   )
 }
-/** A mint with no stages (not a SeaDrop drop): its one `stage_start` reads MINT LIVE. */
+/** A mint with no stages (not a SeaDrop drop): its one `stage_start` reads MINT STARTING without a stage label. */
 const stageless = (st: CollectionState): boolean => (st.col ? !st.col.seadrop : !st.drop)
 
 type Base = { eventId: string; contract: string }
@@ -168,7 +168,7 @@ function upcoming(b: Base, st: CollectionState, drop: NftDropEvent, now: number)
   )
 }
 
-/** MINT STARTING for a stage, or MINT LIVE for a mint without stages. `at` is the event time, or now for a catch-up. */
+/** MINT STARTING for a stage, or for a mint without stages (no stage label). `at` is the event time, or now for a catch-up. */
 function stageStart(
   b: Base,
   st: CollectionState,
@@ -183,8 +183,11 @@ function stageStart(
       ["minted", mintedText(ev.minted, ev.maxSupply)],
     ]
     if (creator) rows.push(creator)
-    const card = makeNftAlertCard("mintlive", "MINT LIVE", st.col, rows, { contract: b.contract })
-    return cand(b, "mintlive", `mintlive:${b.contract}`, card, at, feedOk(st))
+    const card = makeNftAlertCard("mintstart", "MINT STARTING", st.col, rows, {
+      contract: b.contract,
+    })
+    // The key predates the fold into MINT STARTING; keeping it stops a second card for a mint already sent.
+    return cand(b, "mintstart", `mintlive:${b.contract}`, card, at, feedOk(st))
   }
   const stage = stageAt(st.drop, ev.stageStartTs)
   if (isTeamStage({ label: ev.stageLabel, allowlistCount: stage?.allowlistCount ?? null }))
@@ -416,8 +419,7 @@ export function mintRules(
     case "nft.mint":
       if (oldMint(st, now)) break
       if (p.kind === "stage_start") {
-        const kind = stageless(st) ? "mintlive" : "mintstart"
-        if (!isLate(kind, p.blockTimestamp, now) && startDue(st, now))
+        if (!isLate("mintstart", p.blockTimestamp, now) && startDue(st, now))
           out.push(stageStart(b, st, p, p.blockTimestamp, false))
       } else if (p.kind === "progress") {
         if (!isLate("minted", p.blockTimestamp, now)) out.push(minted(b, st, p))

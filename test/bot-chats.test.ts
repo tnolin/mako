@@ -150,6 +150,46 @@ describe("groups", () => {
     ])
   })
 
+  describe("routing turns the alert on", () => {
+    const setup = async (on: boolean) => {
+      const s = basicPreset("supergroup")
+      s.alerts.bonded.on = on
+      await addChat(sql, G.id, "supergroup", { ...s, thread: 5, topicNames: { "9": "Mints" } })
+      await h.text("/route", { chat: G, thread: 9 })
+    }
+
+    it("sets an off alert on in the same write and says so", async () => {
+      await setup(false)
+      await h.tap("rt:bonded", { chat: G, thread: 9 })
+      const s = (await chat(G.id))!.settings
+      expect(s.routes).toEqual({ bonded: 9 })
+      expect(s.alerts.bonded.on).toBe(true)
+      expect(h.last("answerCallbackQuery")).toMatchObject({
+        text: "BONDED is on and posts in Mints.",
+      })
+    })
+
+    it("leaves the alert on when the route is removed", async () => {
+      await setup(false)
+      await h.tap("rt:bonded", { chat: G, thread: 9 })
+      await h.tap("rt:bonded", { chat: G, thread: 9 })
+      const s = (await chat(G.id))!.settings
+      expect(s.routes).toEqual({})
+      expect(s.alerts.bonded.on).toBe(true)
+    })
+
+    it("changes nothing else for an alert that was on", async () => {
+      await setup(true)
+      const before = (await chat(G.id))!.settings
+      await h.tap("rt:bonded", { chat: G, thread: 9 })
+      expect((await chat(G.id))!.settings).toEqual({
+        ...before,
+        routes: { bonded: 9 },
+        pausedRoutes: [],
+      })
+    })
+  })
+
   it("lists the NFT kinds in /route, without MINT REMINDER, and routes them to the topic", async () => {
     await addChat(sql, G.id, "supergroup", { ...basicPreset("supergroup"), thread: 5 })
     await h.text("/route", { chat: G, thread: 9 })
@@ -163,7 +203,6 @@ describe("groups", () => {
       "BIG BUY/SELL",
       "UPCOMING MINT",
       "MINT STARTING",
-      "MINT LIVE",
       "MINTED",
       "SOLD OUT",
       "NEW COLLECTION",

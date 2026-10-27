@@ -314,7 +314,7 @@ const byLabel = (drop: NftDropEvent) =>
   new Map(drop.stages.filter((s) => !isTeamStage(s)).map((s) => [s.label, s]))
 const change = (a: string, b: string, stage?: string) =>
   `${a} → ${b}${stage === undefined ? "" : ` · ${label(stage)}`}`
-const limitText = (n: number | null) => (n === null ? "none" : `${n} per wallet`)
+const limitText = (n: number | null) => (n === null ? "none" : `${count(n)} per wallet`)
 const endText = (t: number | null) => (t === null ? "open" : utcTime(t, true))
 
 /** The latest minted count the state knows, over the drop's max supply. */

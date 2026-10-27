@@ -4,7 +4,7 @@
 
 ### Added
 
-- MINT UPDATED: a watched collection whose drop page changes, before or during its mint, sends a card with what changed (price, start and end times, per-wallet limit, stages added or removed, supply), each as old → new with the stage name. It is sent with the REMINDERS setting, skips Team stages, and stops once the mint sells out or ends.
+- MINT UPDATED: a watched collection whose drop page changes, before or during its mint, sends a card with what changed (price, start and end times, per-wallet limit, stages added or removed, supply), each as old → new with the stage name. A DM gets it when it watches the collection and REMINDERS is on; a group or channel that watches the collection always gets it. It skips Team stages, and stops once the mint sells out or ends.
 
 ## v0.2.7 (2026-10-27)
 

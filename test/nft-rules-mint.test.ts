@@ -1141,14 +1141,16 @@ describe("MINT UPDATED", () => {
     first()
     process(nftMint({ stageIndex: 1, stageLabel: "GTD", minted: "300", maxSupply: "2222" }))
     const stages = [
-      ...swap("GTD", { maxPerWallet: 2, endTime: SEP6 + 14 * H }).filter((s) => s.label !== "FCFS"),
+      ...swap("GTD", { maxPerWallet: 10000, endTime: SEP6 + 14 * H }).filter(
+        (s) => s.label !== "FCFS",
+      ),
       stage("Bonus", 20, 0n),
     ]
     const c = only(change(stages))
     expect(rows(c)).toEqual([
       "status|live, minted 300 / 2,222",
       "ends|Sep 6 13:00 UTC → Sep 6 14:00 UTC · GTD",
-      "limit|1 per wallet → 2 per wallet · GTD",
+      "limit|1 per wallet → 10,000 per wallet · GTD",
       "stages|+ Bonus, − FCFS",
     ])
   })

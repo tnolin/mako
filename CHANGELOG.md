@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## v0.2.6 (2026-10-27)
 
 ### Changed
 

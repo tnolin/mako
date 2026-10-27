@@ -1096,3 +1096,92 @@ describe("stage matching", () => {
     expect(rows(c)).toContain("mint|free – 0.00002 ETH")
   })
 })
+
+describe("MINT UPDATED", () => {
+  const first = () => {
+    process(nftCollection())
+    process(nftDrop({ stages: HORNET_STAGES, blockTimestamp: now }))
+  }
+  const change = (stages: NftDropStage[], o: Partial<ReturnType<typeof nftDrop>> = {}) =>
+    process(nftDrop({ stages, blockTimestamp: now, ...o })).filter((c) => c.alert === "reminder")
+  const swap = (label: string, o: Partial<NftDropStage>) =>
+    HORNET_STAGES.map((s) => (s.label === label ? { ...s, ...o } : s))
+
+  it("shows what changed before the mint, old → new with the stage, and the upcoming status", () => {
+    now = SEP6 - 3 * H
+    first()
+    const c = only(
+      change(
+        HORNET_STAGES.map((s) =>
+          s.label === "GTD"
+            ? { ...s, startTime: s.startTime + H }
+            : s.label === "Public"
+              ? { ...s, priceWei: eth(6n * 10n ** 14n) }
+              : s,
+        ),
+        { maxSupply: "3000" },
+      ),
+    )
+    expect(c).toMatchObject({
+      alert: "reminder",
+      mintUpdate: true,
+      target: C,
+      dedupeKey: `mintupdate:${C}:${c.eventId}`,
+    })
+    expect(card(c).title).toBe("MINT UPDATED")
+    expect(rows(c)).toEqual([
+      "status|upcoming, first stage Sep 6 11:00 UTC",
+      "price|0.0005 ETH → 0.0006 ETH · Public",
+      "starts|Sep 6 10:00 UTC → Sep 6 11:00 UTC · GTD",
+      "supply|2,222 → 3,000",
+    ])
+  })
+
+  it("shows the minted count while live, and limit, ends and added or removed stages", () => {
+    now = SEP6 + 11 * H
+    first()
+    process(nftMint({ stageIndex: 1, stageLabel: "GTD", minted: "300", maxSupply: "2222" }))
+    const stages = [
+      ...swap("GTD", { maxPerWallet: 10000, endTime: SEP6 + 14 * H }).filter(
+        (s) => s.label !== "FCFS",
+      ),
+      stage("Bonus", 20, 0n),
+    ]
+    const c = only(change(stages))
+    expect(rows(c)).toEqual([
+      "status|live, minted 300 / 2,222",
+      "ends|Sep 6 13:00 UTC → Sep 6 14:00 UTC · GTD",
+      "limit|1 per wallet → 10,000 per wallet · GTD",
+      "stages|+ Bonus, − FCFS",
+    ])
+  })
+
+  it("sends nothing without a previous drop, without a shown change, or for a Team stage change", () => {
+    now = SEP6 - 3 * H
+    process(nftCollection())
+    expect(change(HORNET_STAGES)).toEqual([])
+    expect(change(HORNET_STAGES)).toEqual([])
+    expect(change(swap("Team", { priceWei: eth(1n) }))).toEqual([])
+    expect(change(swap("Team", { startTime: SEP6 }))).toEqual([])
+  })
+
+  it("sends nothing once the mint sold out or every stage ended", () => {
+    now = SEP6 + 11 * H
+    first()
+    process(nftMint({ kind: "sold_out", minted: "2222", maxSupply: "2222" }))
+    expect(change(swap("GTD", { maxPerWallet: 3 }))).toEqual([])
+    state = createNftState()
+    now = SEP6 + 40 * H
+    const ended = HORNET_STAGES.map((s) => ({ ...s, endTime: SEP6 + 20 * H }))
+    process(nftCollection())
+    process(nftDrop({ stages: ended, blockTimestamp: now }))
+    expect(change(ended.map((s) => ({ ...s, priceWei: eth(1n) })))).toEqual([])
+  })
+
+  it("is dropped when the event is older than the late window", () => {
+    now = SEP6 - 3 * H
+    first()
+    now += 1000
+    expect(change(swap("GTD", { maxPerWallet: 3 }), { blockTimestamp: now - 1000 })).toEqual([])
+  })
+})

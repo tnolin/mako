@@ -312,18 +312,99 @@ function newCollection(
   return cand(b, "launch", `launch:${b.contract}`, card, eventTs, true)
 }
 
+/** Non-Team stages by label, to match a stage between two drop events. */
+const byLabel = (drop: NftDropEvent) =>
+  new Map(drop.stages.filter((s) => !isTeamStage(s)).map((s) => [s.label, s]))
+const change = (a: string, b: string, stage?: string) =>
+  `${a} → ${b}${stage === undefined ? "" : ` · ${label(stage)}`}`
+const limitText = (n: number | null) => (n === null ? "none" : `${count(n)} per wallet`)
+const endText = (t: number | null) => (t === null ? "open" : utcTime(t, true))
+
+/** The latest minted count the state knows, over the drop's max supply. */
+function liveMinted(st: CollectionState, drop: NftDropEvent): string {
+  const seen = [st.lastStage, st.lastMark, st.soldOut].filter((m) => m !== null)
+  const latest = seen.reduce((a, m) => (BigInt(m.minted) > a ? BigInt(m.minted) : a), 0n)
+  const max = seen[0]?.maxSupply ?? drop.maxSupply
+  return knownMax(max) ? `${count(Number(latest))} / ${count(Number(max))}` : count(Number(latest))
+}
+
+/**
+ * MINT UPDATED: the changed fields between two drop events of a collection whose mint has not sold out
+ * or ended. Team stages are left out, and stages are matched by label. Null when nothing shown changed.
+ */
+function mintUpdated(
+  b: Base,
+  st: CollectionState,
+  drop: NftDropEvent,
+  prev: NftDropEvent,
+  now: number,
+): Candidate | null {
+  if (st.soldOut || oldMint(st, now)) return null
+  const rows: Rows = []
+  const before = byLabel(prev)
+  const after = byLabel(drop)
+  // One row per changed field and stage, in the order the card lists the fields.
+  const fields: [string, (s: NftDropStage) => string][] = [
+    ["price", (s) => price(s.priceWei)],
+    ["starts", (s) => utcTime(s.startTime, true)],
+    ["ends", (s) => endText(s.endTime)],
+    ["limit", (s) => limitText(s.maxPerWallet)],
+  ]
+  for (const [field, show] of fields)
+    for (const [name, s] of after) {
+      const o = before.get(name)
+      if (o && show(o) !== show(s)) rows.push([field, change(show(o), show(s), name)])
+    }
+  const moves = [
+    ...[...after.keys()].filter((n) => !before.has(n)).map((n) => `+ ${label(n)}`),
+    ...[...before.keys()].filter((n) => !after.has(n)).map((n) => `− ${label(n)}`),
+  ]
+  if (moves.length > 0) rows.push(["stages", moves.join(", ")])
+  if (prev.maxSupply !== drop.maxSupply) {
+    const n = (m: string | null | undefined) => (knownMax(m) ? count(Number(m)) : "unknown")
+    rows.push(["supply", change(n(prev.maxSupply), n(drop.maxSupply))])
+  }
+  if (rows.length === 0) return null
+  const first = [...after.values()][0]
+  const status =
+    first && first.startTime <= now
+      ? `live, minted ${liveMinted(st, drop)}`
+      : `upcoming${first ? `, first stage ${utcTime(first.startTime, true)}` : ""}`
+  const card = makeNftAlertCard(
+    "mintstart",
+    "MINT UPDATED",
+    st.col,
+    [["status", status], ...rows],
+    {
+      contract: b.contract,
+    },
+  )
+  return cand(
+    b,
+    "reminder",
+    `mintupdate:${b.contract}:${b.eventId}`,
+    card,
+    drop.blockTimestamp,
+    false,
+    {
+      mintUpdate: true,
+    },
+  )
+}
+
 /**
  * Candidates for a mint, drop, collection or launch event. The state already holds the event, and `prev` is
- * the collection snapshot it replaced. A collection that turns `real` (or first passes the page and structure gates) after
+ * the collection or drop snapshot it replaced. A collection that turns `real` (or first passes the page and structure gates) after
  * its mint started gets one catch-up alert for the current state, stamped with the receipt time, only if the
  * stage it reports started at most CATCH_UP_MAX_S ago. A stage that has been open longer is not news.
  */
 export function mintRules(
   ev: Row<NftMintEvent | NftDropEvent | NftCollectionEvent | NftLaunchEvent>,
-  prev: NftCollectionEvent | null,
+  prevSnapshot: NftCollectionEvent | NftDropEvent | null,
   ctx: MintCtx,
 ): Candidate[] {
   const p = ev.p
+  const prev = prevSnapshot?.type === "nft.collection" ? prevSnapshot : null
   const now = ctx.now()
   const st = ctx.nft.get(p.contract)
   if (!st) return []
@@ -332,6 +413,8 @@ export function mintRules(
   switch (p.type) {
     case "nft.drop":
       if (!isLate("upcoming", p.blockTimestamp, now)) out.push(upcoming(b, st, p, now))
+      if (prevSnapshot?.type === "nft.drop" && !isLate("reminder", p.blockTimestamp, now))
+        out.push(mintUpdated(b, st, p, prevSnapshot, now))
       break
     case "nft.mint":
       if (oldMint(st, now)) break

@@ -38,16 +38,26 @@ it("rebuilds state only up to the cursor, so later snapshots are still detected 
   const [newer] = await sql<{ p: NftCollectionEvent }[]>`
     select payload as p from indexer.events where id = ${b!}`
   const prev = state.apply(row(b!, newer!.p))
-  expect(prev?.verdict).toBe("pending")
+  expect(prev).toMatchObject({ type: "nft.collection", verdict: "pending" })
   expect(state.get(C1)?.col?.verdict).toBe("real")
 })
 
 it("apply returns the previous snapshot, and null for the first and for other event types", () => {
   return loadNftState(sql, "0").then((state) => {
     expect(state.apply(row("1", nftCollection({ name: "A" })))).toBeNull()
-    expect(state.apply(row("2", nftCollection({ name: "B" })))?.name).toBe("A")
+    expect(state.apply(row("2", nftCollection({ name: "B" })))).toMatchObject({ name: "A" })
     expect(state.apply(row("3", nftSale()))).toBeNull()
     expect(state.get(C1)?.col?.name).toBe("B")
+  })
+})
+
+it("apply returns the previous drop for an nft.drop event", () => {
+  return loadNftState(sql, "0").then((state) => {
+    expect(state.apply(row("1", nftDrop({ maxSupply: "100" })))).toBeNull()
+    expect(state.apply(row("2", nftDrop({ maxSupply: "200" })))).toMatchObject({
+      type: "nft.drop",
+      maxSupply: "100",
+    })
   })
 })
 

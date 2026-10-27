@@ -223,6 +223,30 @@ describe("NFT routing", () => {
     expect(route([cand("reminder")], aud)).toEqual([])
   })
 
+  it("MINT UPDATED goes to a DM that watches with REMINDERS on, and never to the feed", () => {
+    const off = dm("2", (s) => {
+      s.alerts.reminder.on = false
+    })
+    const update = cand("reminder", { mintUpdate: true })
+    const aud = audience({
+      users: [dm("1"), off, dm("3")],
+      watches: watching(["1", "2"]),
+    })
+    expect(who(route([update], aud))).toEqual(["101:reminder"])
+  })
+
+  it("MINT UPDATED always goes to a group or channel that watches, whatever its stored reminder value", () => {
+    const update = cand("reminder", { mintUpdate: true })
+    const off = (s: Settings) => {
+      s.alerts.reminder.on = false
+    }
+    const aud = audience({
+      chats: [grp("-9", off), grp("-8"), grp("-7")],
+      watches: watching([], ["-9", "-8"]),
+    })
+    expect(who(route([update], aud))).toEqual(["-8:reminder", "-9:reminder"])
+  })
+
   it("does not mix token and NFT state: a token mute does not mute a collection", () => {
     const aud = audience({ users: [dm("1")], mute: new Map([[C, new Set(["1"])]]) })
     expect(route([cand("soldout")], aud)).toHaveLength(1)

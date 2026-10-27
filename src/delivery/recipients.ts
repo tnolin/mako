@@ -113,9 +113,12 @@ const ALL_COLLECTIONS: readonly string[] = NFT_ALL_ALERTS
  * and the alert is on) or because the owner watches the collection (the switch and the verdict are
  * ignored, the thresholds are not). A Watched only alert needs the watch, the switch and the thresholds.
  */
-function nftWants(s: Settings, c: Candidate, watching: boolean): boolean {
-  // MINT REMINDER is clock-driven: the reminder scheduler queues it, not this routing.
-  if (c.alert === "reminder" || !nftAccepts(s, c)) return false
+function nftWants(s: Settings, c: Candidate, watching: boolean, dm: boolean): boolean {
+  // MINT REMINDER is clock-driven: the reminder scheduler queues it. Only MINT UPDATED is routed here:
+  // a DM gets it under its REMINDERS switch, a group or channel that watches always gets it.
+  if (c.alert === "reminder")
+    return c.mintUpdate === true && watching && (!dm || s.alerts.reminder.on)
+  if (!nftAccepts(s, c)) return false
   if (ALL_COLLECTIONS.includes(c.alert))
     return watching || (c.feedEligible === true && s.alerts[c.alert].on)
   return watching && s.alerts[c.alert].on
@@ -202,7 +205,7 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
       for (const u of aud.users) {
         if (muted?.users.has(u.userId)) continue
         const w = watched?.users.has(u.userId) ?? false
-        const c = best(cs.filter((c) => nftWants(u.settings, c, w) && !capped(u.chatId, c)))
+        const c = best(cs.filter((c) => nftWants(u.settings, c, w, true) && !capped(u.chatId, c)))
         if (!c) continue
         remember(u.chatId, c)
         push(c, u.chatId, "private", null, u.settings)
@@ -213,7 +216,7 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
         const c = best(
           cs.filter(
             (c) =>
-              nftWants(ch.settings, c, w) &&
+              nftWants(ch.settings, c, w, false) &&
               !ch.settings.pausedRoutes?.includes(c.alert) &&
               !capped(ch.chatId, c),
           ),

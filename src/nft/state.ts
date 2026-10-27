@@ -30,8 +30,8 @@ export type Tier = 1 | 2 | 3 | 4
 
 export type NftState = {
   get(contract: string): CollectionState | undefined
-  /** Applies one event in id order; returns the previous `col` snapshot for an nft.collection event, else null. */
-  apply(ev: Row<NftEvent>): NftCollectionEvent | null
+  /** Applies one event in id order; returns the previous snapshot for an nft.collection or nft.drop event, else null. */
+  apply(ev: Row<NftEvent>): NftCollectionEvent | NftDropEvent | null
   /** Matches best first: tier, then `real`, then owners, then 24 h sales. An address or link gives one exact match. */
   matches(q: string): { tier: Tier; state: CollectionState }[]
   search(q: string, limit?: number): CollectionState[]
@@ -109,9 +109,11 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
           s.col = p
           return prev
         }
-        case "nft.drop":
+        case "nft.drop": {
+          const prev = s.drop
           s.drop = p
-          break
+          return prev
+        }
         case "nft.stats":
           s.stats = p
           break

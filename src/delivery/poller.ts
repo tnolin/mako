@@ -1,4 +1,10 @@
-import type { IndexerEvent, LaunchEvent, NftCollectionEvent, NftEvent } from "@ink-indexer/events"
+import type {
+  IndexerEvent,
+  LaunchEvent,
+  NftCollectionEvent,
+  NftDropEvent,
+  NftEvent,
+} from "@ink-indexer/events"
 import type postgres from "postgres"
 import type { Sql } from "../db"
 import { eventsAfter, launchesAround, maxEventId, type Row } from "../history"
@@ -230,7 +236,7 @@ async function processBatch(
     // A launch in flood would only yield the NEW TOKEN alert that flood mode replaces.
     if (starts.has(ev.id)) continue
     // The state sees every NFT event, old or new, before the cutoff: it must hold the history.
-    let prev: NftCollectionEvent | null = null
+    let prev: NftCollectionEvent | NftDropEvent | null = null
     if (ev.p.type.startsWith("nft.")) prev = nft.apply(ev as Row<NftEvent>)
     // Backfilled NFT history: the cursor moves past it and nothing is sent.
     if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue

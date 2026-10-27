@@ -10,6 +10,7 @@
 
 - A mint without stages now sends MINT STARTING, titled without a stage label. The MINT STARTING setting covers it, and a mint that already sent MINT LIVE does not send a second card.
 - RARE LISTING shows the same tier as the other cards (top 1%, 10% or 25%) in place of a rounded percentage.
+- Routing an alert to a topic in `/route` also turns that alert on, and the reply says it is on and where it posts. Removing the route leaves the alert as it was.
 
 ### Removed
 

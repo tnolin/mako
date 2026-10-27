@@ -88,9 +88,14 @@ describe("UNDER FLOOR", () => {
     expect(by(cs, "rare")).toBeUndefined()
   })
 
-  it("is skipped with a floor older than 2 hours or none, a discount under 10%, or a short life", async () => {
-    expect(by(await run(under({ floorAt: T0 - 7200 })), "under")).toBeUndefined()
-    expect(by(await run(under({ floorAt: T0 + 60 - 7201 })), "under")).toBeUndefined()
+  it("needs a floor read within 15 minutes of the listing", async () => {
+    expect(by(await run(under({ floorAt: T0 + 60 - 14 * 60 })), "under")).toBeDefined()
+    expect(by(await run(under({ floorAt: T0 + 60 - 900 })), "under")).toBeDefined()
+    expect(by(await run(under({ floorAt: T0 + 60 - 901 })), "under")).toBeUndefined()
+    expect(by(await run(under({ floorAt: T0 + 60 - 16 * 60 })), "under")).toBeUndefined()
+  })
+
+  it("is skipped with no floor, a discount under 10%, or a short life", async () => {
     expect(by(await run(under({ floorWei: null, floorAt: null })), "under")).toBeUndefined()
     expect(by(await run(under({ priceWei: milli(0.039) })), "under")).toBeUndefined()
     expect(by(await run(under({ expiresAt: T0 + 60 + 3599 })), "under")).toBeUndefined()
@@ -143,6 +148,11 @@ describe("RARE LISTING", () => {
       "expires|in 6h",
     ])
     expect(by(await run(rare({ rank: null, maxRank: null })), "rare")).toBeUndefined()
+  })
+
+  it("needs a floor read within 15 minutes of the listing", async () => {
+    expect(by(await run(rare({ floorAt: T0 + 60 - 14 * 60 })), "rare")).toBeDefined()
+    expect(by(await run(rare({ floorAt: T0 + 60 - 16 * 60 })), "rare")).toBeUndefined()
   })
 
   it("is not rare above 10% over the floor or outside the top 10%", async () => {

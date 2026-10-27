@@ -159,6 +159,18 @@ The same reports go to the bot's log, so an instance without `SENTRY_DSN` sees t
 journalctl -u mako-bot --since "-1h" -o cat | grep '"msg":"health'
 ```
 
+## Backups and restore
+
+`mako-backup.timer` runs `scripts/deploy/backup.sh` every night. Each `bot-<date>.dump` holds the `bot` schema and the `indexer` schema, is kept 14 days on the server and 14 days in the bucket, and is about 20 MB.
+
+The indexer schema is dumped with its rows except for the raw chain tables `indexer.nft_mints`, `indexer.nft_burns`, `indexer.nft_seadrop_mints` and `indexer.nft_sales`. Their definitions are in the dump and their rows are about 700 MB on a synced instance. Everything else in `indexer` is dumped with its rows: the cursor, collection verdicts, manual marks (`nft_overrides`), OpenSea data and the request budget, and the events table the bot reads.
+
+After restoring on a new server, the four chain tables are empty while the cursor is at its old position. Set `NFT_HISTORY_START_BLOCK` in the indexer's env file to the block your mint history started from (the first stored mint) so collections keep their `legacy` status, then refill the tables:
+
+```bash
+cd /opt/ink-indexer && sudo -u ink-indexer pnpm backfill --from <that block> --sources nft-mints,nft-sales
+```
+
 ## Restore drill
 
 From the local dump:
@@ -166,6 +178,8 @@ From the local dump:
 ```bash
 sudo -u postgres createdb scratch && sudo -u postgres pg_restore -d scratch /var/backups/mako/bot-<date>.dump
 sudo -u postgres psql scratch -c "select count(*) from bot.users"   # compare with ink
+sudo -u postgres psql scratch -c "select count(*) from indexer.nft_overrides"   # compare with ink
+sudo -u postgres psql scratch -c "select * from indexer.cursors"   # compare with ink
 sudo -u postgres dropdb scratch
 ```
 
@@ -180,6 +194,7 @@ From the off-site copy, as if the server were lost. The subshell keeps the crede
 chown postgres /tmp/bot-restore.dump
 sudo -u postgres createdb scratch && sudo -u postgres pg_restore -d scratch /tmp/bot-restore.dump
 sudo -u postgres psql scratch -c "select count(*) from bot.users"   # compare with ink
+sudo -u postgres psql scratch -c "select count(*) from indexer.nft_overrides"   # compare with ink
 sudo -u postgres dropdb scratch && rm /tmp/bot-restore.dump
 ```
 

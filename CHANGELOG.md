@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- The nightly backup now also holds the indexer schema: cursors, collection verdicts, manual marks, OpenSea data and snapshots, and events. The raw chain tables (`nft_mints`, `nft_burns`, `nft_seadrop_mints`, `nft_sales`) are dumped without rows, since a backfill rebuilds them, which keeps the dump near 20 MB. The deploy guide's restore section covers refilling them.
+
 ## v0.2.6 (2026-10-27)
 
 ### Changed

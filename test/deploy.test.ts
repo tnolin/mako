@@ -31,7 +31,6 @@ it("deploy guide grants CREATE on the database for the migrations", () => {
 it("keeps logs and backups for 14 days, and Caddy writes no access log", () => {
   expect(read("journald-retention.conf")).toContain("MaxRetentionSec=14day")
   expect(read("backup.sh")).toContain("-mtime +13 -delete")
-  expect(read("backup.sh")).toContain("pg_dump -Fc -n bot ink")
   const caddy = read("Caddyfile")
   expect(caddy).toContain("reverse_proxy 127.0.0.1:8080")
   expect(caddy).not.toMatch(/^\s*log\b/m)
@@ -74,4 +73,13 @@ it("deploy guide disables password and root SSH login with a drop-in that wins o
   expect(guide).toContain("sshd -T")
   expect(guide).toContain("/var/run/reboot-required")
   expect(guide).toContain("apt -y install unattended-upgrades ufw git curl ca-certificates rclone")
+})
+
+it("nightly dump holds the bot and indexer schemas and leaves out only rebuildable chain rows", () => {
+  const b = read("backup.sh")
+  expect(b).toMatch(/pg_dump -Fc -n bot -n indexer /)
+  const skipped = [...b.matchAll(/--exclude-table-data=indexer\.(\w+)/g)].map((m) => m[1])
+  expect(skipped.sort()).toEqual(["nft_burns", "nft_mints", "nft_sales", "nft_seadrop_mints"])
+  const guide = readFileSync(new URL("../docs/deploy.md", import.meta.url), "utf8")
+  for (const t of skipped) expect(guide).toContain(`indexer.${t}`)
 })

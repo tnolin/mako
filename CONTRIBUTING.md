@@ -16,3 +16,4 @@ Outside pull requests open once our contributor license agreement (CLA) is in pl
 - CI (lint, typecheck, tests, secret scan) must pass before merge.
 - Never commit secrets or `.env` files. `.env.example` lists every variable with an empty value.
 - Record significant technical decisions as a dated ADR in `docs/adr/`.
+- Minor versions (0.x.0) get a GitHub Release with highlights; patch versions are tagged and listed in the CHANGELOG.

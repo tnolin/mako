@@ -88,6 +88,11 @@ describe("UNDER FLOOR", () => {
     expect(by(cs, "rare")).toBeUndefined()
   })
 
+  it("shows the tier on UNDER FLOOR when the rank is in the top 25%", async () => {
+    const c = by(await run(under({ rank: 1100, maxRank: 4440 })), "under")!
+    expect(rows(c)).toContain("rank|1,100 / 4,440 (top 25%)")
+  })
+
   it("needs a floor read within 15 minutes of the listing", async () => {
     expect(by(await run(under({ floorAt: T0 + 60 - 14 * 60 })), "under")).toBeDefined()
     expect(by(await run(under({ floorAt: T0 + 60 - 900 })), "under")).toBeDefined()
@@ -160,6 +165,7 @@ describe("RARE LISTING", () => {
     expect(by(await run(rare({ priceWei: milli(0.0462) })), "rare")).toBeDefined()
     expect(by(await run(rare({ rank: 445 })), "rare")).toBeUndefined()
     expect(by(await run(rare({ rank: 444 })), "rare")?.rankBps).toBe(1000)
+    expect(rows(by(await run(rare({ rank: 444 })), "rare")!)[1]).toBe("rank|444 / 4,440 (top 10%)")
   })
 
   it("shares one dedupe key with UNDER FLOOR, and a rare listing under the floor shows the discount", async () => {

@@ -1,6 +1,6 @@
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
-import { age, clean, count, escapeHtml, inText, utcDate, utcTime } from "../format"
+import { age, clean, count, escapeHtml, inText, rankText, utcDate, utcTime } from "../format"
 import { collectionLinks, creatorRow, ethText, makeNftAlertCard, shortAddr } from "../nft/card"
 import { floorAt, lastSaleOf, recentSales, salesSince } from "../nft/history"
 import {
@@ -403,7 +403,7 @@ export async function itemCard(
     if (got.rank === null) noRank = true
     else {
       const max = st?.col?.maxRank
-      rows.push(["rank", max ? `${count(got.rank)} / ${count(max)}` : count(got.rank)])
+      rows.push(["rank", rankText(got.rank, max ?? null)])
     }
     if (got.bestOffer !== null) rows.push(["best offer", ethText(got.bestOffer, rate)])
     if (got.listed !== null) rows.push(["listed", ethText(got.listed, rate)])

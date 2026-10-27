@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- Routing an alert to a topic in `/route` also turns that alert on, and the reply says it is on and where it posts. Removing the route leaves the alert as it was.
+
 ## v0.2.7 (2026-10-27)
 
 ### Changed

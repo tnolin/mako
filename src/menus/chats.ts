@@ -262,8 +262,10 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
     const a = ctx.match[1] as AlertKind
     const on = s.routes?.[a] !== thread
     s.routes = { ...s.routes }
-    if (on) s.routes[a] = thread
-    else delete s.routes[a]
+    if (on) {
+      s.routes[a] = thread
+      s.alerts[a].on = true
+    } else delete s.routes[a]
     s.pausedRoutes = (s.pausedRoutes ?? []).filter((x) => x !== a)
     // shortcut: writes the whole settings JSON (read-modify-write); a concurrent sender write to
     // pausedRoutes can be overwritten. Upgrade to a targeted jsonb_set update.
@@ -277,7 +279,13 @@ export function registerChats(bot: Bot, deps: BotDeps): void {
     await ctx
       .editMessageReplyMarkup({ reply_markup: { inline_keyboard: routeKb(s, thread) } })
       .catch(() => {})
-    await ctx.answerCallbackQuery()
+    await ctx.answerCallbackQuery(
+      on
+        ? {
+            text: `${ALERT_LABEL[a]} is on and posts in ${s.topicNames?.[thread] ?? "this topic"}.`,
+          }
+        : {},
+    )
   })
 
   const pm = bot.chatType("private")

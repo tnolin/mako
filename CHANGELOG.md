@@ -1,5 +1,15 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Rank rows show OpenSea's rarity tier when the rank is in the top 1%, 10% or 25% of the collection, for example `2 / 865 (top 1%)`. It appears on UNDER FLOOR, RARE LISTING and sale cards and in the collection menu.
+
+### Changed
+
+- RARE LISTING shows the same tier as the other cards (top 1%, 10% or 25%) in place of a rounded percentage.
+
 ## v0.2.7 (2026-10-27)
 
 ### Changed

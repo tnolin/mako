@@ -3,6 +3,7 @@ import type {
   IndexerEvent,
   LaunchEvent,
   NftCollectionEvent,
+  NftDropEvent,
   TradeEvent,
 } from "@ink-indexer/events"
 import { creatorStats, launchOf, type Row, tradesOf } from "../history"
@@ -20,13 +21,13 @@ export { withDevHolds } from "./devsell"
 export type { Candidate, RuleCtx } from "./types"
 
 /**
- * Candidate alerts for one confirmed event. Reads only indexer.events. For an nft.collection event, `prev`
+ * Candidate alerts for one confirmed event. Reads only indexer.events. For an nft.collection or nft.drop event, `prev`
  * is the snapshot it replaced in the NFT state; the state already holds the event.
  */
 export async function rulesFor(
   ev: Row<IndexerEvent>,
   ctx: RuleCtx,
-  prev: NftCollectionEvent | null = null,
+  prev: NftCollectionEvent | NftDropEvent | null = null,
 ): Promise<Candidate[]> {
   const p = ev.p
   switch (p.type) {

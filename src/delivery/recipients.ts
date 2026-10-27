@@ -114,8 +114,10 @@ const ALL_COLLECTIONS: readonly string[] = NFT_ALL_ALERTS
  * ignored, the thresholds are not). A Watched only alert needs the watch, the switch and the thresholds.
  */
 function nftWants(s: Settings, c: Candidate, watching: boolean): boolean {
-  // MINT REMINDER is clock-driven: the reminder scheduler queues it, not this routing.
-  if (c.alert === "reminder" || !nftAccepts(s, c)) return false
+  // MINT REMINDER is clock-driven: the reminder scheduler queues it. Only MINT UPDATED, which shares its
+  // switch, is routed here.
+  if (c.alert === "reminder") return c.mintUpdate === true && watching && s.alerts.reminder.on
+  if (!nftAccepts(s, c)) return false
   if (ALL_COLLECTIONS.includes(c.alert))
     return watching || (c.feedEligible === true && s.alerts[c.alert].on)
   return watching && s.alerts[c.alert].on

@@ -31,6 +31,8 @@ export type Candidate = {
   supersedesBonding?: boolean
   /** NFT: the collection passes the quality checks, so the All collections feed may carry it. */
   feedEligible?: boolean
+  /** MINT UPDATED: sent under the REMINDERS switch, to watchers only. */
+  mintUpdate?: boolean
   /** MINTED: the crossed mark. */
   markBps?: NftMark
   /** UNDER FLOOR: the discount to the floor, in basis points. */

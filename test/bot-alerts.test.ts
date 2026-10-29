@@ -174,8 +174,13 @@ describe("token alerts", () => {
   it("picker sets pumping threshold", async () => {
     await addUser(sql, 100)
     await h.tap("al:u:p:pumpPct")
-    expect(labels(screen())).toEqual([["+15%", "+20%", "+30%"], ["+50%"], ["Back"]])
-    expect(rows(screen())[0]!.map((b) => b.style)).toEqual([undefined, "success", undefined])
+    expect(labels(screen())).toEqual([["+15%", "+20%", "+30%", "+50%"], ["Back"]])
+    expect(rows(screen())[0]!.map((b) => b.style)).toEqual([
+      undefined,
+      "success",
+      undefined,
+      undefined,
+    ])
     await h.tap("al:u:p:pumpPct:2")
     expect((await userSettings()).alerts.pumping.pctBps).toBe(3000)
     await h.tap("al:u:tk")
@@ -186,7 +191,7 @@ describe("token alerts", () => {
   it("picker sets feed floor", async () => {
     await addUser(sql, 100)
     await h.tap("al:u:p:pumpFloor")
-    expect(labels(screen())).toEqual([["$25K", "$50K", "$100K"], ["$250K"], ["Back"]])
+    expect(labels(screen())).toEqual([["$25K", "$50K", "$100K", "$250K"], ["Back"]])
     await h.tap("al:u:p:pumpFloor:3")
     expect((await userSettings()).alerts.pumping.floorUsd).toBe(250_000)
     await h.tap("al:u:tk")
@@ -320,10 +325,6 @@ describe("picker screens", () => {
     await addUser(sql, 100)
     const text: Record<string, string> = {
       big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target, or of its pool's liquidity after bonding.",
-      pumpPct:
-        "How much a bonded token's market cap has to rise within 10 min before you get a PUMPING alert.",
-      pumpFloor:
-        "Bonded tokens below this market cap don't send PUMPING. Tokens you watch always do.",
       minted: "MINTED - Sends when a collection's mint progress crosses the following %:",
       bigsale: "BIG SALE - Sends when an NFT sells for at least:",
       under:
@@ -339,6 +340,14 @@ describe("picker screens", () => {
     }
     await h.tap("al:u:p:bonding")
     expect(screen().text).toBe("<b>BONDING marks</b>\n\nAlert when a curve passes:")
+    await h.tap("al:u:p:pumpPct")
+    expect(screen().text).toBe(
+      "<b>PUMPING after bond</b>\n\nHow much a bonded token's market cap has to rise within 10 min before you get a PUMPING alert.",
+    )
+    await h.tap("al:u:p:pumpFloor")
+    expect(screen().text).toBe(
+      "<b>PUMPING min mcap</b>\n\nBonded tokens below this market cap don't send PUMPING. Tokens you watch always do.",
+    )
   })
 })
 

@@ -171,6 +171,8 @@ type Picker = {
   /** The button on the alert screen. */
   button(s: Settings): string
   multi?: boolean
+  /** Buttons per row; 3 when unset. */
+  perRow?: number
   get(s: Settings): Value[]
   set(s: Settings, v: Value[]): void
 }
@@ -202,6 +204,7 @@ const PICKERS: Record<string, Picker> = {
     values: PUMP_BONDED_STEPS,
     label: gain,
     button: (s) => `PUMPING after bond: ${gain(s.alerts.pumping.pctBps)}`,
+    perRow: 4,
     get: (s) => [s.alerts.pumping.pctBps],
     set: (s, [v]) => {
       s.alerts.pumping.pctBps = v as (typeof PUMP_BONDED_STEPS)[number]
@@ -211,6 +214,7 @@ const PICKERS: Record<string, Picker> = {
     values: PUMP_FLOOR_STEPS,
     label: kUsd,
     button: (s) => `PUMPING min mcap: ${kUsd(s.alerts.pumping.floorUsd)}`,
+    perRow: 4,
     get: (s) => [s.alerts.pumping.floorUsd],
     set: (s, [v]) => {
       s.alerts.pumping.floorUsd = v as (typeof PUMP_FLOOR_STEPS)[number]
@@ -282,9 +286,15 @@ const PICKERS: Record<string, Picker> = {
   },
 }
 const PICKER_PATTERN = Object.keys(PICKERS).join("|")
+/** A bold title above the picker's line, for the pickers that have one. */
+const PICKER_TITLE: Record<string, string> = {
+  bonding: "BONDING marks",
+  pumpPct: "PUMPING after bond",
+  pumpFloor: "PUMPING min mcap",
+}
 /** One line on each picker screen. */
 const PICKER_TEXT: Record<string, string> = {
-  bonding: "<b>BONDING marks</b>\nAlert when a curve passes:",
+  bonding: "Alert when a curve passes:",
   big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target, or of its pool's liquidity after bonding.",
   pumpPct:
     "How much a bonded token's market cap has to rise within 10 min before you get a PUMPING alert.",
@@ -297,8 +307,11 @@ const PICKER_TEXT: Record<string, string> = {
   sweep: "SWEEP - Sends when one wallet buys this many NFTs within 10 mins:",
   sale: "SOLD - Sends when an item on your watchlist sells for at least this amount:",
 }
-const pickerText = (kind: string): string =>
-  kind === "bonding" ? PICKER_TEXT.bonding! : escapeHtml(PICKER_TEXT[kind]!)
+const pickerText = (kind: string): string => {
+  const title = PICKER_TITLE[kind]
+  const text = escapeHtml(PICKER_TEXT[kind]!)
+  return title ? `<b>${escapeHtml(title)}</b>\n${text}` : text
+}
 
 const toggleRow = (s: Settings, id: string, a: AlertKind): ReturnType<typeof btn>[] => {
   const row = [
@@ -381,7 +394,8 @@ async function renderPicker(ctx: Context, sc: Scope, kind: string): Promise<void
     chosenBtn(p.label(v), now.includes(v), `al:${sc.id}:p:${kind}:${i}`),
   )
   const kb: Kb = []
-  for (let i = 0; i < buttons.length; i += 3) kb.push(buttons.slice(i, i + 3))
+  const n = p.perRow ?? 3
+  for (let i = 0; i < buttons.length; i += n) kb.push(buttons.slice(i, i + n))
   kb.push([btn("Back", `al:${sc.id}:${PICKER_SCREEN[kind]!}`)])
   await show(ctx, pickerText(kind), kb)
 }

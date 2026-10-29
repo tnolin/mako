@@ -84,6 +84,8 @@ export async function rulesFor(
     if (!s) return []
     return [...devSellSwap(s), ...pumpingBonded(s), ...bigSwap(s)]
   }
+  // A newer indexer can write event types this version doesn't know; they carry no alerts here.
+  if (p.type !== "launchpad.trade" && p.type !== "launchpad.bond") return []
   const launch = await launchOf(ctx.sql, p.token)
   if (!launch) {
     missingLaunch(ev, p.token, ctx)

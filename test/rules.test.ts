@@ -517,6 +517,18 @@ describe("robustness", () => {
     expect(warnings.at(-1)).toMatch(/without a launch/)
   })
 
+  it("returns nothing for an event type it doesn't know, with no warning or error", async () => {
+    // Shaped like a trade that crosses BONDING's 80% mark, once for a launched token and once for an unknown one.
+    const odd = (token: `0x${string}`) =>
+      ({ ...trade({ token, soldBps: 8100 }), type: "launchpad.migrate" }) as never
+    await insertEvents(sql, [L, odd(L.token), odd(addr(0xbeef))])
+    const all = await eventsAfter(sql, "0")
+    const before = warnings.length
+    expect(await rulesFor(all[1]!, ctx(sql))).toEqual([])
+    expect(await rulesFor(all[2]!, ctx(sql))).toEqual([])
+    expect(warnings.length).toBe(before)
+  })
+
   it("finds all 13 dev sells in the ROCKSTAR history", async () => {
     await insertEvents(sql, loadFixture("devsells-rockstar"))
     const evs = await eventsAfter(sql, "0")

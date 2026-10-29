@@ -1,13 +1,7 @@
 import type { Sql } from "./db"
-import { tokensNamed } from "./history"
+import { type TokenHit, tokensNamed } from "./history"
 
-export type TokenHit = {
-  token: string
-  ticker: string | null
-  name: string | null
-  bonded: boolean
-  lastTradeTs: number | null
-}
+export type { TokenHit }
 
 /**
  * Tokens matching a ticker (with or without `$`) or a name exactly, ignoring case: bonded first, then by the most

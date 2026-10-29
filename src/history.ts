@@ -147,23 +147,20 @@ export async function bondOf(sql: Sql, token: string): Promise<Row<BondEvent> | 
   return r ?? null
 }
 
+/** A token found by ticker or name. A token that started in a pool counts as bonded. */
+export type TokenHit = {
+  token: string
+  ticker: string | null
+  name: string | null
+  bonded: boolean
+  lastTradeTs: number | null
+}
+
 /**
  * Tokens whose ticker equals `ticker` or whose name equals one of `names`, ignoring case: bonded first, then by
  * the newest curve trade or pool swap, at most 8.
  */
-export function tokensNamed(
-  sql: Sql,
-  ticker: string,
-  names: string[],
-): Promise<
-  {
-    token: string
-    ticker: string | null
-    name: string | null
-    bonded: boolean
-    lastTradeTs: number | null
-  }[]
-> {
+export function tokensNamed(sql: Sql, ticker: string, names: string[]): Promise<TokenHit[]> {
   const lower = names.map((n) => n.toLowerCase())
   // shortcut: compares every launch's ticker and name; add an expression index past ~100K launches.
   return sql`

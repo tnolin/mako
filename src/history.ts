@@ -112,12 +112,15 @@ export async function lastMarketOf(
     order by events.id desc limit 1`
   if (!r) return null
   const p = current(r.p) as TradeEvent | SwapEvent
-  return {
-    marketCap: BigInt(p.marketCap),
-    quote: p.quoteAsset,
-    ath: BigInt(p.athMarketCap),
-    atTs: p.blockTimestamp,
+  let ath = BigInt(p.athMarketCap)
+  // A version 1 row carries no ath, and every trade before it is version 1 too: take their highest market cap.
+  if (r.p.v === 1) {
+    const [m] = await sql<{ ath: string }[]>`
+      select max((payload->>'marketCap')::numeric)::text as ath from indexer.events
+      where entity = ${token} and type = 'launchpad.trade'`
+    ath = BigInt(m!.ath)
   }
+  return { marketCap: BigInt(p.marketCap), quote: p.quoteAsset, ath, atTs: p.blockTimestamp }
 }
 
 /** The creator's curve trades and pool swaps of a token, in id order, up to and including `uptoId`. */

@@ -231,6 +231,8 @@ describe("swaps", () => {
       swap({ token: addr(0xa9), blockTimestamp: T0 + 1600 }),
       swap({ token: T, blockTimestamp: T0 + 1700, marketCap: "80", athMarketCap: "95" }),
       tradeV1({ token: addr(0xaa), blockTimestamp: T0 + 30, marketCap: "33" }),
+      tradeV1({ token: addr(0xac), blockTimestamp: T0 + 30, marketCap: "50" }),
+      tradeV1({ token: addr(0xac), blockTimestamp: T0 + 40, marketCap: "33" }),
     ])
   })
   afterAll(() => own.end())
@@ -262,6 +264,10 @@ describe("swaps", () => {
       atTs: T0 + 30,
     })
     expect(await lastMarketOf(own, addr(0xdead))).toBeNull()
+  })
+
+  it("lastMarketOf takes a v1 token's ath from its highest market cap", async () => {
+    expect(await lastMarketOf(own, addr(0xac))).toMatchObject({ marketCap: 33n, ath: 50n })
   })
 })
 

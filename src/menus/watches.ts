@@ -334,14 +334,21 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
   if (!text) return void (await ctx.reply(WATCH_USAGE))
   if (!isDm && !(await isAdmin(ctx.api, ctx.chat!.id, ctx.from!.id)))
     return void (await ctx.reply(NOT_ADMIN))
-  const { query, targetUsd, badAmount } = parseWatchArgs(text)
+  const state = deps.nft?.()
+  // The whole text is a collection's name or slug, such as "APEFEST 2026": its last word is part of the name, not
+  // an amount.
+  const wholeCollection =
+    !text.startsWith("$") && state !== undefined && exactCollection(state, text)
+  const parsed = wholeCollection
+    ? { query: text, targetUsd: null, badAmount: false }
+    : parseWatchArgs(text)
+  const { query, targetUsd, badAmount } = parsed
   if (badAmount) return void (await replyHere(ctx, TARGET_BAD_AMOUNT, false))
   const ca = findAddress(query)
   if (ca && (await launchOf(deps.sql, ca))) return watchOne(ctx, deps, ca, targetUsd, true)
   // A plain name (no `$`, no amount) that is exactly a collection's name or slug watches the collection, as
   // /watch did before tokens could be named; `$TICKER` or an address picks the token.
   const plainName = !ca && targetUsd === null && !query.startsWith("$")
-  const state = deps.nft?.()
   const collectionFirst = plainName && state !== undefined && exactCollection(state, query)
   const hits = ca || collectionFirst ? [] : await findTokens(deps.sql, query)
   if (hits.length === 1) return watchOne(ctx, deps, hits[0]!.token, targetUsd, true)

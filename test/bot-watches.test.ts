@@ -380,6 +380,19 @@ describe("/watch in a DM", () => {
     expect(await sql`select target from bot.subscriptions`).toEqual([{ target: T }])
   })
 
+  it("a collection whose name ends in a number watches the collection, with no target", async () => {
+    const APE = addr(0xa9e)
+    const ids = await insertEvents(sql, [
+      nftCollection({ contract: APE, slug: "apefest-2026", name: "APEFEST 2026" }),
+    ])
+    state = await loadNftState(sql, ids.at(-1)!)
+    await h.text("/watch apefest 2026")
+    expect(h.last("sendMessage")!.text).toBe(dm.watching("APEFEST 2026", "nft"))
+    expect(await rows("nft_watches")).toEqual([{ contract: APE }])
+    await h.text("/watch APEFEST 2026 $5k")
+    expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
+  })
+
   it("a token name that only partly matches a collection watches the token", async () => {
     const T = addr(0xd8)
     await insertEvents(sql, [launch({ token: T, ticker: "INK", name: "Ink" })])

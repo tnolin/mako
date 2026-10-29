@@ -5,6 +5,7 @@ import { TokenLaunchpads } from "../src/launchpads"
 import { deleteUserData } from "../src/menus/users"
 import type { Prices } from "../src/prices"
 import type { DevHolds } from "../src/rpc"
+import { PumpArm } from "../src/rules/pump-arm"
 import { allOff, basicPreset } from "../src/settings"
 import { addChat, addUser, listDeliveries, subscribe, watchToken } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
@@ -934,5 +935,187 @@ describe("events the indexer wrote long after their block", () => {
     await insertEvents(sql, [s], { writtenAt: s.blockTimestamp + 3000 })
     await pollOnce(deps({ now: () => now }))
     expect((await listDeliveries(sql)).map((r) => r.alert)).toEqual(["big"])
+  })
+})
+
+describe("PUMPING after bonding", () => {
+  /** A bonded token, with the cursor past its launch and bond. */
+  const bonded = async () => {
+    const ids = await insertEvents(sql, [L, trade({ txHash: L.txHash, trader: C }), bond()])
+    await sql`update bot.state set value = ${ids[2]!} where key = 'events_cursor'`
+  }
+  /** A pool swap `at` seconds after T0 + 7200, at a market cap of `cap` ETH ($2,500 each). */
+  const at = (at: number, cap: number, o: Parameters<typeof swap>[0] = {}) =>
+    swap({ marketCap: eth(cap), blockTimestamp: T0 + 7200 + at, ...o })
+  const pumpsTo = async (chat: string) =>
+    (await listDeliveries(sql)).filter((r) => r.alert === "pumping" && r.chat_id === chat).length
+  const pumpRows = async () =>
+    (await listDeliveries(sql)).filter((r) => r.alert === "pumping").map((r) => r.chat_id)
+
+  it("fires at +20% over the 10-minute low", async () => {
+    await addUser(sql, 1201)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 23.9), at(120, 24)])
+    await pollOnce(deps())
+    expect(await pumpRows()).toEqual(["1201"])
+  })
+
+  it("does not fire again until the gain drops under +5%, then fires again after re-arm", async () => {
+    await addUser(sql, 1202)
+    await bonded()
+    const arm = new PumpArm()
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1202")).toBe(1)
+    // Still +25% and +21% over the low: armed state holds across batches.
+    await insertEvents(sql, [at(120, 25), at(180, 24.2)])
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1202")).toBe(1)
+    // +4.5% re-arms, then +20% fires again.
+    await insertEvents(sql, [at(240, 20.9), at(300, 24)])
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1202")).toBe(2)
+  })
+
+  it("two qualifying swaps in one batch send one PUMPING", async () => {
+    await addUser(sql, 1203)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 24), at(120, 24.4)])
+    await pollOnce(deps())
+    expect(await pumpsTo("1203")).toBe(1)
+  })
+
+  it("a dip under +5% between them sends two", async () => {
+    await addUser(sql, 1204)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 24), at(120, 20.5), at(180, 24.4)])
+    await pollOnce(deps())
+    expect(await pumpsTo("1204")).toBe(2)
+  })
+
+  it("per-chat thresholds: a +30% chat skips a +24% pump", async () => {
+    const s = basicPreset("private")
+    await addUser(sql, 1205)
+    await addUser(sql, 1206, {
+      ...s,
+      alerts: { ...s.alerts, pumping: { ...s.alerts.pumping, pctBps: 3000 } },
+    })
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 24.8)])
+    await pollOnce(deps())
+    expect(await pumpRows()).toEqual(["1205"])
+  })
+
+  it("feed floor blocks a $40K token but a watcher gets it", async () => {
+    await addUser(sql, 1207)
+    const w = await addUser(sql, 1208)
+    await subscribe(sql, w, "watch", L.token)
+    await addChat(sql, -1209, "supergroup", allOff(basicPreset("supergroup")))
+    await watchToken(sql, -1209, L.token)
+    await bonded()
+    // 13 ETH to 16 ETH: +23%, at $40K.
+    await insertEvents(sql, [at(0, 13), at(60, 16)])
+    await pollOnce(deps())
+    expect((await pumpRows()).sort()).toEqual(["-1209", "1208"])
+  })
+
+  it("a lower floor lets the feed have it", async () => {
+    const s = basicPreset("private")
+    await addUser(sql, 1210, {
+      ...s,
+      alerts: { ...s.alerts, pumping: { ...s.alerts.pumping, floorUsd: 25_000 } },
+    })
+    await bonded()
+    await insertEvents(sql, [at(0, 13), at(60, 16)])
+    await pollOnce(deps())
+    expect(await pumpRows()).toEqual(["1210"])
+  })
+
+  it("a watcher still needs its own threshold", async () => {
+    const s = basicPreset("private")
+    const w = await addUser(sql, 1211, {
+      ...s,
+      alerts: { ...s.alerts, pumping: { ...s.alerts.pumping, pctBps: 5000 } },
+    })
+    await subscribe(sql, w, "watch", L.token)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 28)])
+    await pollOnce(deps())
+    expect(await pumpRows()).toEqual([])
+  })
+
+  it("stale price blocks the feed but not a watcher", async () => {
+    await addUser(sql, 1212)
+    const w = await addUser(sql, 1213)
+    await subscribe(sql, w, "watch", L.token)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 30)])
+    const stale: Prices = { usd: () => null, symbol: () => "ETH" }
+    await pollOnce(deps({ prices: stale }))
+    expect(await pumpRows()).toEqual(["1213"])
+  })
+
+  it("bonded PUMPING ignores the hourly cooldown", async () => {
+    await addUser(sql, 1214)
+    await bonded()
+    await sql`
+      insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
+      values (1214, 'private', 'pumping', ${L.token}, 'pump:earlier', 3, to_timestamp(${T0 + 7100}), '{}')`
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await pollOnce(deps())
+    expect(await pumpsTo("1214")).toBe(2)
+  })
+
+  it("curve PUMPING still uses the hourly cooldown", async () => {
+    await addUser(sql, 1215)
+    await insertEvents(sql, [L])
+    await sql`
+      insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
+      values (1215, 'private', 'pumping', ${L.token}, 'pump:earlier', 3, to_timestamp(${T0 + 30}), '{}')`
+    await insertEvents(sql, [trade({ soldBps: 2000, blockTimestamp: T0 + 60 })])
+    await pollOnce(deps())
+    expect(await pumpsTo("1215")).toBe(1)
+  })
+
+  it("a failed write does not mark the recipient", async () => {
+    await addUser(sql, 1216)
+    await bonded()
+    const arm = new PumpArm()
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await sql`alter table bot.deliveries add constraint no_pumps check (alert <> 'pumping') not valid`
+    await expect(pollOnce(deps({ pumpArm: arm }))).rejects.toThrow()
+    await sql`alter table bot.deliveries drop constraint no_pumps`
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1216")).toBe(1)
+  })
+
+  it("a bonded PUMPING card carries dev holds", async () => {
+    await addUser(sql, 1217)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    const asked: unknown[] = []
+    await pollOnce(
+      deps({
+        readHolds: async (r) => {
+          asked.push(r)
+          return { pct: 4.2, now: false }
+        },
+      }),
+    )
+    const [row] = (await listDeliveries(sql)).filter((r) => r.alert === "pumping")
+    expect(asked).toMatchObject([{ token: L.token, holder: C }])
+    const rows = row!.card.type === "card" ? row!.card.card.rows : []
+    expect(rows.map(([k]) => k)).toEqual([
+      "pumped",
+      "mcap",
+      "ath",
+      "liquidity",
+      "volume",
+      "trades",
+      "buyers",
+      "dev holds",
+      "bonded",
+    ])
+    expect(rows[7]).toEqual(["dev holds", "4.2%"])
   })
 })

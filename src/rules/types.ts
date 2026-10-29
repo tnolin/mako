@@ -47,6 +47,13 @@ export type Candidate = {
   floorDir?: "up" | "down"
   /** FLOOR UP / DOWN: the absolute move in basis points. */
   floorBps?: number
+  /**
+   * PUMPING after bonding: the market cap gain over the 10-minute low. Every pool swap carries one, so the re-arm
+   * state sees each gain; an `observeOnly` candidate is below every threshold and is never sent.
+   */
+  pump?: { token: string; gainBps: number; observeOnly?: true }
+  /** PUMPING after bonding: the market cap in USD, or null without a current price. */
+  mcapUsd?: number | null
 }
 
 export type RuleCtx = {

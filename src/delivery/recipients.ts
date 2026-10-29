@@ -2,6 +2,7 @@ import type { Payload } from "../cards/card"
 import type { Sql } from "../db"
 import { FLOOR_COOLDOWN_S, LISTING_CAP, LISTING_CAP_WINDOW_S } from "../nft/policy"
 import type { Candidate } from "../rules/index"
+import { PumpArm, type PumpDraft } from "../rules/pump-arm"
 import {
   type AlertKind,
   type ChatType,
@@ -56,16 +57,32 @@ export type Owners = { users: Set<string>; chats: Set<string> }
 /** Watchers get BIG at the default 5% threshold, whatever their own setting. */
 export const WATCH_BIG_BPS = 500
 
+/** Bonded PUMPING: the gain meets the recipient's own threshold. */
+const pumpGainOk = (s: Settings, c: Candidate): boolean =>
+  c.pump !== undefined && c.pump.gainBps >= s.alerts.pumping.pctBps
+
 export function feedAccepts(s: Settings, c: Candidate): boolean {
   if (!s.alerts[c.alert].on) return false
+  // Without a USD price the floor can't be checked, so the feed doesn't get it.
+  if (c.pump)
+    return (
+      pumpGainOk(s, c) &&
+      c.mcapUsd !== undefined &&
+      c.mcapUsd !== null &&
+      c.mcapUsd >= s.alerts.pumping.floorUsd
+    )
   if (c.alert === "bonding") return c.mark !== undefined && s.alerts.bonding.marks.includes(c.mark)
   if (c.alert === "big") return (c.sizeBps ?? 0) >= s.alerts.big.pctBps
   return true
 }
 
-/** DM watchers get every type except NEW TOKEN, at every BONDING mark and the default BIG threshold. */
-export function watchAccepts(c: Candidate): boolean {
+/**
+ * DM watchers get every type except NEW TOKEN, at every BONDING mark and the default BIG threshold. Bonded
+ * PUMPING uses the watcher's own threshold and no market cap floor.
+ */
+export function watchAccepts(s: Settings, c: Candidate): boolean {
   if (c.alert === "new") return false
+  if (c.pump) return pumpGainOk(s, c)
   if (c.alert === "big") return (c.sizeBps ?? 0) >= WATCH_BIG_BPS
   return true
 }
@@ -76,6 +93,7 @@ export function watchAccepts(c: Candidate): boolean {
  */
 export function chatWatchAccepts(s: Settings, c: Candidate): boolean {
   if (c.alert === "new") return false
+  if (c.pump) return pumpGainOk(s, c)
   if (c.alert === "bonding") return c.mark !== undefined && s.alerts.bonding.marks.includes(c.mark)
   if (c.alert === "big") return (c.sizeBps ?? 0) >= s.alerts.big.pctBps
   return true
@@ -129,16 +147,27 @@ function best(cs: Candidate[]): Candidate | undefined {
   return [...cs].sort((a, b) => a.priority - b.priority || (b.mark ?? 0) - (a.mark ?? 0))[0]
 }
 
-export function route(cands: Candidate[], aud: Audience): Delivery[] {
+/**
+ * The deliveries for a batch's candidates. Events are walked in the order the rules produced them, which is event
+ * order, so bonded PUMPING reads and writes `pumps` as the swaps happened.
+ */
+export function route(
+  cands: Candidate[],
+  aud: Audience,
+  pumps: PumpDraft = new PumpArm().draft(),
+): Delivery[] {
   const byEvent = new Map<string, Candidate[]>()
   for (const c of cands) byEvent.set(c.eventId, [...(byEvent.get(c.eventId) ?? []), c])
   const out: Delivery[] = []
-  // A candidate's own earlier row (crash re-run, reorg re-insert) and later pumps never cool it.
+  // Curve PUMPING waits an hour per chat and token. A candidate's own earlier row (crash re-run, reorg
+  // re-insert) and later pumps never cool it. Bonded PUMPING re-arms instead: once per gain, per recipient.
   const cooling = (chatId: string, c: Candidate) =>
-    c.alert === "pumping" &&
-    (aud.lastPump.get(`${chatId}:${c.target}`) ?? []).some(
-      (p) => p.key !== c.dedupeKey && p.ts <= c.eventTs && p.ts > c.eventTs - 3600,
-    )
+    c.pump
+      ? pumps.fired(c.pump.token, chatId)
+      : c.alert === "pumping" &&
+        (aud.lastPump.get(`${chatId}:${c.target}`) ?? []).some(
+          (p) => p.key !== c.dedupeKey && p.ts <= c.eventTs && p.ts > c.eventTs - 3600,
+        )
   const push = (
     c: Candidate,
     chatId: string,
@@ -146,7 +175,8 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
     threadId: number | null,
     s: Settings,
   ) => {
-    if (c.alert === "pumping") {
+    if (c.pump) pumps.mark(c.pump.token, chatId)
+    else if (c.alert === "pumping") {
       const k = `${chatId}:${c.target}`
       aud.lastPump.set(k, [...(aud.lastPump.get(k) ?? []), { ts: c.eventTs, key: c.dedupeKey }])
     }
@@ -197,7 +227,10 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
     const k = floor ? `${chatId}:${c.target}:${c.floorDir}` : `${chatId}:${c.target}`
     m.set(k, [...(m.get(k) ?? []), { ts: c.eventTs, key: c.dedupeKey }])
   }
-  for (const cs of byEvent.values()) {
+  for (const all of byEvent.values()) {
+    for (const c of all) if (c.pump) pumps.observe(c.pump.token, c.pump.gainBps)
+    const cs = all.filter((c) => !c.pump?.observeOnly)
+    if (cs.length === 0) continue
     if (isNft(cs[0]!)) {
       const target = cs[0]!.target
       const watched = aud.watches.get(target)
@@ -241,7 +274,8 @@ export function route(cands: Candidate[], aud: Audience): Delivery[] {
       const c = best(
         cs.filter(
           (c) =>
-            (feedAccepts(u.settings, c) || (watching && watchAccepts(c))) && !cooling(u.chatId, c),
+            (feedAccepts(u.settings, c) || (watching && watchAccepts(u.settings, c))) &&
+            !cooling(u.chatId, c),
         ),
       )
       if (c) push(c, u.chatId, "private", null, u.settings)

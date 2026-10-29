@@ -190,13 +190,14 @@ describe("trade rules", () => {
       ["mcap", "$164K"],
     ])
     expect(d.holds).toMatchObject({ token: L.token, holder: C, totalSupply: L.totalSupply })
-    const filled = withDevHolds(d.card as Card, { pct: 6.8, now: true })
+    const at = { after: "dev" }
+    const filled = withDevHolds(d.card as Card, { pct: 6.8, now: true }, at)
     expect(filled.rows[3]).toEqual(["dev holds", "6.8% (now)"])
-    expect(withDevHolds(d.card as Card, { pct: 6.8, now: false }).rows[3]).toEqual([
+    expect(withDevHolds(d.card as Card, { pct: 6.8, now: false }, at).rows[3]).toEqual([
       "dev holds",
       "6.8%",
     ])
-    expect(withDevHolds(d.card as Card, null)).toBe(d.card)
+    expect(withDevHolds(d.card as Card, null, at)).toBe(d.card)
   })
 })
 
@@ -379,10 +380,9 @@ describe("pool trades", () => {
       block: s.blockNumber,
       totalSupply: L.totalSupply,
     })
-    expect(withDevHolds(d.card as Card, { pct: 4.2, now: false }).rows[3]).toEqual([
-      "dev holds",
-      "4.2%",
-    ])
+    expect(
+      withDevHolds(d.card as Card, { pct: 4.2, now: false }, { after: "dev" }).rows.map(([k]) => k),
+    ).toEqual(["sold", "dev pnl", "dev", "dev holds", "mcap"])
   })
 
   it("dev pnl covers curve buys and pool sells", async () => {
@@ -410,6 +410,102 @@ describe("pool trades", () => {
     const cs = await run([L, trade({ quoteAmount: eth(0.15), blockTimestamp: T0 + 700 })])
     expect(pick(cs, "big")!.sizeBps).toBe(500)
     expect(pick(cs, "big")!.card.rows.map(([k]) => k)).toEqual(["bought", "curve", "mcap"])
+  })
+})
+
+describe("PUMPING after bonding", () => {
+  const pumpSetup = [
+    L,
+    trade({ txHash: L.txHash, trader: C }),
+    bond({ blockTimestamp: T0 + 3600 }),
+    // Outside the 10-minute window of the last swap.
+    swap({ marketCap: eth(25), blockTimestamp: T0 + 7000 }),
+    swap({ marketCap: eth(20), blockTimestamp: T0 + 7200 }),
+    // Another pool of the same token never sets the low.
+    swap({ poolId: hash(8), marketCap: eth(10), blockTimestamp: T0 + 7300 }),
+    swap({ marketCap: eth(22), side: "sell", trader: addr(0xe2), blockTimestamp: T0 + 7400 }),
+  ]
+
+  it("fires at +20% over the 10-minute low", async () => {
+    const s = swap({
+      marketCap: eth(24),
+      athMarketCap: eth(30),
+      trader: addr(0xe3),
+      blockTimestamp: T0 + 7700,
+    })
+    const cs = await run([...pumpSetup, s])
+    const p = pick(cs, "pumping")!
+    expect(p).toMatchObject({
+      dedupeKey: `pump:${s.txHash}:${s.logIndex}`,
+      priority: 3,
+      eventTs: T0 + 7700,
+      pump: { token: L.token, gainBps: 2000 },
+      mcapUsd: 60_000,
+      holds: { token: L.token, holder: C, block: s.blockNumber, totalSupply: L.totalSupply },
+    })
+    expect(p.pump!.observeOnly).toBeUndefined()
+    expect(p.card.title).toBe("PUMPING")
+    // The window runs from the 20 ETH low at T0 + 7200: 500 s, shown as 9m.
+    expect(p.card.rows).toEqual([
+      ["pumped", "+20% (9m)"],
+      ["mcap", "$60.0K"],
+      ["ath", "$75.0K (−20%)"],
+      ["liquidity", "$20.0K"],
+      ["volume", "$500 (9m)"],
+      ["trades", "3 buys | 1 sell (9m)"],
+      ["buyers", "2 (9m)"],
+      ["bonded", "1h 8m ago"],
+    ])
+  })
+
+  it("observes a gain under +15% without a card", async () => {
+    const cs = await run([...pumpSetup, swap({ marketCap: eth(22.9), blockTimestamp: T0 + 7700 })])
+    const p = pick(cs, "pumping")!
+    expect(p.pump).toEqual({ token: L.token, gainBps: 1450, observeOnly: true })
+    expect(p.card.rows).toEqual([])
+    expect(p.holds).toBeUndefined()
+  })
+
+  it("has no mcap in USD while ETH/USD is stale", async () => {
+    await insertEvents(sql, [...pumpSetup, swap({ marketCap: eth(24), blockTimestamp: T0 + 7700 })])
+    const all = await eventsAfter(sql, "0")
+    const stale: Prices = { usd: () => null, symbol: () => "ETH" }
+    const cs = await rulesFor(all.at(-1)!, { ...ctx(sql), prices: stale })
+    expect(pick(cs, "pumping")).toMatchObject({ pump: { gainBps: 2000 }, mcapUsd: null })
+  })
+
+  it("shows age for a token that started in a pool", async () => {
+    const cs = await run([
+      launch({ ...L, startsInPool: true }),
+      swap({ marketCap: eth(20), blockTimestamp: T0 + 100 }),
+      swap({ marketCap: eth(30), blockTimestamp: T0 + 400 }),
+    ])
+    const rows = pick(cs, "pumping")!.card.rows
+    expect(rows.at(-1)).toEqual(["age", "6m"])
+    expect(rows.map(([k]) => k)).not.toContain("bonded")
+  })
+
+  it("withDevHolds puts dev holds before bonded on a PUMPING card", async () => {
+    const cs = await run([...pumpSetup, swap({ marketCap: eth(24), blockTimestamp: T0 + 7700 })])
+    const card = pick(cs, "pumping")!.card as Card
+    expect(
+      withDevHolds(card, { pct: 4.2, now: false }, { before: "bonded" }).rows.slice(-2),
+    ).toEqual([
+      ["dev holds", "4.2%"],
+      ["bonded", "1h 8m ago"],
+    ])
+  })
+
+  it("withDevHolds appends dev holds when the anchor is missing", () => {
+    const card = { rows: [["a", "1"]] } as unknown as Card
+    expect(withDevHolds(card, { pct: 1, now: false }, { before: "bonded" }).rows).toEqual([
+      ["a", "1"],
+      ["dev holds", "1.0%"],
+    ])
+    expect(withDevHolds(card, { pct: 1, now: false }, { after: "dev" }).rows).toEqual([
+      ["a", "1"],
+      ["dev holds", "1.0%"],
+    ])
   })
 })
 

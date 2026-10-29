@@ -14,6 +14,7 @@ import { loadNftState, type NftState } from "../nft/state"
 import type { Prices } from "../prices"
 import type { DevHolds, HoldsReq } from "../rpc"
 import { type Candidate, rulesFor, withDevHolds } from "../rules/index"
+import { PumpArm } from "../rules/pump-arm"
 import { PRIORITY } from "../settings"
 import {
   FLOOD_WINDOW_S,
@@ -48,6 +49,8 @@ export type PollerDeps = {
   launchpads?: TokenLaunchpads
   /** Upper bound (inclusive) on the event ids read. Set only by the replay script; unset in production. */
   maxId?: string
+  /** Bonded PUMPING re-arm state, kept between passes (startPoller sets it). Unset, every pass starts empty. */
+  pumpArm?: PumpArm
 }
 
 /** postgres.js and Node network errors carry a string `code`; a rule's own bugs do not. */
@@ -272,10 +275,12 @@ async function processBatch(
   if (skipped === 0) limiter.ok("rule")
   const flooded = launches.filter((l) => starts.has(l.id))
   const aud = await loadAudience(sql, [...new Set(cands.map((c) => c.target))], now())
-  const deliveries = route(cands, aud)
+  const pumps = (deps.pumpArm ?? new PumpArm()).draft()
+  const deliveries = route(cands, aud, pumps)
   const floods = flooded.length === 0 ? [] : floodRows(flooded, starts, newTokenChats(aud))
-  const dev = deliveries.filter((d) => d.alert === "devsell")
-  const rest = deliveries.filter((d) => d.alert !== "devsell")
+  // DEV SELL and bonded PUMPING show the creator's balance, read over RPC.
+  const dev = deliveries.filter((d) => d.holds)
+  const rest = deliveries.filter((d) => !d.holds)
   // Start the dev holds reads first; the other alerts are written while they run.
   const reads = new Map<string, Promise<DevHolds>>()
   for (const d of dev) {
@@ -299,13 +304,21 @@ async function processBatch(
             ...d,
             payload: {
               ...d.payload,
-              card: withDevHolds(d.payload.card, holds.get(d.eventId) ?? null),
+              card: withDevHolds(
+                d.payload.card,
+                holds.get(d.eventId) ?? null,
+                d.alert === "devsell" ? { after: "dev" } : { before: "bonded" },
+              ),
             },
           }
         : d,
     )
     await write(sql, filled, lastId)
   }
+  // Only a fully written batch changes the re-arm state; a failed one is routed again from the old state.
+  // shortcut: when the second write fails, the retry starts at the first held-back event, so re-arm changes from
+  // the events before it are lost and one PUMPING can repeat or wait for the next dip. Commit per event if needed.
+  pumps.commit()
   log("debug", "poller batch", {
     events: events.length,
     deliveries: deliveries.length,
@@ -317,7 +330,12 @@ async function processBatch(
 /** Polls every second, straight away again after a full batch. Returns a stop function. */
 export function startPoller(deps: PollerDeps): () => void {
   const limiter = createFailureLimiter({ report: deps.report, log: deps.log })
-  const shared = { ...deps, limiter, nftState: deps.nftState ?? {} }
+  const shared = {
+    ...deps,
+    limiter,
+    nftState: deps.nftState ?? {},
+    pumpArm: deps.pumpArm ?? new PumpArm(),
+  }
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const loop = async () => {

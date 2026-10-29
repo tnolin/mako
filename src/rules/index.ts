@@ -23,7 +23,7 @@ import { bonded } from "./bonded"
 import { bonding } from "./bonding"
 import { devSell, devSellSwap } from "./devsell"
 import { newToken } from "./new-token"
-import { pumping } from "./pumping"
+import { pumping, pumpingBonded } from "./pumping"
 import type { Candidate, RuleCtx, SwapCtx } from "./types"
 
 export { withDevHolds } from "./devsell"
@@ -82,7 +82,7 @@ export async function rulesFor(
   if (p.type === "launchpad.swap") {
     const s = await swapCtx(ev as Row<SwapEvent>, ctx)
     if (!s) return []
-    return [...devSellSwap(s), ...bigSwap(s)]
+    return [...devSellSwap(s), ...pumpingBonded(s), ...bigSwap(s)]
   }
   const launch = await launchOf(ctx.sql, p.token)
   if (!launch) {

@@ -76,11 +76,21 @@ export function devSellSwap(s: SwapCtx): Candidate[] {
   ]
 }
 
-/** Inserts `dev holds` after the `dev` row, or leaves the card as it is when the read failed. */
-export function withDevHolds(card: Card, h: DevHolds): Card {
+/**
+ * Inserts `dev holds` next to the anchor row, or at the end when the card has no such row. Leaves the card as it
+ * is when the read failed.
+ */
+export function withDevHolds(
+  card: Card,
+  h: DevHolds,
+  at: { after: string } | { before: string },
+): Card {
   if (!h) return card
   const rows = [...card.rows]
-  const i = rows.findIndex(([k]) => k === "dev")
-  rows.splice(i + 1, 0, ["dev holds", `${pct1(h.pct)}${h.now ? " (now)" : ""}`])
+  const anchor = "after" in at ? at.after : at.before
+  const i = rows.findIndex(([k]) => k === anchor)
+  const row: [string, string] = ["dev holds", `${pct1(h.pct)}${h.now ? " (now)" : ""}`]
+  if (i < 0) rows.push(row)
+  else rows.splice("after" in at ? i + 1 : i, 0, row)
   return { ...card, rows }
 }

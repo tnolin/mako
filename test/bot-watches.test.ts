@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { dm, NOT_FOUND, popup, WATCH_LIMIT } from "../src/menus/copy"
+import { dm, NOT_FOUND, popup, TARGET_TOKENS_ONLY, WATCH_LIMIT } from "../src/menus/copy"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { watch } from "../src/nft/watches"
 import { createBot } from "../src/platforms/telegram/bot"
@@ -358,6 +358,14 @@ describe("/watch in a DM", () => {
     expect(await rows("nft_watches")).toHaveLength(1)
     await h.text(`/watch ${C}`)
     expect(h.last("sendMessage")!.text).toBe(dm.alreadyWatching(N))
+  })
+
+  it("/watch on an NFT collection with an amount refuses the target and watches nothing", async () => {
+    await h.text("/watch ink-hornet 1000")
+    expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
+    await h.text("/watch Ink Hornet $5k")
+    expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
+    expect(await rows("nft_watches")).toHaveLength(0)
   })
 
   it("says it was not found for a name or address nothing matches", async () => {

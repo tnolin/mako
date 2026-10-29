@@ -1,8 +1,8 @@
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { logAction } from "../actions"
-import { escapeHtml } from "../format"
-import { launchOf } from "../history"
+import { clean, escapeHtml, units } from "../format"
+import { lastMarketOf, launchOf } from "../history"
 import { makeNftAlertCard } from "../nft/card"
 import { matchCollection } from "../nft/match"
 import {
@@ -19,13 +19,33 @@ import {
 } from "../nft/watches"
 import { classify } from "../platforms/telegram/errors"
 import { btn, btnOn, findAddress, isAdmin, type Kb, show, stateBtn } from "../platforms/telegram/ui"
+import { findTokens } from "../tokens"
 import { chatKind, chatTitle, NOT_ADMIN } from "./alerts"
 import { chatCode } from "./chat-code"
-import { dm, NOT_FOUND, popup, WATCH_LIMIT, WATCH_USAGE } from "./copy"
+import {
+  dm,
+  NOT_FOUND,
+  popup,
+  TARGET_BAD_AMOUNT,
+  TARGET_NO_PRICE,
+  TARGET_PICK,
+  TARGET_REPLACED,
+  TARGET_SET,
+  TARGET_TOKENS_ONLY,
+  WATCH_LIMIT,
+  WATCH_USAGE,
+} from "./copy"
 import type { BotDeps } from "./deps"
 import { COPY, openMatch } from "./nft"
 import { ensureUser, findUser, NO_USER, type User } from "./users"
-import { watchToken, watchTokenForChat } from "./watchlist"
+import {
+  addChatWatch,
+  addWatch,
+  replyHere,
+  setTarget,
+  watchToken,
+  watchTokenForChat,
+} from "./watchlist"
 import { sendWelcome } from "./welcome"
 
 const WATCHED_INTRO =
@@ -207,9 +227,99 @@ async function mutedScreen(ctx: Context, deps: BotDeps, owner: Owner) {
   ])
 }
 
+const AMOUNT = /^\$?(\d+(?:\.\d+)?)([km])?$/i
+
 /**
- * /watch <collection>: in a DM for the user, in a group for the chat (admins only). A token address in a
- * DM watches the token.
+ * `/watch <token> [amount]`. The last word is a USD amount when it has a `$`, a `k`/`m` suffix or a value of at
+ * least 1,000, so a name ending in a small number (`pepe 2`) stays a name. A last word that starts like an amount
+ * but isn't one (`500x`, `$5oo`) is a bad amount.
+ */
+export function parseWatchArgs(text: string): {
+  query: string
+  targetUsd: number | null
+  badAmount: boolean
+} {
+  const words = text.trim().split(/\s+/).filter(Boolean)
+  const query = words.join(" ")
+  const last = words.at(-1) ?? ""
+  if (words.length < 2 || /^0x[0-9a-f]{40}$/i.test(last))
+    return { query, targetUsd: null, badAmount: false }
+  const m = AMOUNT.exec(last)
+  if (!m) return { query, targetUsd: null, badAmount: /^\$?\d/.test(last) }
+  const value = Number(m[1])
+  const unit = m[2]?.toLowerCase()
+  if (!last.startsWith("$") && !unit && value < 1000)
+    return { query, targetUsd: null, badAmount: false }
+  const targetUsd = value * (unit === "k" ? 1e3 : unit === "m" ? 1e6 : 1)
+  return { query: words.slice(0, -1).join(" "), targetUsd, badAmount: false }
+}
+
+const shortCa = (ca: string) => `${ca.slice(0, 6)}…${ca.slice(-4)}`
+
+/**
+ * Watches a token with a market cap target, for the user in a DM or for the chat in a group, and sends one reply.
+ * A typed command may create the user; a tap on the pick list may not.
+ */
+async function watchWithTarget(
+  ctx: Context,
+  deps: BotDeps,
+  ca: string,
+  targetUsd: number,
+  fresh: boolean,
+): Promise<void> {
+  const l = (await launchOf(deps.sql, ca))!
+  const name = clean(l.p.name, 64) || `$${clean(l.p.ticker, 32) || "?"}`
+  const market = await lastMarketOf(deps.sql, ca)
+  const price = market ? deps.prices.usd(market.quote) : null
+  if (!market || price === null) return void (await replyHere(ctx, TARGET_NO_PRICE(name), false))
+  const nowUsd = units(market.marketCap) * price
+  if (ctx.chat?.type === "private") {
+    const found = fresh
+      ? await ensureUser(deps.sql, ctx.from!.id)
+      : { user: await findUser(deps.sql, ctx.from!.id), created: false }
+    if (!found.user) return void (await ctx.reply(NO_USER))
+    if ((await addWatch(deps, found.user, ca)) === "limit")
+      return void (await ctx.reply(WATCH_LIMIT))
+    const old = await setTarget(deps, { userId: found.user.id }, ca, targetUsd, nowUsd)
+    await ctx.reply(
+      old === null
+        ? TARGET_SET(name, targetUsd, nowUsd)
+        : TARGET_REPLACED(name, targetUsd, old, nowUsd),
+    )
+    // Action first, then the welcome card, as /start does for deep links.
+    if (found.created) await sendWelcome(ctx, found.user.settings)
+    return
+  }
+  const chatId = String(ctx.chat!.id)
+  if ((await addChatWatch(deps, chatId, ca)) === "limit")
+    return void (await replyHere(ctx, WATCH_LIMIT))
+  const old = await setTarget(deps, { chatId }, ca, targetUsd, nowUsd)
+  await replyHere(
+    ctx,
+    old === null
+      ? TARGET_SET(name, targetUsd, nowUsd)
+      : TARGET_REPLACED(name, targetUsd, old, nowUsd),
+    false,
+  )
+}
+
+/** Watches one token, with or without a target. */
+async function watchOne(
+  ctx: Context,
+  deps: BotDeps,
+  ca: string,
+  targetUsd: number | null,
+  fresh: boolean,
+): Promise<void> {
+  if (targetUsd !== null) return watchWithTarget(ctx, deps, ca, targetUsd, fresh)
+  if (ctx.chat?.type !== "private") return watchTokenForChat(ctx, deps, ca)
+  if (!fresh && !(await findUser(deps.sql, ctx.from!.id))) return void (await ctx.reply(NO_USER))
+  return watchToken(ctx, deps, ca)
+}
+
+/**
+ * /watch <token or collection> [amount]: in a DM for the user, in a group for the chat (admins only). A token is
+ * found by address, ticker or name; an amount sets a market cap target on the token's watch.
  */
 async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<void> {
   const isDm = ctx.chat?.type === "private"
@@ -217,12 +327,37 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
   if (!text) return void (await ctx.reply(WATCH_USAGE))
   if (!isDm && !(await isAdmin(ctx.api, ctx.chat!.id, ctx.from!.id)))
     return void (await ctx.reply(NOT_ADMIN))
-  const ca = findAddress(text)
-  if (ca && (await launchOf(deps.sql, ca)))
-    return isDm ? watchToken(ctx, deps, text) : watchTokenForChat(ctx, deps, ca)
+  const { query, targetUsd, badAmount } = parseWatchArgs(text)
+  if (badAmount) return void (await replyHere(ctx, TARGET_BAD_AMOUNT, false))
+  const ca = findAddress(query)
+  if (ca && (await launchOf(deps.sql, ca))) return watchOne(ctx, deps, ca, targetUsd, true)
+  const hits = ca ? [] : await findTokens(deps.sql, query)
+  if (hits.length === 1) return watchOne(ctx, deps, hits[0]!.token, targetUsd, true)
+  if (hits.length > 1) {
+    const bare = query.replace(/^\$/, "").toLowerCase()
+    const byTicker = hits.find((t) => t.ticker?.toLowerCase() === bare)
+    const called = byTicker ? `$${clean(byTicker.ticker, 32)}` : query
+    const kb: Kb = hits.map((t) => [
+      btn(
+        `${clean(t.name, 20) || `$${clean(t.ticker, 20) || "?"}`} · ${shortCa(t.token)}`,
+        `wt:${t.token}:${targetUsd === null ? 0 : Math.round(targetUsd)}`,
+      ),
+    ])
+    await ctx.reply(TARGET_PICK(called), {
+      reply_markup: { inline_keyboard: kb },
+      message_thread_id:
+        ctx.msg && "is_topic_message" in ctx.msg && ctx.msg.is_topic_message
+          ? ctx.msg.message_thread_id
+          : undefined,
+    })
+    return
+  }
   const state = deps.nft?.()
   if (!state) return void (await ctx.reply(COPY.loading))
   const m = matchCollection(state, text)
+  // A market cap target is for tokens: a collection named with an amount is refused, not watched.
+  if (targetUsd !== null && (m.kind === "one" || matchCollection(state, query).kind === "one"))
+    return void (await replyHere(ctx, TARGET_TOKENS_ONLY, false))
   if (m.kind !== "one") return openMatch(ctx, deps, state, m, text, "24h")
   const contract = m.contract
   const name = collectionName(deps, contract)
@@ -356,4 +491,16 @@ export function registerWatches(bot: Bot, deps: BotDeps): void {
   })
 
   bot.command("watch", (ctx) => watchCommand(ctx, deps, ctx.match))
+  // A pick from /watch's list of tokens with one name: `wt:<token>:<target in USD, or 0 for none>`.
+  bot.callbackQuery(/^wt:(0x[0-9a-f]{40}):(\d+)$/, async (ctx) => {
+    const chat = ctx.callbackQuery.message?.chat
+    if (!chat) return void (await ctx.answerCallbackQuery())
+    if (chat.type !== "private" && !(await isAdmin(ctx.api, chat.id, ctx.from.id)))
+      return void (await ctx.answerCallbackQuery({ text: NOT_ADMIN, show_alert: true }))
+    await ctx.answerCallbackQuery().catch(() => {})
+    const ca = ctx.match[1]!
+    if (!(await launchOf(deps.sql, ca))) return void (await ctx.reply(NOT_FOUND))
+    const usd = Number(ctx.match[2])
+    await watchOne(ctx, deps, ca, usd > 0 ? usd : null, false)
+  })
 }

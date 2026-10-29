@@ -1,7 +1,7 @@
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { logAction } from "../actions"
-import { clean, escapeHtml } from "../format"
+import { clean, escapeHtml, usd } from "../format"
 import { launchesOf, launchOf } from "../history"
 import { classify } from "../platforms/telegram/errors"
 import { btn, findAddress, isAdmin, type Kb, show, stateBtn } from "../platforms/telegram/ui"
@@ -43,7 +43,7 @@ async function remove(deps: BotDeps, user: User, kind: Kind, ca: string): Promis
 }
 
 /** Watches a token. A token is watched, muted or neither, so this removes the user's mute. */
-async function addWatch(
+export async function addWatch(
   deps: BotDeps,
   user: User,
   ca: string,
@@ -91,26 +91,20 @@ export async function watchToken(ctx: Context, deps: BotDeps, raw: string): Prom
 }
 
 /**
- * An admin's /watch in a group: the chat watches the token, up to WATCH_CAP, counted apart from collections.
+ * A group or channel watches a token, up to WATCH_CAP, counted apart from collections.
  * shortcut: the cap is checked before the insert without a lock, so two commands at once can pass 50 by one.
  */
-export async function watchTokenForChat(ctx: Context, deps: BotDeps, ca: string): Promise<void> {
-  const chatId = String(ctx.chat!.id)
-  const name = await tickerOf(deps, ca)
-  const reply = (text: string) =>
-    ctx.reply(text, {
-      parse_mode: "HTML",
-      message_thread_id:
-        ctx.msg && "is_topic_message" in ctx.msg && ctx.msg.is_topic_message
-          ? ctx.msg.message_thread_id
-          : undefined,
-    })
+export async function addChatWatch(
+  deps: BotDeps,
+  chatId: string,
+  ca: string,
+): Promise<"added" | "exists" | "limit"> {
   const [have] = await deps.sql`
     select 1 from bot.chat_token_watches where chat_id = ${chatId} and target = ${ca}`
-  if (have) return void (await reply(dm.alreadyWatching(name)))
+  if (have) return "exists"
   const [n] = await deps.sql<{ n: number }[]>`
     select count(*)::int as n from bot.chat_token_watches where chat_id = ${chatId}`
-  if ((n?.n ?? 0) >= WATCH_CAP) return void (await reply(WATCH_LIMIT))
+  if ((n?.n ?? 0) >= WATCH_CAP) return "limit"
   await deps.sql`insert into bot.chat_token_watches (chat_id, target) values (${chatId}, ${ca}) on conflict do nothing`
   await logAction(deps.sql, {
     chatType: await chatKind(deps.sql, chatId),
@@ -118,8 +112,65 @@ export async function watchTokenForChat(ctx: Context, deps: BotDeps, ca: string)
     action: "watch",
     token: ca,
   })
-  await reply(dm.groupWatching(name))
+  return "added"
 }
+
+/** Replies in the chat, in the topic of the message or tapped message when there is one. */
+export const replyHere = (ctx: Context, text: string, html = true) =>
+  ctx.reply(text, {
+    ...(html ? { parse_mode: "HTML" as const } : {}),
+    message_thread_id:
+      ctx.msg && "is_topic_message" in ctx.msg && ctx.msg.is_topic_message
+        ? ctx.msg.message_thread_id
+        : undefined,
+  })
+
+/** An admin's /watch in a group: the chat watches the token. */
+export async function watchTokenForChat(ctx: Context, deps: BotDeps, ca: string): Promise<void> {
+  const name = await tickerOf(deps, ca)
+  const r = await addChatWatch(deps, String(ctx.chat!.id), ca)
+  if (r === "limit") return void (await replyHere(ctx, WATCH_LIMIT))
+  await replyHere(ctx, r === "exists" ? dm.alreadyWatching(name) : dm.groupWatching(name))
+}
+
+export type WatchOwner = { userId: string } | { chatId: string }
+
+/**
+ * Sets the market cap target on an existing watch row. The direction is fixed now: up when the target is above
+ * the current market cap. Returns the target it replaced, or null.
+ */
+export async function setTarget(
+  deps: BotDeps,
+  owner: WatchOwner,
+  ca: string,
+  targetUsd: number,
+  nowUsd: number,
+): Promise<number | null> {
+  const up = targetUsd > nowUsd
+  const [old] =
+    "userId" in owner
+      ? await deps.sql<{ usd: number | null }[]>`
+          select target_usd::float8 as usd from bot.subscriptions
+          where user_id = ${owner.userId} and kind = 'watch' and target = ${ca}`
+      : await deps.sql<{ usd: number | null }[]>`
+          select target_usd::float8 as usd from bot.chat_token_watches
+          where chat_id = ${owner.chatId} and target = ${ca}`
+  if ("userId" in owner)
+    await deps.sql`
+      update bot.subscriptions
+      set target_usd = ${targetUsd}, target_up = ${up}, target_set_usd = ${nowUsd}, target_set_at = now()
+      where user_id = ${owner.userId} and kind = 'watch' and target = ${ca}`
+  else
+    await deps.sql`
+      update bot.chat_token_watches
+      set target_usd = ${targetUsd}, target_up = ${up}, target_set_usd = ${nowUsd}, target_set_at = now()
+      where chat_id = ${owner.chatId} and target = ${ca}`
+  return old?.usd ?? null
+}
+
+/** A watched list's button: the ticker, then the market cap target when one is set. */
+const watchLabel = (ticker: string, target: string | null) =>
+  target === null ? cutName(ticker) : `${cutName(ticker)} · ${usd(Number(target))}`
 
 /** A group's Watched tokens, shown in an admin's DM (never in the group). Live admin check on every tap. */
 async function groupTokensScreen(
@@ -146,8 +197,9 @@ async function groupTokensScreen(
       .answerCallbackQuery({ text: popup.stop(await tickerOf(deps, remove)) })
       .catch(() => {})
   }
-  const rows = await deps.sql<{ target: string }[]>`
-    select target from bot.chat_token_watches where chat_id = ${chatId} order by created_at, target`
+  const rows = await deps.sql<{ target: string; usd: string | null }[]>`
+    select target, target_usd::text as usd from bot.chat_token_watches
+    where chat_id = ${chatId} order by created_at, target`
   const meta = await launchesOf(
     deps.sql,
     rows.map((r) => r.target),
@@ -158,7 +210,7 @@ async function groupTokensScreen(
   if (rows.length === 0) return show(ctx, `${title}\n${WATCHED_EMPTY}`, [back])
   await show(ctx, `${title}\n${WATCHED_INTRO}`, [
     ...rows.map((r) => [
-      btn(cutName(label(r.target)), `t:${r.target}:y${chatCode(chatId)}`),
+      btn(watchLabel(label(r.target), r.usd), `t:${r.target}:y${chatCode(chatId)}`),
       btn("Remove", `gl:${chatId}:t:${r.target}`),
     ]),
     back,
@@ -185,8 +237,9 @@ async function restyle(ctx: Context, ca: string, watching: boolean, muted: boole
 }
 
 async function listScreen(ctx: Context, deps: BotDeps, user: User, kind: Kind): Promise<void> {
-  const rows = await deps.sql<{ target: string }[]>`
-    select target from bot.subscriptions where user_id = ${user.id} and kind = ${kind} order by created_at`
+  const rows = await deps.sql<{ target: string; usd: string | null }[]>`
+    select target, target_usd::text as usd from bot.subscriptions
+    where user_id = ${user.id} and kind = ${kind} order by created_at`
   const meta = await launchesOf(
     deps.sql,
     rows.map((r) => r.target),
@@ -200,7 +253,7 @@ async function listScreen(ctx: Context, deps: BotDeps, user: User, kind: Kind): 
   if (rows.length === 0) return show(ctx, `<b>${title}</b>\n${empty}`, [back])
   await show(ctx, `<b>${title}</b>\n${intro}`, [
     ...rows.map((r) => [
-      btn(cutName(label(r.target)), `t:${r.target}:${kind === "watch" ? "wl" : "mu"}`),
+      btn(watchLabel(label(r.target), r.usd), `t:${r.target}:${kind === "watch" ? "wl" : "mu"}`),
       kind === "watch" ? btn("Remove", `wl:rm:${r.target}`) : btn("Unmute", `um:${r.target}`),
     ]),
     back,

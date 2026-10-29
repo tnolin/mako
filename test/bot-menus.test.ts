@@ -138,7 +138,7 @@ describe("bot descriptions", () => {
 
 describe("command menus", () => {
   it("match the exact text", () => {
-    const watch = "Watch a token or NFT: /watch <address or name>"
+    const watch = "Watch a token or NFT: /watch <name or address> [mcap]"
     expect(PRIVATE_COMMANDS).toEqual([
       { command: "start", description: "Start MAKO" },
       { command: "menu", description: "Main menu" },
@@ -197,7 +197,7 @@ describe("Tokens and NFTs screens", () => {
         "",
         "Available Commands:",
         "/t &lt;address&gt; - Looks up a token.",
-        "/watch &lt;address&gt; - Adds a token to your watchlist.",
+        "/watch &lt;token&gt; [mcap] watch a token, with an optional market cap alert",
       ].join("\n"),
     )
     expect(labels(p)).toEqual([

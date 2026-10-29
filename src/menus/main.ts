@@ -25,7 +25,7 @@ export const ABOUT = [
 
 const WATCH_COMMAND = {
   command: "watch",
-  description: "Watch a token or NFT: /watch <address or name>",
+  description: "Watch a token or NFT: /watch <name or address> [mcap]",
 }
 /** The command menus. */
 export const PRIVATE_COMMANDS = [
@@ -88,7 +88,7 @@ const TOKENS_TEXT = [
   "",
   "Available Commands:",
   "/t &lt;address&gt; - Looks up a token.",
-  "/watch &lt;address&gt; - Adds a token to your watchlist.",
+  "/watch &lt;token&gt; [mcap] watch a token, with an optional market cap alert",
 ].join("\n")
 
 const nftsText = (linksBase: string): string =>

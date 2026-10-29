@@ -41,11 +41,16 @@ export function createSender(deps: SenderDeps) {
       : sql`update bot.deliveries set status = 'skipped', summarized = true
             where chat_id = ${chatId} and status = 'pending' and thread_id is not distinct from ${thread}`
 
+  /**
+   * Skips alerts past their window. One that was queued in time and waited out its window was crowded out by
+   * volume and counts toward the chat's summary. One that was already past its window when it was queued (the bot
+   * or the indexer was behind) says nothing about volume, so it is marked summarized and never counted.
+   */
   async function lateDrop() {
+    const window = sql`case when alert = any(${LONG}) then interval '30 minutes' else interval '3 minutes' end`
     await sql`
-      update bot.deliveries set status = 'skipped'
-      where status = 'pending'
-        and event_ts < now() - case when alert = any(${LONG}) then interval '30 minutes' else interval '3 minutes' end`
+      update bot.deliveries set status = 'skipped', summarized = (created_at >= event_ts + ${window})
+      where status = 'pending' and event_ts < now() - ${window}`
   }
 
   async function throttledCheck(chatId: string) {

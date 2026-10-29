@@ -55,14 +55,21 @@ async function enqueue(
     key?: string
     /** Seconds from now until the row may be sent; negative is in the past. */
     sendAfterSec?: number
+    /**
+     * Queued `ageMin` minutes after its event, so it was already late when written. Otherwise it was queued as its
+     * event happened and waited `ageMin` minutes in the queue.
+     */
+    queuedLate?: boolean
   } = {},
 ) {
   const sendAfter = o.sendAfterSec === undefined ? null : `${o.sendAfterSec} seconds`
+  const age = `${o.ageMin ?? 0} minutes`
   await sql`
-    insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, send_after, card)
+    insert into bot.deliveries (chat_id, chat_type, thread_id, alert, token, dedupe_key, priority, event_ts, send_after, card, created_at)
     values (${chatId}, ${o.chatType ?? "supergroup"}, ${o.thread ?? null}, ${alert}, '0xd1', ${o.key ?? `${alert}:${Math.random()}`},
-            ${o.priority ?? 5}, now() - ${`${o.ageMin ?? 0} minutes`}::interval,
-            now() + ${sendAfter}::interval, ${sql.json(card as unknown as postgres.JSONValue)})`
+            ${o.priority ?? 5}, now() - ${age}::interval,
+            now() + ${sendAfter}::interval, ${sql.json(card as unknown as postgres.JSONValue)},
+            ${o.queuedLate ? sql`now()` : sql`now() - ${age}::interval`})`
 }
 const statuses = async () =>
   (
@@ -124,6 +131,16 @@ it("drops alerts 3 minutes after their event, DEV SELL and BONDED after 30", asy
       "summary:pending",
     ].sort(),
   )
+})
+
+it("counts no alert in a summary that was already late when it was queued", async () => {
+  await addChat(sql, -1, "supergroup")
+  await enqueue(-1, "new", { ageMin: 4, queuedLate: true })
+  await enqueue(42, "devsell", { ageMin: 31, queuedLate: true, chatType: "private" })
+  respond = () => ({ ok: false, kind: "retry_after", retryAfter: 60, description: "429" })
+  await sender().tick()
+  expect((await statuses()).sort()).toEqual(["devsell:skipped", "new:skipped"])
+  expect(await sql`select 1 from bot.deliveries where alert = 'summary'`).toHaveLength(0)
 })
 
 it("summarises skips once per 10 minutes: neutral in groups, with My alerts in DMs", async () => {
@@ -441,19 +458,12 @@ it("turns the real 24 Aug launch burst into 10 alerts, one notice and one card p
   const minutes = new Set(launched.slice(10).map((e) => Math.floor(e.blockTimestamp / 60)))
   expect(cards).toHaveLength(minutes.size)
   expect(cards.reduce((n, c) => n + c.card.entries.length, 0)).toBe(launched.length - 10)
-  await sender().tick() // fixture events are from August, so every alert is already late
+  // The fixture events are from August, so every alert was late when it was queued: all are skipped, and none of
+  // them is a flood the user should hear about.
+  await sender().tick()
   const skipped = (await sql`select 1 from bot.deliveries where status = 'skipped'`).length
   expect(skipped).toBe(10 + 1 + cards.length)
-  const summaries = await sql<
-    { card: Payload }[]
-  >`select card from bot.deliveries where alert = 'summary'`
-  expect(summaries.map((s) => s.card)).toEqual([
-    {
-      type: "text",
-      html: `${skipped} alerts skipped in the last 10 min due to high volume.`,
-      buttons: [[{ text: "My alerts", data: "al:u" }]],
-    },
-  ])
+  expect(await sql`select 1 from bot.deliveries where alert = 'summary'`).toHaveLength(0)
 })
 
 it("keeps ticking when a tick fails and reporting itself throws", async () => {

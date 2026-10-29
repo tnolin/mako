@@ -72,8 +72,9 @@ export async function tradesOf(
 
 /**
  * A token's pool swaps in id order, from `sinceTs` (blockTimestamp) up to and including `uptoId` when given. With
- * both, the scan is narrowed by block first, as in launchesAround: Ink makes about one block per second, so blocks
- * within 10× the time span are a safe superset.
+ * both, the read is narrowed to recent rows: Ink makes about one block per second, so blocks within 10× the time span
+ * before `uptoId`'s block are a safe superset, and every row in those blocks has an id at or above the lowest id among
+ * them. That id bound, not the block filter, is what lets the (type, entity, id) index skip the token's older swaps.
  */
 export async function swapsOf(
   sql: Sql,
@@ -81,21 +82,29 @@ export async function swapsOf(
   uptoId?: string,
   sinceTs = 0,
 ): Promise<Row<SwapEvent>[]> {
-  let fromBlock: string | null = null
+  let range: { from: string; to: string } | null = null
   if (uptoId !== undefined && sinceTs > 0) {
     const [to] = await sql<{ block: string; ts: number }[]>`
       select block::text, (payload->>'blockTimestamp')::float8 as ts from indexer.events where id = ${uptoId}`
     if (to) {
       const span = Math.max(0, to.ts - sinceTs)
-      fromBlock = String(BigInt(to.block) - BigInt(Math.ceil(span * 10) + 100))
+      range = { from: String(BigInt(to.block) - BigInt(Math.ceil(span * 10) + 100)), to: to.block }
     }
   }
+  // `offset 0` keeps the planner from turning min(id) into a primary-key scan that filters on block; it reads the
+  // block range through events_block instead.
+  const near =
+    range === null
+      ? sql``
+      : sql`and block >= ${range.from}::bigint
+          and id >= (select min(id) from (select id from indexer.events
+            where block >= ${range.from}::bigint and block <= ${range.to}::bigint offset 0) b)`
   return upgrade(
     await sql<Row<StoredEvent>[]>`
       select id::text, payload as p from indexer.events
       where entity = ${token} and type = 'launchpad.swap'
         ${uptoId === undefined ? sql`` : sql`and id <= ${uptoId}`}
-        ${fromBlock === null ? sql`` : sql`and block >= ${fromBlock}::bigint`}
+        ${near}
         and (payload->>'blockTimestamp')::bigint >= ${sinceTs}
       order by events.id`,
   )

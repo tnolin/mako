@@ -12,12 +12,12 @@ describe("redirect by launchpad", () => {
   const OTHER = "0x1111111111111111111111111111111111111111"
   const two: Record<string, Launchpad> = {
     ...LAUNCHPADS,
-    tsunami: {
-      name: "Tsunami",
-      tradeUrl: (ca) => `https://tsunami.example/${ca}`,
+    otherpad: {
+      name: "Otherpad",
+      tradeUrl: (ca) => `https://otherpad.example/${ca}`,
       refParam: "r",
-      refEnv: "TSUNAMI_REF_CODE",
-      referralUrl: () => "https://tsunami.example",
+      refEnv: "OTHERPAD_REF_CODE",
+      referralUrl: () => "https://otherpad.example",
     },
   }
   /** Serves one Trade redirect and returns its Location. The click log never resolves. */
@@ -47,11 +47,11 @@ describe("redirect by launchpad", () => {
 
   it("sends each token to its own launchpad, and an unknown token to InkyPump", async () => {
     const target = tradeTarget(
-      new TokenLaunchpads([[CA, "tsunami"]]),
-      { INKYPUMP_REF_CODE: "M", TSUNAMI_REF_CODE: "T" },
+      new TokenLaunchpads([[CA, "otherpad"]]),
+      { INKYPUMP_REF_CODE: "M", OTHERPAD_REF_CODE: "T" },
       two,
     )
-    expect(await redirect(target, CA)).toBe(`https://tsunami.example/${CA}?r=T`)
+    expect(await redirect(target, CA)).toBe(`https://otherpad.example/${CA}?r=T`)
     expect(await redirect(target, OTHER)).toBe(`https://inkypump.com/ink/trade/${OTHER}?ref=M`)
   })
 })

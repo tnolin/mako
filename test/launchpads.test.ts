@@ -30,19 +30,19 @@ it("falls back to the first launchpad for an unknown key", () => {
 
 const two: Record<string, Launchpad> = {
   ...LAUNCHPADS,
-  tsunami: {
-    name: "Tsunami",
-    tradeUrl: (ca) => `https://tsunami.example/${ca}`,
+  otherpad: {
+    name: "Otherpad",
+    tradeUrl: (ca) => `https://otherpad.example/${ca}`,
     refParam: "r",
-    refEnv: "TSUNAMI_REF_CODE",
-    referralUrl: () => "https://tsunami.example",
+    refEnv: "OTHERPAD_REF_CODE",
+    referralUrl: () => "https://otherpad.example",
   },
 }
 
 it("trade link uses the token's launchpad", () => {
-  const lps = new TokenLaunchpads([[CA, "tsunami"]])
-  expect(tradeLink(lps.get(CA) ?? "inkypump", CA, { TSUNAMI_REF_CODE: "M" }, two)).toBe(
-    `https://tsunami.example/${CA}?r=M`,
+  const lps = new TokenLaunchpads([[CA, "otherpad"]])
+  expect(tradeLink(lps.get(CA) ?? "inkypump", CA, { OTHERPAD_REF_CODE: "M" }, two)).toBe(
+    `https://otherpad.example/${CA}?r=M`,
   )
   const other = "0x1111111111111111111111111111111111111111"
   lps.set(other, "inkypump")
@@ -58,5 +58,5 @@ it("unknown token falls back to InkyPump", () => {
 })
 
 it("names launchpads from config only", () => {
-  expect(launchpadNames(two)).toBe("InkyPump or Tsunami")
+  expect(launchpadNames(two)).toBe("InkyPump or Otherpad")
 })

@@ -82,7 +82,7 @@ export function referralLink(
   return lp.referralUrl(env[lp.refEnv] || undefined)
 }
 
-/** "InkyPump", "InkyPump or Tsunami", "A, B or C". */
+/** "A", "A or B", "A, B or C". */
 export function launchpadNames(list: Record<string, Launchpad> = LAUNCHPADS): string {
   const names = Object.values(list).map((l) => l.name)
   return names.length <= 1 ? names.join("") : `${names.slice(0, -1).join(", ")} or ${names.at(-1)}`

@@ -277,13 +277,13 @@ describe("token launchpads", () => {
     try {
       await insertEvents(own, [
         launchV1({ token: addr(0xb1) }),
-        launch({ token: addr(0xb2), launchpad: "tsunami" }),
+        launch({ token: addr(0xb2), launchpad: "otherpad" }),
         trade({ token: addr(0xb3) }),
       ])
       expect(new Map(await tokenLaunchpads(own))).toEqual(
         new Map([
           [addr(0xb1), "inkypump"],
-          [addr(0xb2), "tsunami"],
+          [addr(0xb2), "otherpad"],
         ]),
       )
     } finally {

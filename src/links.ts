@@ -14,7 +14,7 @@ const OPENSEA = "https://opensea.io"
 /** The platform links on the NFTs screen. They are not logged. */
 const PLATFORMS: Record<string, string> = {
   "/p/opensea": OPENSEA,
-  "/p/chimera": "https://www.chimeras.ink/discover",
+  "/p/chimera": "https://www.chimeras.ink/",
 }
 
 /**

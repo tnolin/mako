@@ -150,9 +150,7 @@ describe("redirect server", () => {
   it("302s the platform links without logging them", async () => {
     nftClicks.length = 0
     expect((await get("/p/opensea")).headers.get("location")).toBe("https://opensea.io")
-    expect((await get("/p/chimera")).headers.get("location")).toBe(
-      "https://www.chimeras.ink/discover",
-    )
+    expect((await get("/p/chimera")).headers.get("location")).toBe("https://www.chimeras.ink/")
     await new Promise((r) => setTimeout(r, 20))
     expect(nftClicks).toEqual([])
   })

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- The Chimera link on the NFTs screen opens Chimera's home page; the discover page it used now requires a login.
+
 ## v0.2.9 (2026-10-29)
 
 ### Changed

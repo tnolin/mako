@@ -51,6 +51,8 @@ for (;;) {
     report: () => {},
     readHolds: (r) => readDevHolds(balanceOf, r),
     maxId: to,
+    // A local database is filled long after the blocks, so every trade would count as written late.
+    keepLateWrites: true,
   })
   const [c] = await sql<
     { value: string }[]

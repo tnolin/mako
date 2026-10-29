@@ -49,6 +49,11 @@ export type PollerDeps = {
   launchpads?: TokenLaunchpads
   /** Upper bound (inclusive) on the event ids read. Set only by the replay script; unset in production. */
   maxId?: string
+  /**
+   * Runs the rules on trades and swaps the indexer wrote long after their block, which are skipped otherwise. Set
+   * only by the replay script, whose local database was filled after the fact.
+   */
+  keepLateWrites?: boolean
   /** Bonded PUMPING re-arm state, kept between passes (startPoller sets it). Unset, every pass starts empty. */
   pumpArm?: PumpArm
 }
@@ -258,7 +263,7 @@ async function processBatch(
     // Backfilled NFT history: the cursor moves past it and nothing is sent.
     if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue
     // Trades and swaps the indexer caught up on: the cursor moves past them and nothing is sent.
-    if (writtenLate(ev)) continue
+    if (!deps.keepLateWrites && writtenLate(ev)) continue
     try {
       cands.push(
         ...(await rules(ev, { sql, prices: deps.prices, log, nft, now, nftSince: cutoff }, prev)),

@@ -926,6 +926,17 @@ describe("events the indexer wrote long after their block", () => {
     expect(await cursor()).toBe(lateIds.at(-1))
   })
 
+  it("a replay can keep rows written late", async () => {
+    await addUser(sql, 903)
+    const ids = await insertEvents(sql, [L, bond()])
+    await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
+    await insertEvents(sql, [swap({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })], {
+      writtenAt: now,
+    })
+    await pollOnce(deps({ now: () => now, keepLateWrites: true }))
+    expect((await listDeliveries(sql)).map((r) => r.alert)).toEqual(["big"])
+  })
+
   it("a swap written on time while the bot was behind still takes the normal path", async () => {
     await addUser(sql, 902)
     const ids = await insertEvents(sql, [L, bond()])

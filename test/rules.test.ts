@@ -558,6 +558,20 @@ describe("MCAP TARGET", () => {
     ])
   })
 
+  it("counts the last hour's curve trades in a pool swap's volume", async () => {
+    await userTarget(500_000, true)
+    const cs = await runAt(AT, [
+      L,
+      trade({ quoteAmount: eth(2), blockTimestamp: AT - 1800 }),
+      // Before the hour: not counted.
+      trade({ quoteAmount: eth(50), blockTimestamp: AT - 4000 }),
+      bond({ blockTimestamp: AT - 1700 }),
+      swap({ marketCap: eth(204.8), blockTimestamp: AT }),
+    ])
+    // 2 ETH of curve trades and the 0.05 ETH swap, at $2,500.
+    expect(pick(cs, "mcap")!.card.rows[2]).toEqual(["volume", "$5.1K (1h)"])
+  })
+
   it("fires on the way down", async () => {
     await userTarget(150_000, false)
     const cs = await runAt(AT, [...bonded, swap({ marketCap: eth(59), blockTimestamp: AT })])

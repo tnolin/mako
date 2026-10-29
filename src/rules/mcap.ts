@@ -1,7 +1,7 @@
 import type { LaunchEvent, SwapEvent, TradeEvent } from "@ink-indexer/events"
 import { quoteUnits, valueText } from "../cards/money"
 import { age, bar, usd } from "../format"
-import { type Row, swapsOf } from "../history"
+import { type Row, swapsOf, tradesOf } from "../history"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
 import { windowStats } from "./stats"
@@ -19,8 +19,8 @@ type TargetRow = { kind: "u" | "c"; id: string; usd: number; setUsd: number; set
 
 /**
  * MCAP TARGET: one candidate per watch whose target this trade or swap reached, bound to that user or chat. A target
- * set after the event's block never fires on it. `trades` are the token's curve trades up to the event (empty on
- * the swap path); the hour's swaps are read only when a target fires.
+ * set after the event's block never fires on it. `trades` are the token's curve trades up to the event, or empty on
+ * the swap path, where they and the hour's swaps are read only when a target fires.
  */
 export async function mcapTargets(
   ctx: RuleCtx,
@@ -49,8 +49,11 @@ export async function mcapTargets(
       and ((target_up and ${mcapUsd}::numeric >= target_usd) or (not target_up and ${mcapUsd}::numeric <= target_usd))`
   if (rows.length === 0) return []
   const from = p.blockTimestamp - HOUR_S
-  const swaps = await swapsOf(ctx.sql, p.token, ev.id, from)
-  const vol = windowStats([...trades, ...swaps], from, ev.id).volume
+  const [curve, swaps] = await Promise.all([
+    trades.length > 0 ? trades : tradesOf(ctx.sql, p.token, ev.id),
+    swapsOf(ctx.sql, p.token, ev.id, from),
+  ])
+  const vol = windowStats([...curve, ...swaps], from, ev.id).volume
   const l = launch.p
   return rows.map((r) => ({
     alert: "mcap",

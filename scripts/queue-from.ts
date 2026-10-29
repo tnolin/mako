@@ -9,6 +9,7 @@ import { initCursor, pollOnce } from "../src/delivery/poller"
 import { log } from "../src/log"
 import { createPrices } from "../src/prices"
 import { DEFAULT_RPC, readDevHolds, rpcBalanceOf } from "../src/rpc"
+import { PumpArm } from "../src/rules/pump-arm"
 
 const USAGE = "usage: queue-from.ts <fromId> [toId]"
 const fail = (msg: string): never => {
@@ -43,6 +44,8 @@ const prices = createPrices({ log })
 await prices.refresh()
 await initCursor(sql, from!)
 const balanceOf = rpcBalanceOf(process.env.INK_RPC_URL || DEFAULT_RPC)
+// One re-arm state for the whole replay, as the running bot keeps one, so a pump spanning two batches sends once.
+const pumpArm = new PumpArm()
 for (;;) {
   const n = await pollOnce({
     sql,
@@ -53,6 +56,7 @@ for (;;) {
     maxId: to,
     // A local database is filled long after the blocks, so every trade would count as written late.
     keepLateWrites: true,
+    pumpArm,
   })
   const [c] = await sql<
     { value: string }[]

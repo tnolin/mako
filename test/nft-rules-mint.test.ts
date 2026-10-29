@@ -18,7 +18,7 @@ const stage = (
   price: bigint,
   o: Partial<NftDropStage> = {},
 ): NftDropStage => ({
-  type: label === "Public" ? "public" : "allow_list",
+  type: label === "Public" ? "public_sale" : "signed_presale",
   label,
   priceWei: eth(price),
   startTime: SEP6 + h * H,

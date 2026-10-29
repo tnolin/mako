@@ -122,7 +122,7 @@ it("finds collections by address, OpenSea link, slug and name, real ones first",
 
 it("lists collections minting now and upcoming ones without Team stages", async () => {
   const team = {
-    type: "allow_list",
+    type: "signed_presale",
     label: "Team",
     priceWei: "0",
     startTime: T0 + 100,

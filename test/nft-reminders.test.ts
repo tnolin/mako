@@ -12,7 +12,7 @@ import { addr, nftCollection, nftDrop, nftMint } from "./helpers/events"
 const C = addr(0xc0)
 const START = Date.UTC(2026, 8, 6, 13) / 1000
 const stage = (label: string, o: Partial<NftDropStage> = {}): NftDropStage => ({
-  type: "allow_list",
+  type: "signed_presale",
   label,
   priceWei: String(25n * 10n ** 13n),
   startTime: START,

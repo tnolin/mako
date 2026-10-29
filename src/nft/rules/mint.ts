@@ -100,11 +100,11 @@ function startDue(st: CollectionState, now: number): boolean {
 }
 /**
  * Whether the stage a mint event reports is the public one. The indexer types every drop stage and the
- * public sale is `public`; allowlist, Team and any other stage is private. A stage that can't be matched
+ * public sale is `public_sale`; `signed_presale`, Team and any other stage is private. A stage that can't be matched
  * to the drop is not treated as public.
  */
 const publicStage = (st: CollectionState, ev: NftMintEvent): boolean =>
-  stageAt(st.drop, ev.stageStartTs)?.type === "public"
+  stageAt(st.drop, ev.stageStartTs)?.type === "public_sale"
 /** A mint with no stages (not a SeaDrop drop): its one `stage_start` reads MINT STARTING without a stage label. */
 const stageless = (st: CollectionState): boolean => (st.col ? !st.col.seadrop : !st.drop)
 

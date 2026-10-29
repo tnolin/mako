@@ -57,10 +57,11 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 | --- | --- |
 | NEW TOKEN | A token is created |
 | BONDING | A token's curve passes 80% or 90% (50% is optional) |
-| PUMPING | A token's curve rises 15 points within 10 minutes |
+| PUMPING | A token's curve rises 15 points within 10 minutes; after bonding, its market cap rises a chat's threshold (+15%, +20%, +30% or +50%) over the 10-minute low (ADR 0021) |
 | BONDED | A token bonds and its liquidity moves to a pool |
 | DEV SELL | The launch's creator wallet sells its token |
-| BIG BUY / BIG SELL | One trade of 5% (2.5% or 10%) or more of the bond target |
+| BIG BUY / BIG SELL | One trade of 5% (2.5% or 10%) or more of the bond target, or after bonding of the pool's quote side before the trade, worth at least $500 |
+| MCAP TARGET | A watched token's market cap reaches the user's or chat's target (ADR 0020) |
 
 **NFT alerts, All collections**
 
@@ -89,17 +90,20 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 - Muted first: a muted token or collection never sends anything, and a token or collection is watched, muted or neither.
 - An All collections alert reaches a chat when the collection passes MAKO's quality checks and the alert is on, or when the chat watches the collection. A watch ignores the switch and the quality checks, and keeps the thresholds.
 - A Watched only alert reaches a chat only when it watches the collection, the alert is on and the thresholds hold.
-- A user's token watch sends every token alert except NEW TOKEN. A group's token watch does the same, with the group's BONDING marks and BIG BUY/SELL percentage.
+- A user's token watch sends every token alert except NEW TOKEN. A group's token watch does the same, with the group's BONDING marks and BIG BUY/SELL percentage. Bonded PUMPING uses the watcher's own threshold and skips the market cap minimum.
+- MCAP TARGET goes only to the user or chat whose target fired, beside any other alert for the same event, and clears the target in the same transaction as the delivery.
 - One alert per event per chat, the highest priority first. Paused and topic routes apply to every kind.
 - Defaults depend on the chat type: the All collections alerts are on in DMs and off in groups and channels. The Watched only alerts are on everywhere except SOLD.
 - At most 3 UNDER FLOOR or RARE LISTING alerts per collection per chat per hour, and one FLOOR MOVE per collection and direction per chat every 6 hours. UNDER FLOOR and RARE LISTING need a floor read within 15 minutes of the listing (ADR 0018).
-- Priorities, from first to last: DEV SELL; BONDED, SOLD OUT; BONDING, MINT STARTING, MINT REMINDER, RARE LISTING; PUMPING, UPCOMING MINT, MINTED, UNDER FLOOR, SWEEP, BIG SALE, NEW COLLECTION; BIG BUY/SELL, FLOOR MOVE; NEW TOKEN, SOLD.
+- Priorities, from first to last: DEV SELL; BONDED, MCAP TARGET, SOLD OUT; BONDING, MINT STARTING, MINT REMINDER, RARE LISTING; PUMPING, UPCOMING MINT, MINTED, UNDER FLOOR, SWEEP, BIG SALE, NEW COLLECTION; BIG BUY/SELL, FLOOR MOVE; NEW TOKEN, SOLD.
 - A collection that turns real after its mint started gets one MINT STARTING that reads "started Nm ago", with no back-filled marks.
 - A user or chat watches up to 50 tokens and 50 collections, counted separately.
 
-**Dedupe:** one alert per token per threshold. PUMPING has a per-token cooldown. A bond alert replaces any pending progress alert for that token. NFT alerts dedupe on the sale or stage they describe.
+**Dedupe:** one alert per token per threshold. Curve PUMPING has a per-token cooldown; bonded PUMPING re-arms when the 10-minute gain falls under +5%. A bond alert replaces any pending progress alert for that token. NFT alerts dedupe on the sale or stage they describe.
 
-**Creator sell:** a sell by the launch's creator wallet fires DEV SELL, with realized PnL from the creator's curve trades and the creator's current share of supply.
+**Creator sell:** a sell by the launch's creator wallet, on the curve or in the pool, fires DEV SELL, with realized PnL from the creator's curve trades and pool swaps and the creator's current share of supply.
+
+**USD gates:** the PUMPING feed minimum, the $500 pool BIG minimum and MCAP TARGET need a current USD price for the quote asset; without one they send nothing to feeds (ADR 0022).
 
 ## Interaction design
 
@@ -128,11 +132,11 @@ Tokens and NFTs list the discovery screens: Hot now, Near bonding and Recently b
 | Group | Commands |
 | --- | --- |
 | Lookup | `/t <address>` token card · `/nft <collection> [1h\|24h\|7d\|30d]` collection card · `/nft <collection> <id>` one NFT |
-| Watching | `/watch <token address or collection>` · `/alerts` |
+| Watching | `/watch <token or collection> [mcap]` · `/alerts` |
 | Group admin | `/setup` · `/route` |
 | Utility | `/start` · `/menu` · `/help` · `/deletedata` |
 
-In a group `/watch` is for admins and watches for the chat.
+In a group `/watch` is for admins and watches for the chat. A token is found by address, `$TICKER` or name; an amount sets a market cap target.
 
 **Token card**
 
@@ -154,8 +158,8 @@ The bot owns the `bot` schema in the same Postgres as the indexer. It reads `ind
 | --- | --- |
 | `users` | One row per Telegram user: numeric id, settings (JSON), blocked time |
 | `chats` | Groups and channels the bot serves: Telegram chat id, kind, owner, settings (JSON), active flag |
-| `subscriptions` | A user's watched tokens and muted tokens |
-| `chat_token_watches` | The tokens a group or channel watches |
+| `subscriptions` | A user's watched tokens and muted tokens, with a watch's market cap target |
+| `chat_token_watches` | The tokens a group or channel watches, with their market cap targets |
 | `nft_watches` | The collections a user or a chat watches, with the user's reminder switch |
 | `collection_mutes` | The collections a user or a chat mutes |
 | `reminders` | A user's Remind me taps: user and collection |
@@ -170,7 +174,8 @@ The bot owns the `bot` schema in the same Postgres as the indexer. It reads `ind
 ## Reliability
 
 - Every send goes through a queue with per-destination throttles. Telegram allows about 30 messages per second overall and about 20 per minute to one group. A group over budget gets one summary message.
-- An alert that waits longer than its window is dropped from the queue and counted in one summary message per chat. The window is 3 minutes, or 30 for DEV SELL, BONDED, UPCOMING MINT, MINTED, SOLD OUT, NEW COLLECTION, FLOOR MOVE, SWEEP, BIG SALE and SOLD.
+- An alert that waits longer than its window is dropped from the queue and counted in one summary message per chat. The window is 3 minutes, or 30 for DEV SELL, BONDED, MCAP TARGET, UPCOMING MINT, MINTED, SOLD OUT, NEW COLLECTION, FLOOR MOVE, SWEEP, BIG SALE and SOLD. An alert that was already past its window when it was queued is dropped without being counted.
+- A curve trade or pool swap the indexer wrote more than 30 minutes after its block (a backfill, or catching up after an outage) never reaches the rules.
 - Launch floods: when a launchpad has more than 10 launches in 5 minutes, its individual NEW TOKEN alerts stop. Every chat with NEW TOKEN on gets one notice per flood, then one NEW TOKENS card per minute listing that minute's launches, until it slows down. Floods are worked out from the launch events alone, so a restart or replay gives the same result.
 - The NFT state is rebuilt from the cursor after a failed pass, so a collection turning real is seen once.
 - Group and channel settings are admin-only, with a live admin check on every tap.

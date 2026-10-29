@@ -18,10 +18,10 @@ import {
 } from "../history"
 import { marketRules } from "../nft/rules/market"
 import { mintRules } from "../nft/rules/mint"
-import { big } from "./big"
+import { big, bigSwap } from "./big"
 import { bonded } from "./bonded"
 import { bonding } from "./bonding"
-import { devSell } from "./devsell"
+import { devSell, devSellSwap } from "./devsell"
 import { newToken } from "./new-token"
 import { pumping } from "./pumping"
 import type { Candidate, RuleCtx, SwapCtx } from "./types"
@@ -80,9 +80,9 @@ export async function rulesFor(
     return [newToken(ev as Row<LaunchEvent>, trades, stats, ctx.prices)]
   }
   if (p.type === "launchpad.swap") {
-    // No alert fires on a pool swap. Loading its context still reports a swap whose launch is missing.
-    await swapCtx(ev as Row<SwapEvent>, ctx)
-    return []
+    const s = await swapCtx(ev as Row<SwapEvent>, ctx)
+    if (!s) return []
+    return [...devSellSwap(s), ...bigSwap(s)]
   }
   const launch = await launchOf(ctx.sql, p.token)
   if (!launch) {

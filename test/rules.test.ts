@@ -262,6 +262,157 @@ describe("swap context", () => {
   })
 })
 
+describe("pool trades", () => {
+  const X = addr(0x943b)
+  const withXstock: Prices = {
+    usd: (q) => (q === NATIVE ? 2500 : q === X ? 180 : null),
+    symbol: (q) => (q === NATIVE ? "ETH" : "NVDAx"),
+  }
+  async function runWith(p: Prices, events: Parameters<typeof insertEvents>[1]) {
+    await insertEvents(sql, events)
+    const all = await eventsAfter(sql, "0")
+    return rulesFor(all.at(-1)!, { ...ctx(sql), prices: p })
+  }
+  const bonded = [L, trade({ txHash: L.txHash, trader: C }), bond()]
+
+  it("pool BIG BUY at 5% of the quote side", async () => {
+    const s = swap({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })
+    const cs = await run([...bonded, s])
+    const b = pick(cs, "big")!
+    expect(b).toMatchObject({
+      sizeBps: 500,
+      dedupeKey: `big:${s.txHash}:${s.logIndex}`,
+      target: L.token,
+      priority: 4,
+    })
+    expect(b.card.title).toBe("BIG BUY")
+    expect(b.card.rows).toEqual([
+      ["bought", "0.20 ETH ($500)"],
+      ["mcap", "$50.0K"],
+      ["liquidity", "$21.0K"],
+    ])
+  })
+
+  it("pool BIG SELL measures against the quote side before the trade", async () => {
+    const cs = await run([
+      ...bonded,
+      swap({ side: "sell", quoteAmount: eth(0.4), quoteLiquidity: eth(3.6) }),
+    ])
+    const b = pick(cs, "big")!
+    expect(b.sizeBps).toBe(1000)
+    expect(b.card.title).toBe("BIG SELL")
+    expect(b.card.rows).toEqual([
+      ["sold", "0.40 ETH ($1.0K)"],
+      ["mcap", "$50.0K"],
+      ["liquidity", "$18.0K"],
+    ])
+  })
+
+  it("no pool BIG under $500", async () => {
+    const cs = await run([...bonded, swap({ quoteAmount: eth(0.1), quoteLiquidity: eth(2.1) })])
+    expect(pick(cs, "big")).toBeUndefined()
+  })
+
+  it("no pool BIG under the smallest threshold", async () => {
+    const cs = await run([...bonded, swap({ quoteAmount: eth(0.4), quoteLiquidity: eth(20.4) })])
+    expect(pick(cs, "big")).toBeUndefined()
+  })
+
+  it("no pool BIG while ETH/USD is stale", async () => {
+    const stale: Prices = { usd: () => null, symbol: () => "ETH" }
+    const cs = await runWith(stale, [
+      ...bonded,
+      swap({ quoteAmount: eth(2), quoteLiquidity: eth(6) }),
+    ])
+    expect(pick(cs, "big")).toBeUndefined()
+  })
+
+  it("pool BIG BUY on an xStock-quoted pool", async () => {
+    const xl = launch({ ...L, quoteAsset: X })
+    const cs = await runWith(withXstock, [
+      xl,
+      bond({ quoteAsset: X }),
+      swap({ quoteAsset: X, quoteAmount: eth(3), quoteLiquidity: eth(63) }),
+    ])
+    const b = pick(cs, "big")!
+    expect(b.sizeBps).toBe(500)
+    expect(b.card.rows).toEqual([
+      ["bought", "3.00 NVDAx ($540)"],
+      ["mcap", "$3.6K"],
+      ["liquidity", "$22.7K"],
+    ])
+  })
+
+  it("pool BIG SELL by the creator becomes DEV SELL", async () => {
+    const s = swap({
+      trader: C,
+      side: "sell",
+      tokenAmount: String(5n * 10n ** 25n),
+      quoteAmount: eth(2),
+      quoteLiquidity: eth(4),
+      marketCap: eth(80),
+    })
+    const cs = await run([
+      L,
+      trade({
+        txHash: L.txHash,
+        trader: C,
+        tokenAmount: String(10n ** 26n),
+        quoteAmount: eth(1),
+      }),
+      bond(),
+      s,
+    ])
+    expect(pick(cs, "big")).toBeUndefined()
+    const d = pick(cs, "devsell")!
+    expect(d).toMatchObject({ dedupeKey: `devsell:${s.txHash}:${s.logIndex}`, priority: 0 })
+    expect(d.card.title).toBe("DEV SELL")
+    expect(d.card.rows).toEqual([
+      ["sold", "50.0M (5.0%)"],
+      ["dev pnl", "+1.50 ETH (+300%)"],
+      ["dev", "1 buy | 1 sell"],
+      ["mcap", "$200K"],
+    ])
+    expect(d.holds).toEqual({
+      token: L.token,
+      holder: C,
+      block: s.blockNumber,
+      totalSupply: L.totalSupply,
+    })
+    expect(withDevHolds(d.card as Card, { pct: 4.2, now: false }).rows[3]).toEqual([
+      "dev holds",
+      "4.2%",
+    ])
+  })
+
+  it("dev pnl covers curve buys and pool sells", async () => {
+    const cs = await run([
+      L,
+      trade({ txHash: L.txHash, trader: C, tokenAmount: String(10n ** 26n), quoteAmount: eth(1) }),
+      bond(),
+      swap({ trader: C, tokenAmount: String(10n ** 26n), quoteAmount: eth(3) }),
+      swap({ trader: addr(0xe9), side: "sell", quoteAmount: eth(1) }),
+      swap({ trader: C, side: "sell", tokenAmount: String(10n ** 26n), quoteAmount: eth(6) }),
+    ])
+    expect(pick(cs, "devsell")!.card.rows.slice(1, 3)).toEqual([
+      ["dev pnl", "+4.00 ETH (+200%)"], // 2 ETH average cost of the half sold, 6 ETH proceeds
+      ["dev", "2 buys | 1 sell"],
+    ])
+  })
+
+  it("a pool sell by someone else is not a DEV SELL", async () => {
+    const cs = await run([...bonded, swap({ side: "sell" })])
+    expect(pick(cs, "devsell")).toBeUndefined()
+  })
+
+  it("curve BIG keeps the target-raise rule", async () => {
+    // 0.15 ETH is 5% of the 3 ETH target, whatever the curve's quote balance.
+    const cs = await run([L, trade({ quoteAmount: eth(0.15), blockTimestamp: T0 + 700 })])
+    expect(pick(cs, "big")!.sizeBps).toBe(500)
+    expect(pick(cs, "big")!.card.rows.map(([k]) => k)).toEqual(["bought", "curve", "mcap"])
+  })
+})
+
 describe("robustness", () => {
   it("skips a trade whose launch event is missing, with a warning and no throw", async () => {
     await insertEvents(sql, [trade({ token: addr(0xbeef) })])

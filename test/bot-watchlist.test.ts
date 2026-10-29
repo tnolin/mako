@@ -398,6 +398,8 @@ describe("parseWatchArgs", () => {
     ["goblo $500", "goblo", 500],
     ["goblo 1000", "goblo", 1000],
     ["Goblo Two 2M", "Goblo Two", 2_000_000],
+    ["goblo $1234.56", "goblo", 1235],
+    ["goblo 1.2345k", "goblo", 1235],
   ])("%s has a target", (text, query, targetUsd) => {
     expect(parseWatchArgs(text)).toEqual({ query, targetUsd, badAmount: false })
   })
@@ -412,9 +414,12 @@ describe("parseWatchArgs", () => {
     expect(parseWatchArgs(text)).toEqual({ query, targetUsd: null, badAmount: false })
   })
 
-  it.each(["goblo 500x", "goblo $5oo", "goblo 1.2.3k"])("%s is a bad amount", (text) => {
-    expect(parseWatchArgs(text).badAmount).toBe(true)
-  })
+  it.each(["goblo 500x", "goblo $5oo", "goblo 1.2.3k", "goblo $0", "goblo 0k", "goblo $0.4"])(
+    "%s is a bad amount",
+    (text) => {
+      expect(parseWatchArgs(text).badAmount).toBe(true)
+    },
+  )
 })
 
 describe("/watch with a market cap target", () => {

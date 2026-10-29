@@ -28,7 +28,7 @@ MAKO currently works with:
 | PUMPING | On the curve: the curve rises 15 points or more within 10 minutes, at most once an hour per token in each chat. After bonding: the market cap rises 20% or more over its lowest point in the last 10 minutes (15%, 30% or 50% can be chosen), once until the rise falls back under 5%. Feeds get it from a $50K market cap (adjustable); watched tokens always do. |
 | BONDED | A token fills its curve and its liquidity moves to a Uniswap pool. |
 | DEV SELL | The wallet that created a token sells some of it, on the curve or in its pool. |
-| BIG BUY / BIG SELL | One trade of 5% or more of the token's bond target, or after bonding of its pool's liquidity, and worth at least $500. 2.5% or 10% can be chosen in My alerts. |
+| BIG BUY / BIG SELL | One trade of 5% or more of the token's bond target, or, after bonding, of its pool's liquidity and worth at least $500. 2.5% or 10% can be chosen in My alerts. |
 | MCAP TARGET | A watched token's market cap reaches the target set with `/watch <token> <amount>`. Sent once, then the target is cleared. |
 
 ### NFT alerts
@@ -59,7 +59,7 @@ These alerts are only for NFTs you added to your watchlist.
 | SOLD | an item sells for 0.05 ETH or more. |
 | REMINDERS | a message 15 min before each mint stage. |
 
-Each alert can be turned off, and its image hidden, in My alerts. MCAP TARGET has no switch: it goes only to whoever set the target.
+Each alert can be turned off, and its image hidden, in My alerts. MCAP TARGET has no switch or image setting: it goes only to whoever set the target.
 
 ## Watched & Muted
 

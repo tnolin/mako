@@ -103,7 +103,7 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 
 **Creator sell:** a sell by the launch's creator wallet, on the curve or in the pool, fires DEV SELL, with realized PnL from the creator's curve trades and pool swaps and the creator's current share of supply.
 
-**USD gates:** the PUMPING feed minimum, the $500 pool BIG minimum and MCAP TARGET need a current USD price for the quote asset; without one they send nothing to feeds (ADR 0022).
+**USD gates:** the PUMPING feed minimum, the $500 pool BIG minimum and MCAP TARGET need a current USD price for the quote asset (ADR 0022). Without one, bonded PUMPING reaches watchers only, and pool BIG BUY/SELL and MCAP TARGET send nothing to anyone, watchers included.
 
 ## Interaction design
 

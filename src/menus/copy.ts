@@ -33,7 +33,7 @@ export const WATCH_USAGE = "Send /watch followed by a token or NFT collection ad
 
 /** `/watch <token> <amount>`. `name` is the token's name, plain text. Amounts are in USD. */
 export const TARGET_SET = (name: string, target: number, now: number) =>
-  target > now
+  target >= now
     ? `Watching ${name}. I'll alert you when its market cap reaches ${usd(target)} (now ${usd(now)}).`
     : `Watching ${name}. I'll alert you when its market cap drops to ${usd(target)} (now ${usd(now)}).`
 export const TARGET_REPLACED = (name: string, target: number, old: number, now: number) =>

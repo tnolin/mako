@@ -464,6 +464,15 @@ describe("/watch with a market cap target", () => {
     expect(await target()).toMatchObject([{ usd: 150_000, up: false }])
   })
 
+  it("a target equal to the current market cap waits for the next trade at or above it", async () => {
+    await priced()
+    await h.text("/watch $GOBLO 210k")
+    expect(h.last("sendMessage")!.text).toBe(
+      "Watching Goblo. I'll alert you when its market cap reaches $210K (now $210K).",
+    )
+    expect(await target()).toMatchObject([{ usd: 210_000, up: true }])
+  })
+
   it("a second target replaces the first", async () => {
     await priced()
     await h.text("/watch $GOBLO 500k")

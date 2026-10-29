@@ -137,8 +137,9 @@ export async function watchTokenForChat(ctx: Context, deps: BotDeps, ca: string)
 export type WatchOwner = { userId: string } | { chatId: string }
 
 /**
- * Sets the market cap target on an existing watch row. The direction is fixed now: up when the target is above
- * the current market cap. Returns the target it replaced, or null.
+ * Sets the market cap target on an existing watch row. The direction is fixed now: up when the target is at or
+ * above the current market cap, so a target equal to it fires on the next trade at or above it. Returns the target it
+ * replaced, or null.
  */
 export async function setTarget(
   deps: BotDeps,
@@ -147,7 +148,7 @@ export async function setTarget(
   targetUsd: number,
   nowUsd: number,
 ): Promise<number | null> {
-  const up = targetUsd > nowUsd
+  const up = targetUsd >= nowUsd
   // One statement: the row lock makes it wait for a delivery that is clearing a fired target, and then read the
   // cleared value, so the reply never names a target that already fired as the one replaced.
   const [old] =

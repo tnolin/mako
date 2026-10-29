@@ -276,10 +276,10 @@ const DEFAULTS = {
   token: [
     "NEW TOKEN - newly detected tokens created.",
     "BONDING - When a token passes your set threshold.",
-    "PUMPING - When a token's curve jumps 15%+ in 10 min.",
+    "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 20%+ in 10 min after bonding.",
     "BONDED - A token that has bonded/graduated.",
     "DEV SELL - When the creator sells any amount of their own token.",
-    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target.",
+    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target, or of its pool's liquidity after bonding.",
   ],
   all: [
     "UPCOMING MINT - When a new mint is scheduled.",

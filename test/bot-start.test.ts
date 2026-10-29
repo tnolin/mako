@@ -49,7 +49,7 @@ it("creates a new user with every alert on except SOLD and shows the welcome car
   const [menu, msg] = h.calls.filter((c) => c.method === "sendMessage").map((c) => c.payload)
   expect(menu!.text).toBe(menuText("U"))
   expect(msg!.text).toContain("NEW TOKEN")
-  expect(msg!.text).toContain("curve jumps 15%+ in 10 min")
+  expect(msg!.text).toContain("curve +15% or mcap +20% in 10 min")
   expect(buttons(msg)).toEqual([
     "NEW TOKEN",
     "BONDING",

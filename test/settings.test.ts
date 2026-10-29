@@ -10,6 +10,8 @@ import {
   NFT_ALL_ALERTS,
   NFT_WATCHED_ALERTS,
   PRIORITY,
+  PUMP_BONDED_STEPS,
+  PUMP_FLOOR_STEPS,
   readSettings,
   resetScreen,
   SETTINGS_LABEL,
@@ -38,6 +40,36 @@ it("drops invalid marks and thresholds", () => {
   )
   expect(s.alerts.bonding.marks).toEqual([8000])
   expect(s.alerts.big.pctBps).toBe(500)
+})
+
+it("default pumping pctBps is 2000 and floorUsd 50000", () => {
+  for (const t of ["private", "group", "supergroup", "channel"] as const)
+    expect(basicPreset(t).alerts.pumping).toEqual({
+      on: true,
+      image: true,
+      pctBps: 2000,
+      floorUsd: 50_000,
+    })
+  expect(PUMP_BONDED_STEPS).toEqual([1500, 2000, 3000, 5000])
+  expect(PUMP_FLOOR_STEPS).toEqual([25_000, 50_000, 100_000, 250_000])
+})
+
+it("an invalid stored pctBps falls back", () => {
+  const bad = readSettings(
+    { alerts: { pumping: { on: true, image: true, pctBps: 1234, floorUsd: "50000" } } },
+    "private",
+  )
+  expect(bad.alerts.pumping).toMatchObject({ pctBps: 2000, floorUsd: 50_000 })
+  const good = readSettings(
+    { alerts: { pumping: { on: true, image: true, pctBps: 5000, floorUsd: 250_000 } } },
+    "private",
+  )
+  expect(good.alerts.pumping).toMatchObject({ pctBps: 5000, floorUsd: 250_000 })
+})
+
+it("a stored pumping setting from before the bonded thresholds keeps its switches", () => {
+  const s = readSettings({ alerts: { pumping: { on: false, image: false } } }, "group")
+  expect(s.alerts.pumping).toEqual({ on: false, image: false, pctBps: 2000, floorUsd: 50_000 })
 })
 
 it("turns all alerts off but keeps routing", () => {
@@ -204,11 +236,18 @@ it("resetScreen restores one screen and keeps routes", () => {
 it("ALERT_DESC follows the chosen thresholds", () => {
   const s = basicPreset("private")
   expect(ALERT_DESC("big", s)).toBe(
-    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target.",
+    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target, or of its pool's liquidity after bonding.",
   )
   s.alerts.big.pctBps = 250
   expect(ALERT_DESC("big", s)).toBe(
-    "BIG BUY/SELL - one trade worth 2.5%+ of the token's bond target.",
+    "BIG BUY/SELL - one trade worth 2.5%+ of the token's bond target, or of its pool's liquidity after bonding.",
+  )
+  expect(ALERT_DESC("pumping", s)).toBe(
+    "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 20%+ in 10 min after bonding.",
+  )
+  s.alerts.pumping.pctBps = 3000
+  expect(ALERT_DESC("pumping", s)).toBe(
+    "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 30%+ in 10 min after bonding.",
   )
   expect(ALERT_DESC("bigsale", s)).toBe("BIG SALE - When an NFT sells for 0.1 ETH or more.")
   s.alerts.bigsale.minWei = "250000000000000000"

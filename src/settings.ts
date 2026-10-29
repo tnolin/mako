@@ -38,6 +38,12 @@ export const MARKS = [5000, 8000, 9000] as const
 export type Mark = (typeof MARKS)[number]
 export const BIG_STEPS = [250, 500, 1000] as const
 export type BigBps = (typeof BIG_STEPS)[number]
+/** PUMPING after bonding: the market cap gain over the 10-minute low, in bps. */
+export const PUMP_BONDED_STEPS = [1500, 2000, 3000, 5000] as const
+export type PumpBps = (typeof PUMP_BONDED_STEPS)[number]
+/** PUMPING after bonding: the lowest market cap in USD a feed hears about. */
+export const PUMP_FLOOR_STEPS = [25_000, 50_000, 100_000, 250_000] as const
+export type PumpFloorUsd = (typeof PUMP_FLOOR_STEPS)[number]
 export type { NftMark }
 
 /** The chat types a Settings object is made for: the NFT defaults differ between a DM and a group. */
@@ -48,7 +54,8 @@ export type Settings = {
   alerts: {
     new: Toggle
     bonding: Toggle & { marks: Mark[] }
-    pumping: Toggle
+    /** `pctBps` and `floorUsd` apply after bonding; the curve rule has a fixed threshold. */
+    pumping: Toggle & { pctBps: PumpBps; floorUsd: PumpFloorUsd }
     bonded: Toggle
     devsell: Toggle
     big: Toggle & { pctBps: BigBps }
@@ -152,10 +159,10 @@ export const SETTINGS_LABEL: Record<AlertKind, string> = { ...ALERT_LABEL, remin
 export const ALERT_HELP: Record<TokenAlert, string> = {
   new: "a token launches",
   bonding: "curve passes 80% or 90%",
-  pumping: "curve jumps 15%+ in 10 min",
+  pumping: "curve +15% or mcap +20% in 10 min",
   bonded: "a token bonds",
   devsell: "the creator sells",
-  big: "one trade of 5%+ of the bond target",
+  big: "one trade of 5%+ of bond target or pool",
 }
 
 /** Whether the chat wants a photo for this alert. MINT REMINDER has no image switch: it always has one. */
@@ -174,13 +181,13 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
     case "bonding":
       return "BONDING - When a token passes your set threshold."
     case "pumping":
-      return "PUMPING - When a token's curve jumps 15%+ in 10 min."
+      return `PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises ${pct(a.pumping.pctBps)}%+ in 10 min after bonding.`
     case "bonded":
       return "BONDED - A token that has bonded/graduated."
     case "devsell":
       return "DEV SELL - When the creator sells any amount of their own token."
     case "big":
-      return `BIG BUY/SELL - one trade worth ${pct(a.big.pctBps)}%+ of the token's bond target.`
+      return `BIG BUY/SELL - one trade worth ${pct(a.big.pctBps)}%+ of the token's bond target, or of its pool's liquidity after bonding.`
     case "upcoming":
       return "UPCOMING MINT - When a new mint is scheduled."
     case "mintstart":
@@ -218,7 +225,7 @@ export function basicPreset(chatType: ChatType): Settings {
     alerts: {
       new: t(),
       bonding: { ...t(), marks: [8000, 9000] },
-      pumping: t(),
+      pumping: { ...t(), pctBps: 2000, floorUsd: 50_000 },
       bonded: t(),
       devsell: t(),
       big: { ...t(), pctBps: 500 },
@@ -289,6 +296,8 @@ export function readSettings(raw: unknown, chatType: ChatType): Settings {
   }
   const o = (k: string) => (isObj(alerts[k]) ? (alerts[k] as Record<string, unknown>) : {})
   const A = s.alerts
+  A.pumping.pctBps = pick(PUMP_BONDED_STEPS, o("pumping").pctBps, A.pumping.pctBps)
+  A.pumping.floorUsd = pick(PUMP_FLOOR_STEPS, o("pumping").floorUsd, A.pumping.floorUsd)
   A.bigsale.minWei = pick<string>(BIGSALE_STEPS, o("bigsale").minWei, A.bigsale.minWei)
   A.under.pctBps = pick(UNDER_STEPS, o("under").pctBps, A.under.pctBps)
   A.rare.topBps = pick(RARE_STEPS, o("rare").topBps, A.rare.topBps)

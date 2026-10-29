@@ -4,9 +4,9 @@ import type { Sql } from "../src/db"
 import { eventsAfter } from "../src/history"
 import { createNftState } from "../src/nft/state"
 import type { Prices } from "../src/prices"
-import { type Candidate, rulesFor, withDevHolds } from "../src/rules/index"
+import { type Candidate, rulesFor, swapCtx, withDevHolds } from "../src/rules/index"
 import { insertEvents, resetDb } from "./helpers/db"
-import { addr, bond, hash, launch, NATIVE, T0, trade } from "./helpers/events"
+import { addr, bond, hash, launch, NATIVE, swap, T0, trade } from "./helpers/events"
 import { loadFixture } from "./helpers/fixtures"
 
 const prices: Prices = {
@@ -229,6 +229,36 @@ describe("BONDED", () => {
       ["trades", "4"],
       ["dev", "1 buy | 0 sells"],
     ])
+  })
+})
+
+describe("swap context", () => {
+  it("loads the launch, bond, the last 600 s of swaps and, for the creator, the dev's history", async () => {
+    await insertEvents(sql, [
+      L,
+      trade({ trader: C, blockTimestamp: T0 + 10 }),
+      bond({ blockTimestamp: T0 + 100 }),
+      swap({ blockTimestamp: T0 + 1000 }),
+      swap({ blockTimestamp: T0 + 1500 }),
+      swap({ trader: C, side: "sell", blockTimestamp: T0 + 2000 }),
+    ])
+    const evs = await eventsAfter(sql, "0")
+    const s = await swapCtx(evs[5] as never, ctx(sql))
+    expect(s!.launch.id).toBe(evs[0]!.id)
+    expect(s!.bond!.id).toBe(evs[2]!.id)
+    expect(s!.swaps.map((r) => r.id)).toEqual([evs[4]!.id, evs[5]!.id])
+    expect(s!.dev!.trades.map((r) => r.id)).toEqual([evs[1]!.id])
+    expect(s!.dev!.swaps.map((r) => r.id)).toEqual([evs[5]!.id])
+    const other = await swapCtx(evs[4] as never, ctx(sql))
+    expect(other!.dev).toBeNull()
+    expect(other!.swaps.map((r) => r.id)).toEqual([evs[3]!.id, evs[4]!.id])
+  })
+
+  it("skips a swap whose launch event is missing, with a warning and no throw", async () => {
+    await insertEvents(sql, [swap({ token: addr(0xbeef) })])
+    const [ev] = await eventsAfter(sql, "0")
+    expect(await rulesFor(ev!, ctx(sql))).toEqual([])
+    expect(warnings.at(-1)).toMatch(/without a launch/)
   })
 })
 

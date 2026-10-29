@@ -5,17 +5,20 @@ import {
   bondOf,
   creatorStats,
   cursorBlock,
+  devTradesOf,
   eventsAfter,
   hotNow,
   justBonded,
+  lastMarketOf,
   launchesOf,
   launchOf,
   maxEventId,
   nearBonding,
+  swapsOf,
   tradesOf,
 } from "../src/history"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
-import { addr, bond, launch, trade, tradeV1 } from "./helpers/events"
+import { addr, bond, launch, swap, T0, trade, tradeV1 } from "./helpers/events"
 import { loadFixture } from "./helpers/fixtures"
 
 let sql: Sql
@@ -195,6 +198,56 @@ describe("schema versions", () => {
     } finally {
       await own.end()
     }
+  })
+})
+
+describe("swaps", () => {
+  const T = addr(0xa8)
+  const DEV = addr(0xc8)
+  let own: Sql
+  let ids: string[] = []
+  beforeAll(async () => {
+    own = await resetDb(inject("databaseUrl"))
+    ids = await insertEvents(own, [
+      launch({ token: T, creator: DEV }),
+      trade({ token: T, trader: DEV, blockTimestamp: T0 + 10, marketCap: "50" }),
+      trade({ token: T, blockTimestamp: T0 + 20 }),
+      swap({ token: T, blockTimestamp: T0 + 1000, marketCap: "70", athMarketCap: "90" }),
+      swap({ token: T, trader: DEV, side: "sell", blockTimestamp: T0 + 1500 }),
+      swap({ token: addr(0xa9), blockTimestamp: T0 + 1600 }),
+      swap({ token: T, blockTimestamp: T0 + 1700, marketCap: "80", athMarketCap: "95" }),
+      tradeV1({ token: addr(0xaa), blockTimestamp: T0 + 30, marketCap: "33" }),
+    ])
+  })
+  afterAll(() => own.end())
+
+  it("swapsOf returns only the window", async () => {
+    const rows = await swapsOf(own, T, ids[4]!, T0 + 1100)
+    expect(rows.map((r) => r.id)).toEqual([ids[4]])
+    expect((await swapsOf(own, T, ids[6]!, T0)).map((r) => r.id)).toEqual([ids[3], ids[4], ids[6]])
+  })
+
+  it("devTradesOf returns only the creator's trades and swaps", async () => {
+    const d = await devTradesOf(own, T, DEV, ids[6]!)
+    expect(d.trades.map((r) => r.id)).toEqual([ids[1]])
+    expect(d.swaps.map((r) => r.id)).toEqual([ids[4]])
+    const early = await devTradesOf(own, T, DEV, ids[3]!)
+    expect(early.swaps).toEqual([])
+  })
+
+  it("lastMarketOf reads the newest trade or swap", async () => {
+    expect(await lastMarketOf(own, T)).toEqual({
+      marketCap: 80n,
+      quote: "0x0000000000000000000000000000000000000000",
+      ath: 95n,
+      atTs: T0 + 1700,
+    })
+    expect(await lastMarketOf(own, addr(0xaa))).toMatchObject({
+      marketCap: 33n,
+      ath: 33n,
+      atTs: T0 + 30,
+    })
+    expect(await lastMarketOf(own, addr(0xdead))).toBeNull()
   })
 })
 

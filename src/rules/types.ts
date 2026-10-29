@@ -1,4 +1,4 @@
-import type { LaunchEvent, TradeEvent } from "@ink-indexer/events"
+import type { BondEvent, LaunchEvent, SwapEvent, TradeEvent } from "@ink-indexer/events"
 import type { Card } from "../cards/card"
 import type { Sql } from "../db"
 import type { Row } from "../history"
@@ -66,5 +66,16 @@ export type TradeCtx = {
   launch: Row<LaunchEvent>
   /** The token's trades up to and including `ev`, in id order. */
   trades: Row<TradeEvent>[]
+  prices: Prices
+}
+
+export type SwapCtx = {
+  ev: Row<SwapEvent>
+  launch: Row<LaunchEvent>
+  bond: Row<BondEvent> | null
+  /** The token's swaps in the 600 s up to and including `ev`, in id order. */
+  swaps: Row<SwapEvent>[]
+  /** The creator's curve trades and pool swaps up to `ev`; loaded only when the creator made this swap. */
+  dev: { trades: Row<TradeEvent>[]; swaps: Row<SwapEvent>[] } | null
   prices: Prices
 }

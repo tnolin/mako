@@ -4,9 +4,18 @@ import type {
   LaunchEvent,
   NftCollectionEvent,
   NftDropEvent,
+  SwapEvent,
   TradeEvent,
 } from "@ink-indexer/events"
-import { creatorStats, launchOf, type Row, tradesOf } from "../history"
+import {
+  bondOf,
+  creatorStats,
+  devTradesOf,
+  launchOf,
+  type Row,
+  swapsOf,
+  tradesOf,
+} from "../history"
 import { marketRules } from "../nft/rules/market"
 import { mintRules } from "../nft/rules/mint"
 import { big } from "./big"
@@ -15,10 +24,32 @@ import { bonding } from "./bonding"
 import { devSell } from "./devsell"
 import { newToken } from "./new-token"
 import { pumping } from "./pumping"
-import type { Candidate, RuleCtx } from "./types"
+import type { Candidate, RuleCtx, SwapCtx } from "./types"
 
 export { withDevHolds } from "./devsell"
-export type { Candidate, RuleCtx } from "./types"
+export type { Candidate, RuleCtx, SwapCtx } from "./types"
+
+/** Seconds of swap history a swap rule sees. */
+const SWAP_WINDOW_S = 600
+
+const missingLaunch = (ev: Row<IndexerEvent>, token: string, ctx: RuleCtx) =>
+  ctx.log("warn", "event without a launch event, skipped", { id: ev.id, token, type: ev.p.type })
+
+/** What the swap rules read for one pool swap, or null when the token's launch is missing. */
+export async function swapCtx(ev: Row<SwapEvent>, ctx: RuleCtx): Promise<SwapCtx | null> {
+  const p = ev.p
+  const launch = await launchOf(ctx.sql, p.token)
+  if (!launch) {
+    missingLaunch(ev, p.token, ctx)
+    return null
+  }
+  const [bond, swaps, dev] = await Promise.all([
+    bondOf(ctx.sql, p.token),
+    swapsOf(ctx.sql, p.token, ev.id, p.blockTimestamp - SWAP_WINDOW_S),
+    p.trader === launch.p.creator ? devTradesOf(ctx.sql, p.token, p.trader, ev.id) : null,
+  ])
+  return { ev, launch, bond, swaps, dev, prices: ctx.prices }
+}
 
 /**
  * Candidate alerts for one confirmed event. Reads only indexer.events. For an nft.collection or nft.drop event, `prev`
@@ -48,14 +79,14 @@ export async function rulesFor(
     ])
     return [newToken(ev as Row<LaunchEvent>, trades, stats, ctx.prices)]
   }
-  if (p.type !== "launchpad.trade" && p.type !== "launchpad.bond") return []
+  if (p.type === "launchpad.swap") {
+    // No alert fires on a pool swap. Loading its context still reports a swap whose launch is missing.
+    await swapCtx(ev as Row<SwapEvent>, ctx)
+    return []
+  }
   const launch = await launchOf(ctx.sql, p.token)
   if (!launch) {
-    ctx.log("warn", "event without a launch event, skipped", {
-      id: ev.id,
-      token: p.token,
-      type: p.type,
-    })
+    missingLaunch(ev, p.token, ctx)
     return []
   }
   const trades = await tradesOf(ctx.sql, p.token, ev.id)

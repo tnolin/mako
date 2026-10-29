@@ -1,4 +1,4 @@
-import type { TradeEvent } from "@ink-indexer/events"
+import type { SwapEvent, TradeEvent } from "@ink-indexer/events"
 import type { Row } from "../history"
 
 const lt = (a: string, b: string) => BigInt(a) < BigInt(b)
@@ -14,9 +14,9 @@ export function prevSoldBps(trades: Row<TradeEvent>[], id: string): number {
   return v
 }
 
-/** Volume (sum of quoteAmount) and buy/sell counts for trades at or after `fromTs`, up to `uptoId`. */
+/** Volume (sum of quoteAmount) and buy/sell counts for trades or swaps at or after `fromTs`, up to `uptoId`. */
 export function windowStats(
-  trades: Row<TradeEvent>[],
+  trades: Row<TradeEvent | SwapEvent>[],
   fromTs: number,
   uptoId: string,
 ): { volume: bigint; buys: number; sells: number } {
@@ -30,6 +30,11 @@ export function windowStats(
     else sells++
   }
   return { volume, buys, sells }
+}
+
+/** Distinct wallets that bought, by the transaction sender. */
+export function buyers(swaps: Row<SwapEvent>[]): number {
+  return new Set(swaps.filter((s) => s.p.side === "buy").map((s) => s.p.trader)).size
 }
 
 const devTrades = (trades: Row<TradeEvent>[], creator: string, uptoId: string) =>

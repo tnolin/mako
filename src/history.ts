@@ -3,6 +3,7 @@ import type {
   IndexerEvent,
   LaunchEvent,
   StoredEvent,
+  SwapEvent,
   TradeEvent,
 } from "@ink-indexer/events"
 import type { Sql } from "./db"
@@ -66,6 +67,62 @@ export async function tradesOf(
   )
 }
 
+/** A token's pool swaps in id order, from `sinceTs` (blockTimestamp) up to and including `uptoId` when given. */
+export async function swapsOf(
+  sql: Sql,
+  token: string,
+  uptoId?: string,
+  sinceTs = 0,
+): Promise<Row<SwapEvent>[]> {
+  // shortcut: filters the token's swaps on the payload's timestamp; narrow by block like launchesAround
+  // once a token holds tens of thousands of swaps.
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.swap'
+        ${uptoId === undefined ? sql`` : sql`and id <= ${uptoId}`}
+        and (payload->>'blockTimestamp')::bigint >= ${sinceTs}
+      order by events.id`,
+  )
+}
+
+/** The market cap, quote asset, ath and time of a token's newest curve trade or pool swap. */
+export async function lastMarketOf(
+  sql: Sql,
+  token: string,
+): Promise<{ marketCap: bigint; quote: string; ath: bigint; atTs: number } | null> {
+  const [r] = await sql<{ p: StoredEvent }[]>`
+    select payload as p from indexer.events
+    where entity = ${token} and type in ('launchpad.trade', 'launchpad.swap')
+    order by events.id desc limit 1`
+  if (!r) return null
+  const p = current(r.p) as TradeEvent | SwapEvent
+  return {
+    marketCap: BigInt(p.marketCap),
+    quote: p.quoteAsset,
+    ath: BigInt(p.athMarketCap),
+    atTs: p.blockTimestamp,
+  }
+}
+
+/** The creator's curve trades and pool swaps of a token, in id order, up to and including `uptoId`. */
+export async function devTradesOf(
+  sql: Sql,
+  token: string,
+  trader: string,
+  uptoId: string,
+): Promise<{ trades: Row<TradeEvent>[]; swaps: Row<SwapEvent>[] }> {
+  const rows = await sql<(Row<StoredEvent> & { type: string })[]>`
+    select id::text, type, payload as p from indexer.events
+    where entity = ${token} and type in ('launchpad.trade', 'launchpad.swap')
+      and payload->>'trader' = ${trader} and id <= ${uptoId}
+    order by events.id`
+  return {
+    trades: upgrade(rows.filter((r) => r.type === "launchpad.trade")),
+    swaps: upgrade(rows.filter((r) => r.type === "launchpad.swap")),
+  }
+}
+
 export async function bondOf(sql: Sql, token: string): Promise<Row<BondEvent> | null> {
   const [r] = upgrade<BondEvent>(
     await sql<Row<StoredEvent>[]>`
@@ -73,6 +130,38 @@ export async function bondOf(sql: Sql, token: string): Promise<Row<BondEvent> | 
       where entity = ${token} and type = 'launchpad.bond' order by events.id limit 1`,
   )
   return r ?? null
+}
+
+/**
+ * Tokens whose ticker equals `ticker` or whose name equals one of `names`, ignoring case: bonded first, then by
+ * the newest curve trade or pool swap, at most 8.
+ */
+export function tokensNamed(
+  sql: Sql,
+  ticker: string,
+  names: string[],
+): Promise<
+  {
+    token: string
+    ticker: string | null
+    name: string | null
+    bonded: boolean
+    lastTradeTs: number | null
+  }[]
+> {
+  const lower = names.map((n) => n.toLowerCase())
+  // shortcut: compares every launch's ticker and name; add an expression index past ~100K launches.
+  return sql`
+    select l.entity as token, l.payload->>'ticker' as ticker, l.payload->>'name' as name,
+      exists (select 1 from indexer.events b where b.entity = l.entity and b.type = 'launchpad.bond') as bonded,
+      (select (t.payload->>'blockTimestamp')::int from indexer.events t
+        where t.entity = l.entity and t.type in ('launchpad.trade', 'launchpad.swap')
+        order by t.id desc limit 1) as "lastTradeTs"
+    from indexer.events l
+    where l.type = 'launchpad.launch'
+      and (lower(l.payload->>'ticker') = ${ticker.toLowerCase()} or lower(l.payload->>'name') = any(${lower}))
+    order by bonded desc, "lastTradeTs" desc nulls last, l.id desc
+    limit 8`
 }
 
 /** Launches by a creator up to an id, and how many of them bonded. Uses events_launch_creator. */

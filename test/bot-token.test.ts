@@ -8,7 +8,7 @@ import { REFRESH_COOLDOWN_MS, refreshCooldown } from "../src/menus/token"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
-import { addr, bond, ETH, launch, trade } from "./helpers/events"
+import { addr, bond, ETH, launch, swap, trade } from "./helpers/events"
 import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -328,6 +328,19 @@ describe("token card layout", () => {
     expect(m.caption).not.toContain("<code>curve")
     expect(m.caption).not.toContain("mcap")
     expect(m.caption).not.toContain("on curve")
+  })
+
+  it("/t bonded volume includes pool trades", async () => {
+    await insertEvents(sql, [
+      bond({ token: A, blockNumber: "1002" }),
+      swap({ token: A, quoteAmount: String(ETH / 10n), blockNumber: "1003" }),
+      swap({ token: A, side: "sell", quoteAmount: String(ETH / 5n), blockNumber: "1004" }),
+    ])
+    await h.text(`/t ${A}`)
+    const c = h.last("sendPhoto")!.caption
+    // 0.02 ETH on the curve plus 0.3 ETH in the pool, at $2,500.
+    expect(c).toContain("<code>volume   $800</code>")
+    expect(c).toContain("<code>trades   2 buys | 1 sell</code>")
   })
 
   it.each([

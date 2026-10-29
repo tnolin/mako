@@ -15,7 +15,7 @@ import {
   tradesOf,
 } from "../src/history"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
-import { addr, bond, launch, trade } from "./helpers/events"
+import { addr, bond, launch, trade, tradeV1 } from "./helpers/events"
 import { loadFixture } from "./helpers/fixtures"
 
 let sql: Sql
@@ -171,6 +171,30 @@ describe("discovery windows", () => {
         ])
       },
     )
+  })
+})
+
+describe("schema versions", () => {
+  it("tradesOf returns v1 and v2 rows in id order with athMarketCap set", async () => {
+    const own = await resetDb(inject("databaseUrl"))
+    try {
+      const T = addr(0xa7)
+      await insertEvents(own, [
+        tradeV1({ token: T, marketCap: "100", soldBps: 1000 }),
+        trade({ token: T, marketCap: "300", athMarketCap: "400", soldBps: 2000 }),
+        tradeV1({ token: T, marketCap: "200", soldBps: 3000 }),
+      ])
+      const rows = await tradesOf(own, T)
+      expect(rows.map((r) => [r.p.v, r.p.soldBps, r.p.athMarketCap])).toEqual([
+        [2, 1000, "100"],
+        [2, 2000, "400"],
+        [2, 3000, "200"],
+      ])
+      const all = await eventsAfter(own, "0")
+      expect(all.every((r) => r.p.v === 2)).toBe(true)
+    } finally {
+      await own.end()
+    }
   })
 })
 

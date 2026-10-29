@@ -72,6 +72,11 @@ describe("NEW TOKEN", () => {
     ])
     expect(c!.card.links).toEqual([{ label: "X", url: "https://x.com/goblo" }])
   })
+
+  it("leaves out the bond target for a token that starts in a pool", async () => {
+    const [c] = await run([launch({ targetRaise: null, startsInPool: true, poolId: hash(9) })])
+    expect(c!.card.rows.map(([label]) => label)).toEqual(["pair", "dev"])
+  })
 })
 
 describe("trade rules", () => {
@@ -240,6 +245,18 @@ describe("robustness", () => {
     const evs = await eventsAfter(sql, "0")
     const out = (await Promise.all(evs.map((e) => rulesFor(e, ctx(sql))))).flat()
     expect(out.filter((c) => c.alert === "devsell")).toHaveLength(13)
+  })
+
+  it.each([
+    ["bonded-mim", { new: 1, bonding: 4, pumping: 31, big: 28, devsell: 1, bonded: 1 }],
+    ["devsells-rockstar", { new: 1, devsell: 13 }],
+  ])("the stored %s history still drives the same alerts", async (name, expected) => {
+    await insertEvents(sql, loadFixture(name))
+    const evs = await eventsAfter(sql, "0")
+    const out = (await Promise.all(evs.map((e) => rulesFor(e, ctx(sql))))).flat()
+    const kinds: Record<string, number> = {}
+    for (const c of out) kinds[c.alert] = (kinds[c.alert] ?? 0) + 1
+    expect(kinds).toEqual(expected)
   })
 
   it("shows xStock amounts without dollars when the price is missing", async () => {

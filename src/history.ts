@@ -1,24 +1,37 @@
-import type { BondEvent, IndexerEvent, LaunchEvent, TradeEvent } from "@ink-indexer/events"
+import type {
+  BondEvent,
+  IndexerEvent,
+  LaunchEvent,
+  StoredEvent,
+  TradeEvent,
+} from "@ink-indexer/events"
 import type { Sql } from "./db"
 import type { LaunchMark } from "./delivery/flood"
+import { current } from "./events"
 
 /** An indexer event and its table id (a decimal string). */
 export type Row<T> = { id: string; p: T }
+
+/** Stored rows in their current shapes. `T` is the shape the query's `type` filter selects. */
+const upgrade = <T extends IndexerEvent>(rows: Row<StoredEvent>[]): Row<T>[] =>
+  rows.map((r) => ({ id: r.id, p: current(r.p) as T }))
 
 // Every read of the indexer lives here. Production grants allow indexer.events and indexer.cursors only.
 // Selecting `id::text` makes a bare `order by id` sort the text, so these orders use `events.id`.
 
 /** Confirmed events after `cursor`, up to and including `maxId` when given (replay tooling only). */
-export function eventsAfter(
+export async function eventsAfter(
   sql: Sql,
   cursor: string,
   limit = 500,
   maxId?: string,
 ): Promise<Row<IndexerEvent>[]> {
-  return sql<Row<IndexerEvent>[]>`
-    select id::text, payload as p from indexer.events
-    where confirmed and id > ${cursor} ${maxId === undefined ? sql`` : sql`and id <= ${maxId}`}
-    order by events.id limit ${limit}`
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where confirmed and id > ${cursor} ${maxId === undefined ? sql`` : sql`and id <= ${maxId}`}
+      order by events.id limit ${limit}`,
+  )
 }
 
 /** The newest confirmed event id. Unconfirmed rows are skipped, so they are read once they confirm. */
@@ -30,27 +43,35 @@ export async function maxEventId(sql: Sql): Promise<string> {
 }
 
 export async function launchOf(sql: Sql, token: string): Promise<Row<LaunchEvent> | null> {
-  const [r] = await sql<Row<LaunchEvent>[]>`
-    select id::text, payload as p from indexer.events
-    where entity = ${token} and type = 'launchpad.launch' order by events.id limit 1`
+  const [r] = upgrade<LaunchEvent>(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.launch' order by events.id limit 1`,
+  )
   return r ?? null
 }
 
 /** A token's curve trades in id order, up to and including `uptoId` when given. */
-export function tradesOf(sql: Sql, token: string, uptoId?: string): Promise<Row<TradeEvent>[]> {
-  return uptoId === undefined
-    ? sql<Row<TradeEvent>[]>`
-        select id::text, payload as p from indexer.events
-        where entity = ${token} and type = 'launchpad.trade' order by events.id`
-    : sql<Row<TradeEvent>[]>`
-        select id::text, payload as p from indexer.events
-        where entity = ${token} and type = 'launchpad.trade' and id <= ${uptoId} order by events.id`
+export async function tradesOf(
+  sql: Sql,
+  token: string,
+  uptoId?: string,
+): Promise<Row<TradeEvent>[]> {
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.trade'
+        ${uptoId === undefined ? sql`` : sql`and id <= ${uptoId}`}
+      order by events.id`,
+  )
 }
 
 export async function bondOf(sql: Sql, token: string): Promise<Row<BondEvent> | null> {
-  const [r] = await sql<Row<BondEvent>[]>`
-    select id::text, payload as p from indexer.events
-    where entity = ${token} and type = 'launchpad.bond' order by events.id limit 1`
+  const [r] = upgrade<BondEvent>(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.bond' order by events.id limit 1`,
+  )
   return r ?? null
 }
 
@@ -73,9 +94,14 @@ export async function creatorStats(
 
 export async function launchesOf(sql: Sql, tokens: string[]): Promise<Map<string, LaunchEvent>> {
   if (tokens.length === 0) return new Map()
-  const rows = await sql<{ p: LaunchEvent }[]>`
+  const rows = await sql<{ p: StoredEvent }[]>`
     select payload as p from indexer.events where entity = any(${tokens}) and type = 'launchpad.launch'`
-  return new Map(rows.map((r) => [r.p.token, r.p]))
+  return new Map(
+    rows.map((r) => {
+      const p = current(r.p) as LaunchEvent
+      return [p.token, p]
+    }),
+  )
 }
 
 export async function cursorBlock(sql: Sql): Promise<string | null> {
@@ -124,12 +150,14 @@ export function nearBonding(sql: Sql): Promise<{ token: string; soldBps: number 
 }
 
 /** Latest bonds of the last 7 days. Uses events_type_id. */
-export function justBonded(sql: Sql): Promise<Row<BondEvent>[]> {
-  return sql<Row<BondEvent>[]>`
-    select id::text, payload as p from indexer.events
-    where type = 'launchpad.bond'
-      and block >= (select block - ${WEEK_BLOCKS} from indexer.cursors where source = 'inkypump')
-    order by events.id desc limit 5`
+export async function justBonded(sql: Sql): Promise<Row<BondEvent>[]> {
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where type = 'launchpad.bond'
+        and block >= (select block - ${WEEK_BLOCKS} from indexer.cursors where source = 'inkypump')
+      order by events.id desc limit 5`,
+  )
 }
 
 /**

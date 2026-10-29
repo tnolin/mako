@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import type { IndexerEvent } from "@ink-indexer/events"
+import type { StoredEvent } from "@ink-indexer/events"
 import type postgres from "postgres"
 import { connect, migrate, type Sql } from "../../src/db"
 
@@ -18,7 +18,7 @@ export async function resetDb(url: string): Promise<Sql> {
 /** Inserts events as the indexer would, in order. Returns their ids. */
 export async function insertEvents(
   sql: Sql,
-  events: IndexerEvent[],
+  events: StoredEvent[],
   opts: { confirmed?: boolean; subs?: string[] } = {},
 ): Promise<string[]> {
   const ids: string[] = []

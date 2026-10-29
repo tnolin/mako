@@ -328,7 +328,7 @@ describe("pool trades", () => {
     expect(pick(cs, "big")).toBeUndefined()
   })
 
-  it("pool BIG BUY on an xStock-quoted pool", async () => {
+  it("pool BIG BUY on an xStock-quoted pool uses the xStock's own USD price", async () => {
     const xl = launch({ ...L, quoteAsset: X })
     const cs = await runWith(withXstock, [
       xl,

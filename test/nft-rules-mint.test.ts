@@ -18,7 +18,7 @@ const stage = (
   price: bigint,
   o: Partial<NftDropStage> = {},
 ): NftDropStage => ({
-  type: label === "Public" ? "public" : "allow_list",
+  type: label === "Public" ? "public_sale" : "signed_presale",
   label,
   priceWei: eth(price),
   startTime: SEP6 + h * H,
@@ -176,7 +176,7 @@ describe("MINT STARTING", () => {
       dedupeKey: `mintstart:${C}:1`,
       priority: 2,
       eventTs: now,
-      feedEligible: true,
+      feedEligible: false,
     })
     expect(card(c).title).toBe("MINT STARTING · GTD")
     expect(rows(c)).toEqual([
@@ -229,6 +229,40 @@ describe("MINT STARTING", () => {
       ),
     )
     expect(card(c).title).toBe("MINT STARTING · A very long…")
+  })
+
+  it("is feed-eligible only for the public stage", () => {
+    const start = (label: string, index: number, h: number) =>
+      process(
+        nftMint({
+          stageIndex: index,
+          stageLabel: label,
+          minted: "0",
+          mintStartTs: SEP6 + 10 * H,
+          stageStartTs: SEP6 + h * H,
+          blockTimestamp: SEP6 + h * H,
+        }),
+      )
+    now = SEP6 + 13 * H
+    expect(only(start("FCFS", 2, 13)).feedEligible).toBe(false)
+    now = SEP6 + 17 * H
+    expect(only(start("Public", 0, 17)).feedEligible).toBe(true)
+  })
+
+  it("is not feed-eligible when the stage cannot be matched to the drop", () => {
+    now = SEP6 + 10 * H
+    const c = only(
+      process(
+        nftMint({
+          stageIndex: 1,
+          stageLabel: "Mystery",
+          mintStartTs: SEP6 + 8 * H,
+          stageStartTs: SEP6 + 8 * H,
+          blockTimestamp: SEP6 + 10 * H,
+        }),
+      ),
+    )
+    expect(c.feedEligible).toBe(false)
   })
 
   it("gives nothing for a Team stage", () => {
@@ -338,6 +372,7 @@ describe("MINTED", () => {
       priority: 3,
       markBps: 5000,
     })
+    expect(c.feedEligible).toBe(false)
     expect(card(c).title).toBe("MINTED 50%")
     expect(rows(c)).toEqual([
       "minted|1,111 / 2,222 in 4h 2m",
@@ -504,7 +539,7 @@ describe("catch-up when a collection turns real", () => {
       alert: "mintstart",
       dedupeKey: original.dedupeKey,
       eventTs: now,
-      feedEligible: true,
+      feedEligible: false,
     })
     expect(card(c).title).toBe("MINT STARTING · GTD")
     expect(rows(c)[0]).toBe("started|34m ago")

@@ -177,7 +177,7 @@ export function nftDrop(o: Partial<NftDropEvent> = {}): NftDropEvent {
     maxSupply: "2222",
     stages: [
       {
-        type: "allow_list",
+        type: "signed_presale",
         label: "GTD",
         priceWei: "0",
         startTime: T0 + 3600,
@@ -186,7 +186,7 @@ export function nftDrop(o: Partial<NftDropEvent> = {}): NftDropEvent {
         allowlistCount: 588,
       },
       {
-        type: "public",
+        type: "public_sale",
         label: "Public",
         priceWei: String(5n * 10n ** 14n),
         startTime: T0 + 7200,

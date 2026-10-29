@@ -101,7 +101,7 @@ function hornet() {
 describe("collection card", () => {
   it("reads Minting now while a mint runs, with no stage or price, and leaves the row out once it stopped", async () => {
     const stage = (endTime: number) => ({
-      type: "public",
+      type: "public_sale",
       label: "Public",
       priceWei: eth(0.0005),
       startTime: NOW - 2 * H,
@@ -381,7 +381,7 @@ describe("lists", () => {
 
   it("Upcoming lists the next 7 days by start time", async () => {
     const stage = (label: string, at: number) => ({
-      type: "allow_list",
+      type: "signed_presale",
       label,
       priceWei: "0",
       startTime: at,
@@ -413,7 +413,7 @@ describe("lists", () => {
 
   it("opens a collection from Upcoming as the UPCOMING MINT alert, with its DM buttons", async () => {
     const stage = (label: string, at: number, price: string) => ({
-      type: "allow_list",
+      type: "signed_presale",
       label,
       priceWei: price,
       startTime: at,

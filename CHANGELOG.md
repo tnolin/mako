@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+### Changed
+
+- All collections now sends MINT STARTING only when a mint's public stage opens (or a mint without stages starts). Allowlist and other private stages no longer alert there, and MINTED no longer does either.
+- Watched collections are unchanged: they send MINT STARTING for every stage other than a Team stage, and MINTED at your marks.
+- The MINT STARTING and MINTED descriptions in the settings and help now say this.
+
 ## v0.2.8 (2026-10-27)
 
 ### Added

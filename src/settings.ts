@@ -184,9 +184,9 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
     case "upcoming":
       return "UPCOMING MINT - When a new mint is scheduled."
     case "mintstart":
-      return "MINT STARTING - A mint or a mint stage has opened (other than Team's)."
+      return "MINT STARTING - When a mint's public stage opens."
     case "minted":
-      return "MINTED - When a collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints)."
+      return "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints)."
     case "soldout":
       return "SOLD OUT - When a collection completely mints out."
     case "launch":

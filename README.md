@@ -39,8 +39,8 @@ When turned on: Every collection that passes MAKO's quality checks. When turned 
 | Alert | When it fires |
 | --- | --- |
 | UPCOMING MINT | When a new mint is scheduled. |
-| MINT STARTING | A mint, or a mint stage other than Team's, has opened. |
-| MINTED | When a collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints). |
+| MINT STARTING | When a mint's public stage opens. |
+| MINTED | When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints). |
 | SOLD OUT | When a collection completely mints out. |
 | NEW COLLECTION | A new Chimera collection is detected. |
 | BIG SALE | When an NFT sells for 0.1 ETH or more. |

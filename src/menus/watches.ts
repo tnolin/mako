@@ -229,12 +229,13 @@ async function mutedScreen(ctx: Context, deps: BotDeps, owner: Owner) {
   ])
 }
 
+const MAX_TARGET_USD = 1e12
 const AMOUNT = /^\$?(\d+(?:\.\d+)?)([km])?$/i
 
 /**
  * `/watch <token> [amount]`. The last word is a USD amount when it has a `$`, a `k`/`m` suffix or a value of at
  * least 1,000, so a name ending in a small number (`pepe 2`) stays a name. A last word that starts like an amount
- * but isn't one (`500x`, `$5oo`), or is under one dollar, is a bad amount.
+ * but isn't one (`500x`, `$5oo`), or is under one dollar or over $1T, is a bad amount.
  */
 export function parseWatchArgs(text: string): {
   query: string
@@ -254,7 +255,9 @@ export function parseWatchArgs(text: string): {
     return { query, targetUsd: null, badAmount: false }
   // Whole dollars, so a typed target and a tapped pick (whose button carries whole dollars) store the same value.
   const targetUsd = Math.round(value * (unit === "k" ? 1e3 : unit === "m" ? 1e6 : 1))
-  if (targetUsd <= 0) return { query, targetUsd: null, badAmount: true }
+  // Above $1T no token's market cap is real, and the amount must stay a safe integer that fits in a button's data.
+  if (targetUsd <= 0 || targetUsd > MAX_TARGET_USD)
+    return { query, targetUsd: null, badAmount: true }
   return { query: words.slice(0, -1).join(" "), targetUsd, badAmount: false }
 }
 

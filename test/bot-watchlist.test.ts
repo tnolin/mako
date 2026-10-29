@@ -506,6 +506,21 @@ describe("/watch with a market cap target", () => {
     )
   })
 
+  it("a first-time user's /watch with a pick list creates the user and sends the welcome card after", async () => {
+    await insertEvents(sql, [launch({ token: B, ticker: "GOBLO", name: "Goblo two" })])
+    await h.text("/watch goblo", { from: 300 })
+    const texts = h.calls.filter((c) => c.method === "sendMessage").map((c) => c.payload.text)
+    expect(texts).toHaveLength(2)
+    expect(texts[0]).toBe("More than one token is called $GOBLO. Which one?")
+    expect(texts[1]).toContain("<b>MAKO</b> · real-time alerts")
+    expect(await sql`select 1 from bot.users where platform_user_id = 300`).toHaveLength(1)
+  })
+
+  it("a tap on the pick list never creates a user", async () => {
+    await h.tap(`wt:${A}:0`, { from: 301 })
+    expect(await sql`select 1 from bot.users where platform_user_id = 301`).toHaveLength(0)
+  })
+
   it("a pick without a target watches the token as before", async () => {
     await insertEvents(sql, [launch({ token: B, ticker: "GOBLO", name: "Goblo two" })])
     await h.text("/watch goblo")

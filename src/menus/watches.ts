@@ -355,6 +355,8 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
         `wt:${t.token}:${targetUsd === null ? 0 : Math.round(targetUsd)}`,
       ),
     ])
+    // The typed command may create the user, so the tap that follows finds one; taps never create users.
+    const fresh = isDm ? await ensureUser(deps.sql, ctx.from!.id) : null
     await ctx.reply(TARGET_PICK(called), {
       reply_markup: { inline_keyboard: kb },
       message_thread_id:
@@ -362,6 +364,8 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
           ? ctx.msg.message_thread_id
           : undefined,
     })
+    // Action first, then the welcome card, as /start does for deep links.
+    if (fresh?.created) await sendWelcome(ctx, fresh.user.settings)
     return
   }
   if (!state) return void (await ctx.reply(COPY.loading))

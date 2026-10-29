@@ -14,7 +14,7 @@ People watch a token to hear about it, but often what they want to know is wheth
 - **No target without a price.** Setting one reads the token's newest trade or swap and the current USD price of its quote. Without both, the command refuses and changes nothing.
 - **Fire once, then clear.** MCAP TARGET is a candidate bound to the one user or chat whose target fired. It skips feeds, the one-alert-per-event choice and cooldowns, so it arrives beside any other alert for the same trade. The delivery insert and the clearing of the target run in one transaction, and the update matches the target value the rule read, so a target replaced in between is not cleared and its stale delivery is not written.
 - **Only fresh events fire it.** An event from before `target_set_at`, an event older than the alert's 30-minute queue window, or an event without a current price never fires or clears a target. The next fresh trade past the target does.
-- **No switch.** MCAP TARGET is an alert kind (priority with BONDED) so a group can route it to a topic and hide its image. It is always on; a group whose MCAP TARGET route is paused gets nothing and keeps its target.
+- **No switch.** MCAP TARGET is an alert kind (priority with BONDED) so a group can route it to a topic. It is always on; a group whose MCAP TARGET route is paused gets nothing and keeps its target.
 - **Lookup by name.** `/watch` finds a token by address, `$TICKER` or name. Several matches give a pick list, bonded tokens and tokens that started in a pool first, then by most recent trading.
 
 ## Consequences

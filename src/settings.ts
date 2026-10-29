@@ -30,7 +30,7 @@ export const NFT_ALL_ALERTS = [
 export const NFT_WATCHED_ALERTS = ["under", "rare", "floor", "sweep", "sale", "reminder"] as const
 /**
  * MCAP TARGET has no switch: it reaches only whoever set the target on a watched token. It is an alert kind so a
- * group can route it to a topic and choose its image.
+ * group can route it to a topic.
  */
 export const ALERTS = [...TOKEN_ALERTS, "mcap", ...NFT_ALL_ALERTS, ...NFT_WATCHED_ALERTS] as const
 export type TokenAlert = (typeof TOKEN_ALERTS)[number]

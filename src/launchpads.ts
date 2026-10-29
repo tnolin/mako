@@ -61,6 +61,18 @@ export function tradeLink(
   return url.href
 }
 
+/**
+ * The Trade redirect's target: each token's trade page on its own launchpad, from the in-memory map, so the
+ * redirect never reads the database. A token the map doesn't hold yet goes to InkyPump.
+ */
+export function tradeTarget(
+  launchpads: TokenLaunchpads,
+  env: Record<string, string | undefined> = process.env,
+  list: Record<string, Launchpad> = LAUNCHPADS,
+): (ca: string) => string {
+  return (ca) => tradeLink(launchpads.get(ca) ?? "inkypump", ca, env, list)
+}
+
 export function referralLink(
   key: string,
   env: Record<string, string | undefined> = process.env,

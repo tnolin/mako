@@ -7,7 +7,7 @@ import { createViewer } from "./delivery/viewer"
 import { createHealth } from "./health"
 import { createHeartbeat } from "./heartbeat"
 import { cursorBlock, tokenLaunchpads } from "./history"
-import { referralLink, TokenLaunchpads, tradeLink } from "./launchpads"
+import { referralLink, TokenLaunchpads, tradeTarget } from "./launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
 import { ABOUT, GROUP_COMMANDS, PRIVATE_COMMANDS, SHORT_ABOUT } from "./menus/main"
@@ -117,7 +117,7 @@ const stopSender = startSender({
 })
 
 const server = createLinkServer({
-  target: (ca) => tradeLink(launchpads.get(ca) ?? "inkypump", ca),
+  target: tradeTarget(launchpads),
   join: () => referralLink("inkypump"),
   onClick: (ca, d) => logTradeClick(sql, ca, d),
   onNftClick: (target, d) => logNftClick(sql, target, d),

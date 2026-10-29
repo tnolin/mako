@@ -1,7 +1,7 @@
 import { type AddressInfo, connect } from "node:net"
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { TokenLaunchpads, tradeLink } from "../src/launchpads"
+import { LAUNCHPADS, type Launchpad, TokenLaunchpads, tradeTarget } from "../src/launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "../src/links"
 import { resetDb } from "./helpers/db"
 
@@ -9,25 +9,50 @@ const CA = "0x5ab27c4e9d1f03b8a6e2c5d7f940b1a8c3d6e3c8"
 const D = "3f2b8a2e-1c4d-4e5f-8a9b-0c1d2e3f4a5b"
 
 describe("redirect by launchpad", () => {
-  it("the redirect handler makes no SQL call", async () => {
-    const launchpads = new TokenLaunchpads([[CA, "inkypump"]])
+  const OTHER = "0x1111111111111111111111111111111111111111"
+  const two: Record<string, Launchpad> = {
+    ...LAUNCHPADS,
+    tsunami: {
+      name: "Tsunami",
+      tradeUrl: (ca) => `https://tsunami.example/${ca}`,
+      refParam: "r",
+      refEnv: "TSUNAMI_REF_CODE",
+      referralUrl: () => "https://tsunami.example",
+    },
+  }
+  /** Serves one Trade redirect and returns its Location. The click log never resolves. */
+  async function redirect(target: (ca: string) => string, ca: string): Promise<string | null> {
     const server = createLinkServer({
-      target: (ca) => tradeLink(launchpads.get(ca) ?? "inkypump", ca, { INKYPUMP_REF_CODE: "M" }),
+      target,
       join: () => "https://inkypump.com/ink",
-      // The click log is the only database work, and it never holds up the response.
       onClick: () => new Promise(() => {}),
       log: () => {},
     })
     await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
     try {
       const port = (server.address() as AddressInfo).port
-      const res = await fetch(`http://127.0.0.1:${port}/t/${CA}`, { redirect: "manual" })
+      const res = await fetch(`http://127.0.0.1:${port}/t/${ca}`, { redirect: "manual" })
       expect(res.status).toBe(302)
-      expect(res.headers.get("location")).toBe(`https://inkypump.com/ink/trade/${CA}?ref=M`)
+      return res.headers.get("location")
     } finally {
       server.closeAllConnections()
       await new Promise<void>((r) => server.close(() => r()))
     }
+  }
+
+  it("the redirect never waits on the click log", async () => {
+    const target = tradeTarget(new TokenLaunchpads([[CA, "inkypump"]]), { INKYPUMP_REF_CODE: "M" })
+    expect(await redirect(target, CA)).toBe(`https://inkypump.com/ink/trade/${CA}?ref=M`)
+  })
+
+  it("sends each token to its own launchpad, and an unknown token to InkyPump", async () => {
+    const target = tradeTarget(
+      new TokenLaunchpads([[CA, "tsunami"]]),
+      { INKYPUMP_REF_CODE: "M", TSUNAMI_REF_CODE: "T" },
+      two,
+    )
+    expect(await redirect(target, CA)).toBe(`https://tsunami.example/${CA}?r=T`)
+    expect(await redirect(target, OTHER)).toBe(`https://inkypump.com/ink/trade/${OTHER}?ref=M`)
   })
 })
 

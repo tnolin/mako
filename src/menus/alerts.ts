@@ -440,7 +440,7 @@ async function renderHub(ctx: Context, deps: BotDeps, sc: Scope): Promise<void> 
     )
     const paused = s.pausedRoutes ?? []
     for (const [title, kinds] of [
-      ["Token Alerts", TOKEN_ALERTS],
+      ["Token Alerts", [...TOKEN_ALERTS, "mcap"]],
       ["NFT Alerts", [...NFT_ALL_ALERTS, ...NFT_WATCHED_ALERTS]],
     ] as const) {
       const routed = kinds

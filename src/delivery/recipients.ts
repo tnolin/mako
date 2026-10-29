@@ -27,6 +27,8 @@ export type Delivery = {
   payload: Payload
   supersedesBonding: boolean
   holds?: Candidate["holds"]
+  /** MCAP TARGET: the target to clear in the same transaction; the row is written only if it is still set. */
+  clearTarget?: { owner: NonNullable<Candidate["recipient"]>; usd: number }
 }
 
 type UserT = { userId: string; chatId: string; settings: Settings }
@@ -196,6 +198,9 @@ export function route(
           : { type: "card", card: c.card, image: wantsImage(s, c.alert) },
       supersedesBonding: c.supersedesBonding ?? false,
       holds: c.holds,
+      ...(c.recipient && c.mcapTarget
+        ? { clearTarget: { owner: c.recipient, usd: c.mcapTarget.usd } }
+        : {}),
     })
   }
   // Earlier rows (a crash re-run) never count against their own candidate; the batch's choices do.
@@ -229,7 +234,26 @@ export function route(
   }
   for (const all of byEvent.values()) {
     for (const c of all) if (c.pump) pumps.observe(c.pump.token, c.pump.gainBps)
-    const cs = all.filter((c) => !c.pump?.observeOnly)
+    // MCAP TARGET reaches only the user or chat whose target fired, beside any other alert for the event.
+    for (const c of all) {
+      const r = c.recipient
+      if (!r) continue
+      if ("user" in r) {
+        const u = aud.users.find((u) => u.userId === r.user)
+        if (u && !aud.mute.get(c.target)?.has(u.userId))
+          push(c, u.chatId, "private", null, u.settings)
+        continue
+      }
+      // A paused route sends nothing, and the target stays set until a later event can reach the chat.
+      const ch = aud.chats.find((ch) => ch.chatId === r.chat)
+      if (!ch || ch.settings.pausedRoutes?.includes(c.alert)) continue
+      const thread =
+        ch.chatType === "channel"
+          ? null
+          : (ch.settings.routes?.[c.alert] ?? ch.settings.thread ?? null)
+      push(c, ch.chatId, ch.chatType, thread, ch.settings)
+    }
+    const cs = all.filter((c) => !c.pump?.observeOnly && !c.recipient)
     if (cs.length === 0) continue
     if (isNft(cs[0]!)) {
       const target = cs[0]!.target

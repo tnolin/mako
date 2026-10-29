@@ -16,6 +16,7 @@ import {
   resetScreen,
   SETTINGS_LABEL,
   TOKEN_ALERTS,
+  wantsImage,
 } from "../src/settings"
 
 it("turns every token alert and image on in the basic preset", () => {
@@ -90,6 +91,7 @@ it("orders priorities as decided", () => {
     mintstart: 2,
     reminder: 2,
     rare: 2,
+    mcap: 1,
     pumping: 3,
     upcoming: 3,
     minted: 3,
@@ -293,4 +295,21 @@ it("loads stored settings that still hold a mintlive alert or route", () => {
   expect(s.alerts).not.toHaveProperty("mintlive")
   expect(s.routes).toEqual({ mintstart: 6 })
   expect(s.pausedRoutes).toEqual([])
+})
+
+it("readSettings keeps mcap on and its image flag", () => {
+  expect(basicPreset("group").alerts.mcap).toEqual({ on: true, image: true })
+  const s = readSettings({ alerts: { mcap: { on: false, image: false } } }, "private")
+  expect(s.alerts.mcap).toEqual({ on: true, image: false })
+  expect(readSettings(allOff(basicPreset("private")), "private").alerts.mcap.on).toBe(true)
+  expect(ALERT_LABEL.mcap).toBe("MCAP TARGET")
+  expect(LONG_WINDOW).toContain("mcap")
+  expect(TOKEN_ALERTS).not.toContain("mcap")
+})
+
+it("wantsImage works for mcap", () => {
+  const s = basicPreset("private")
+  expect(wantsImage(s, "mcap")).toBe(true)
+  s.alerts.mcap.image = false
+  expect(wantsImage(s, "mcap")).toBe(false)
 })

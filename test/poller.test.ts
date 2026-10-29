@@ -1130,3 +1130,142 @@ describe("PUMPING after bonding", () => {
     expect(rows[7]).toEqual(["dev holds", "4.2%"])
   })
 })
+
+describe("MCAP TARGET", () => {
+  /** A bonded token with the cursor past its launch and bond; swaps run from T0 + 7200. */
+  const bondedToken = async () => {
+    const ids = await insertEvents(sql, [L, bond()])
+    await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
+  }
+  const AT = T0 + 7200
+  const mc = (usd: number) => eth(usd / 2500)
+  const over = (o: Parameters<typeof swap>[0] = {}) =>
+    swap({ marketCap: mc(520_000), blockTimestamp: AT, ...o })
+  const userTarget = async (tg: number, usd: number, up = true) => {
+    const id = await addUser(sql, tg)
+    await sql`
+      insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+      values (${id}, 'watch', ${L.token}, ${usd}, ${up}, 210000, to_timestamp(${T0}))`
+    return id
+  }
+  const targets = async () =>
+    (
+      await sql<{ usd: number | null }[]>`
+        select target_usd::float8 as usd from bot.subscriptions where kind = 'watch'
+        union all select target_usd::float8 from bot.chat_token_watches`
+    ).map((r) => r.usd)
+  const mcapRows = async () =>
+    (await listDeliveries(sql))
+      .filter((r) => r.alert === "mcap")
+      .map((r) => `${r.chat_id}:${r.thread_id ?? "-"}`)
+  const at = (n: number) => deps({ now: () => n })
+
+  it("fires once and clears: the next swap above target sends nothing", async () => {
+    await userTarget(1301, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over(), over({ blockTimestamp: AT + 30 })])
+    await pollOnce(at(AT + 60))
+    expect(await mcapRows()).toEqual(["1301:-"])
+    expect(await targets()).toEqual([null])
+    await insertEvents(sql, [over({ blockTimestamp: AT + 90 })])
+    await pollOnce(at(AT + 120))
+    expect(await mcapRows()).toEqual(["1301:-"])
+  })
+
+  it("a replaced target is not cleared by an older crossing", async () => {
+    const id = await userTarget(1302, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    // The user sets a new target while the batch is between its rules and its write.
+    const rules: PollerDeps["rules"] = async (ev, ctx, prev) => {
+      const { rulesFor } = await import("../src/rules/index")
+      const out = await rulesFor(ev, ctx, prev)
+      await sql`update bot.subscriptions set target_usd = 750000 where user_id = ${id}`
+      return out
+    }
+    await pollOnce(deps({ now: () => AT, rules }))
+    expect(await mcapRows()).toEqual([])
+    expect(await targets()).toEqual([750_000])
+  })
+
+  it("an event older than 30 minutes does not fire; the next fresh one does", async () => {
+    await userTarget(1303, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT + 1801))
+    expect(await mcapRows()).toEqual([])
+    expect(await targets()).toEqual([500_000])
+    await insertEvents(sql, [over({ blockTimestamp: AT + 1900 })])
+    await pollOnce(at(AT + 1910))
+    expect(await mcapRows()).toEqual(["1303:-"])
+  })
+
+  it("stale price, then recovery past the target, fires once", async () => {
+    await userTarget(1304, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over(), over({ blockTimestamp: AT + 30 })])
+    const stale: Prices = { usd: () => null, symbol: () => "ETH" }
+    await pollOnce(deps({ now: () => AT + 60, prices: stale }))
+    expect(await mcapRows()).toEqual([])
+    expect(await targets()).toEqual([500_000])
+    await insertEvents(sql, [over({ blockTimestamp: AT + 90 }), over({ blockTimestamp: AT + 95 })])
+    await pollOnce(at(AT + 100))
+    expect(await mcapRows()).toEqual(["1304:-"])
+    expect(await targets()).toEqual([null])
+  })
+
+  it("a group target goes to the group, not to members", async () => {
+    await addUser(sql, 1305)
+    await addChat(sql, -1306, "supergroup", { ...basicPreset("supergroup"), thread: 4 })
+    await sql`
+      insert into bot.chat_token_watches (chat_id, target, target_usd, target_up, target_set_usd, target_set_at)
+      values (-1306, ${L.token}, 500000, true, 210000, to_timestamp(${T0}))`
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT))
+    expect(await mcapRows()).toEqual(["-1306:4"])
+    expect(await targets()).toEqual([null])
+  })
+
+  it("a group target follows routes.mcap, and a paused mcap route keeps the target", async () => {
+    const s = basicPreset("supergroup")
+    await addChat(sql, -1307, "supergroup", { ...s, thread: 4, routes: { mcap: 8 } })
+    await addChat(sql, -1308, "supergroup", { ...s, routes: { mcap: 8 }, pausedRoutes: ["mcap"] })
+    for (const chat of [-1307, -1308])
+      await sql`
+        insert into bot.chat_token_watches (chat_id, target, target_usd, target_up, target_set_usd, target_set_at)
+        values (${chat}, ${L.token}, 500000, true, 210000, to_timestamp(${T0}))`
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT))
+    expect(await mcapRows()).toEqual(["-1307:8"])
+    const left = await sql<{ chat_id: string; usd: number | null }[]>`
+      select chat_id::text, target_usd::float8 as usd from bot.chat_token_watches order by chat_id`
+    expect(left).toEqual([
+      { chat_id: "-1307", usd: null },
+      { chat_id: "-1308", usd: 500_000 },
+    ])
+  })
+
+  it("a muted user's target never fires", async () => {
+    const id = await userTarget(1309, 500_000)
+    await sql`insert into bot.subscriptions (user_id, kind, target) values (${id}, 'mute', ${L.token})`
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT))
+    expect(await mcapRows()).toEqual([])
+  })
+
+  it("MCAP TARGET and BIG BUY from one swap both reach a watcher", async () => {
+    await userTarget(1310, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })])
+    await pollOnce(at(AT))
+    expect(
+      (await listDeliveries(sql))
+        .filter((r) => r.chat_id === "1310")
+        .map((r) => r.alert)
+        .sort(),
+    ).toEqual(["big", "mcap"])
+  })
+})

@@ -54,6 +54,10 @@ export type Candidate = {
   pump?: { token: string; gainBps: number; observeOnly?: true }
   /** PUMPING after bonding: the market cap in USD, or null without a current price. */
   mcapUsd?: number | null
+  /** MCAP TARGET: the one user (bot.users.id) or chat (Telegram chat id) whose target fired. */
+  recipient?: { user: string } | { chat: string }
+  /** MCAP TARGET: the target that fired and the market cap when it was set, in USD. */
+  mcapTarget?: { usd: number; setUsd: number }
 }
 
 export type RuleCtx = {

@@ -114,6 +114,27 @@ export async function nftCutoff(sql: Sql, override?: number, now = nowS): Promis
   return Number((ins ?? (await read()))!.value)
 }
 
+async function clearTarget(
+  tx: postgres.TransactionSql,
+  token: string,
+  t: NonNullable<Delivery["clearTarget"]>,
+): Promise<boolean> {
+  const hit =
+    "user" in t.owner
+      ? await tx`
+          update bot.subscriptions
+          set target_usd = null, target_up = null, target_set_usd = null, target_set_at = null
+          where user_id = ${t.owner.user} and kind = 'watch' and target = ${token}
+            and target_usd = ${t.usd}::numeric
+          returning 1`
+      : await tx`
+          update bot.chat_token_watches
+          set target_usd = null, target_up = null, target_set_usd = null, target_set_at = null
+          where chat_id = ${t.owner.chat} and target = ${token} and target_usd = ${t.usd}::numeric
+          returning 1`
+  return hit.length > 0
+}
+
 /** Inserts deliveries and moves the cursor in one short transaction. No network calls inside. */
 async function write(
   sql: Sql,
@@ -138,7 +159,14 @@ async function write(
                 where platform_user_id = any(${dmIds}::bigint[]) for share`
             ).map((u) => u.id),
           )
-    const rows = all.filter((r) => r.chatType !== "private" || live.has(r.chatId))
+    const rows: Delivery[] = []
+    for (const r of all) {
+      if (r.chatType === "private" && !live.has(r.chatId)) continue
+      // MCAP TARGET clears its target with the delivery. A target changed or cleared since the rules read it
+      // matches no row, and the delivery is dropped.
+      if (r.clearTarget && !(await clearTarget(tx, r.token, r.clearTarget))) continue
+      rows.push(r)
+    }
     // 9 columns per row; 1,000 rows stays well under Postgres' 65,535 parameters.
     for (let i = 0; i < rows.length; i += 1000) {
       const chunk = rows.slice(i, i + 1000).map((r) => ({

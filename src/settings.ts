@@ -28,7 +28,11 @@ export const NFT_ALL_ALERTS = [
 ] as const
 /** Shown on the "Watched only" screen: they never fire for a collection the chat doesn't watch. */
 export const NFT_WATCHED_ALERTS = ["under", "rare", "floor", "sweep", "sale", "reminder"] as const
-export const ALERTS = [...TOKEN_ALERTS, ...NFT_ALL_ALERTS, ...NFT_WATCHED_ALERTS] as const
+/**
+ * MCAP TARGET has no switch: it reaches only whoever set the target on a watched token. It is an alert kind so a
+ * group can route it to a topic and choose its image.
+ */
+export const ALERTS = [...TOKEN_ALERTS, "mcap", ...NFT_ALL_ALERTS, ...NFT_WATCHED_ALERTS] as const
 export type TokenAlert = (typeof TOKEN_ALERTS)[number]
 export type AlertKind = (typeof ALERTS)[number]
 /** Regex alternation of every alert kind, for callback-data patterns, so a new alert needs no edit there. */
@@ -59,6 +63,8 @@ export type Settings = {
     bonded: Toggle
     devsell: Toggle
     big: Toggle & { pctBps: BigBps }
+    /** Always on: readSettings sets `on` whatever is stored. */
+    mcap: Toggle
     upcoming: Toggle
     mintstart: Toggle
     minted: Toggle & { marks: NftMark[] }
@@ -96,6 +102,7 @@ export const PRIORITY = {
   notice: 0,
   devsell: 0,
   bonded: 1,
+  mcap: 1,
   summary: 1,
   soldout: 1,
   bonding: 2,
@@ -116,8 +123,11 @@ export const PRIORITY = {
 } as const
 
 /** Kinds that may wait 30 minutes in the queue instead of 3. */
+// shortcut: an MCAP TARGET delivery still pending after 30 minutes is skipped by lateDrop after its target was
+// cleared. Restore the target when lateDrop skips an mcap delivery if this shows up.
 export const LONG_WINDOW = [
   "devsell",
+  "mcap",
   "bonded",
   "notice",
   "summary",
@@ -138,6 +148,7 @@ export const ALERT_LABEL: Record<AlertKind, string> = {
   bonded: "BONDED",
   devsell: "DEV SELL",
   big: "BIG BUY/SELL",
+  mcap: "MCAP TARGET",
   upcoming: "UPCOMING MINT",
   mintstart: "MINT STARTING",
   minted: "MINTED",
@@ -188,6 +199,8 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
       return "DEV SELL - When the creator sells any amount of their own token."
     case "big":
       return `BIG BUY/SELL - one trade worth ${pct(a.big.pctBps)}%+ of the token's bond target, or of its pool's liquidity after bonding.`
+    case "mcap":
+      return "MCAP TARGET - When a watched token's market cap reaches the target you set with /watch."
     case "upcoming":
       return "UPCOMING MINT - When a new mint is scheduled."
     case "mintstart":
@@ -229,6 +242,7 @@ export function basicPreset(chatType: ChatType): Settings {
       bonded: t(),
       devsell: t(),
       big: { ...t(), pctBps: 500 },
+      mcap: t(),
       upcoming: feed(),
       mintstart: feed(),
       minted: { ...feed(), marks: [5000] },
@@ -284,6 +298,7 @@ export function readSettings(raw: unknown, chatType: ChatType): Settings {
     if (typeof v.on === "boolean") s.alerts[a].on = v.on
     if (a !== "reminder" && typeof v.image === "boolean") s.alerts[a].image = v.image
   }
+  s.alerts.mcap.on = true
   const b = alerts.bonding
   if (isObj(b) && Array.isArray(b.marks)) {
     s.alerts.bonding.marks = MARKS.filter((m) => (b.marks as unknown[]).includes(m))

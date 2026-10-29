@@ -509,6 +509,126 @@ describe("PUMPING after bonding", () => {
   })
 })
 
+describe("MCAP TARGET", () => {
+  const DAY = 86_400
+  /** 2d 4h after the launch, as on the spec's card. */
+  const AT = T0 + 2 * DAY + 4 * 3600
+  const at = (n: number) => ({ ...ctx(sql), now: () => n })
+  /** A user (Telegram id 501) watching the token with a target set an hour before AT. */
+  async function userTarget(usd: number, up: boolean, setUsd = 210_000, setAt = AT - 3600) {
+    const [u] = await sql<{ id: string }[]>`
+      insert into bot.users (platform_user_id, settings) values (501, '{}') returning id::text`
+    await sql`
+      insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+      values (${u!.id}, 'watch', ${L.token}, ${usd}, ${up}, ${setUsd}, to_timestamp(${setAt}))`
+    return u!.id
+  }
+  async function runAt(now: number, events: Parameters<typeof insertEvents>[1], p = prices) {
+    await insertEvents(sql, events)
+    const all = await eventsAfter(sql, "0")
+    return rulesFor(all.at(-1)!, { ...at(now), prices: p })
+  }
+  const bonded = [L, bond({ blockTimestamp: T0 + 3600 })]
+
+  it("fires on the way up, with the spec's card", async () => {
+    const id = await userTarget(500_000, true)
+    const s = swap({ marketCap: eth(204.8), blockTimestamp: AT })
+    const cs = await runAt(AT + 60, [
+      ...bonded,
+      swap({ quoteAmount: eth(24.35), marketCap: eth(150), blockTimestamp: AT - 3000 }),
+      // More than an hour back: not in the volume.
+      swap({ quoteAmount: eth(100), marketCap: eth(150), blockTimestamp: AT - 3700 }),
+      s,
+    ])
+    const m = pick(cs, "mcap")!
+    expect(m).toMatchObject({
+      target: L.token,
+      dedupeKey: `mcap:u${id}:${L.token}:500000`,
+      priority: 1,
+      eventTs: AT,
+      recipient: { user: id },
+      mcapTarget: { usd: 500_000, setUsd: 210_000 },
+    })
+    expect(m.card.title).toBe("MCAP TARGET")
+    expect(m.card.rows).toEqual([
+      ["mcap", "$512K"],
+      ["target", "$500K (set at $210K)"],
+      ["volume", "$61.0K (1h)"],
+      ["age", "2d 4h"],
+    ])
+  })
+
+  it("fires on the way down", async () => {
+    await userTarget(150_000, false)
+    const cs = await runAt(AT, [...bonded, swap({ marketCap: eth(59), blockTimestamp: AT })])
+    expect(pick(cs, "mcap")!.card.rows.slice(0, 2)).toEqual([
+      ["mcap", "$148K"],
+      ["target", "$150K (set at $210K)"],
+    ])
+  })
+
+  it("does not fire short of the target", async () => {
+    await userTarget(500_000, true)
+    const cs = await runAt(AT, [...bonded, swap({ marketCap: eth(199), blockTimestamp: AT })])
+    expect(pick(cs, "mcap")).toBeUndefined()
+  })
+
+  it("fires on a curve trade, with the curve row after mcap", async () => {
+    await userTarget(10_000, true, 5_000)
+    const cs = await runAt(AT, [
+      L,
+      trade({ soldBps: 4000, marketCap: eth(4.4), blockTimestamp: AT }),
+    ])
+    expect(pick(cs, "mcap")!.card.rows).toEqual([
+      ["mcap", "$11.0K"],
+      ["curve", "■■■■□□□□□□ 40%"],
+      ["target", "$10.0K (set at $5.0K)"],
+      ["volume", "$50 (1h)"],
+      ["age", "2d 4h"],
+    ])
+  })
+
+  it("an event from before target_set_at does not fire or clear the target", async () => {
+    await userTarget(500_000, true, 210_000, AT + 10)
+    const cs = await runAt(AT + 20, [
+      ...bonded,
+      swap({ marketCap: eth(204.8), blockTimestamp: AT }),
+    ])
+    expect(pick(cs, "mcap")).toBeUndefined()
+  })
+
+  it("an event older than 30 minutes does not fire", async () => {
+    await userTarget(500_000, true)
+    const cs = await runAt(AT + 1801, [
+      ...bonded,
+      swap({ marketCap: eth(204.8), blockTimestamp: AT }),
+    ])
+    expect(pick(cs, "mcap")).toBeUndefined()
+  })
+
+  it("does not fire while the price is stale", async () => {
+    await userTarget(500_000, true)
+    const stale: Prices = { usd: () => null, symbol: () => "ETH" }
+    const cs = await runAt(
+      AT,
+      [...bonded, swap({ marketCap: eth(204.8), blockTimestamp: AT })],
+      stale,
+    )
+    expect(pick(cs, "mcap")).toBeUndefined()
+  })
+
+  it("a group's target names the group", async () => {
+    await sql`
+      insert into bot.chat_token_watches (chat_id, target, target_usd, target_up, target_set_usd, target_set_at)
+      values (-1001, ${L.token}, 500000, true, 210000, to_timestamp(${AT - 3600}))`
+    const cs = await runAt(AT, [...bonded, swap({ marketCap: eth(204.8), blockTimestamp: AT })])
+    expect(pick(cs, "mcap")).toMatchObject({
+      recipient: { chat: "-1001" },
+      dedupeKey: `mcap:c-1001:${L.token}:500000`,
+    })
+  })
+})
+
 describe("robustness", () => {
   it("skips a trade whose launch event is missing, with a warning and no throw", async () => {
     await insertEvents(sql, [trade({ token: addr(0xbeef) })])

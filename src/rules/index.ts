@@ -22,6 +22,7 @@ import { big, bigSwap } from "./big"
 import { bonded } from "./bonded"
 import { bonding } from "./bonding"
 import { devSell, devSellSwap } from "./devsell"
+import { mcapTargets } from "./mcap"
 import { newToken } from "./new-token"
 import { pumping, pumpingBonded } from "./pumping"
 import type { Candidate, RuleCtx, SwapCtx } from "./types"
@@ -82,7 +83,12 @@ export async function rulesFor(
   if (p.type === "launchpad.swap") {
     const s = await swapCtx(ev as Row<SwapEvent>, ctx)
     if (!s) return []
-    return [...devSellSwap(s), ...pumpingBonded(s), ...bigSwap(s)]
+    return [
+      ...devSellSwap(s),
+      ...pumpingBonded(s),
+      ...bigSwap(s),
+      ...(await mcapTargets(ctx, s.ev, s.launch, [])),
+    ]
   }
   // A newer indexer can write event types this version doesn't know; they carry no alerts here.
   if (p.type !== "launchpad.trade" && p.type !== "launchpad.bond") return []
@@ -94,5 +100,11 @@ export async function rulesFor(
   const trades = await tradesOf(ctx.sql, p.token, ev.id)
   if (p.type === "launchpad.bond") return [bonded(ev as Row<BondEvent>, launch, trades, ctx.prices)]
   const t = { ev: ev as Row<TradeEvent>, launch, trades, prices: ctx.prices }
-  return [...devSell(t), ...bonding(t), ...pumping(t), ...big(t)]
+  return [
+    ...devSell(t),
+    ...bonding(t),
+    ...pumping(t),
+    ...big(t),
+    ...(await mcapTargets(ctx, t.ev, launch, trades)),
+  ]
 }

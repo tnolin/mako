@@ -63,4 +63,24 @@ describe("findTokens", () => {
       await own.end()
     }
   })
+
+  it("ranks a token that started in a pool with the bonded tokens", async () => {
+    const own = await resetDb(inject("databaseUrl"))
+    try {
+      const POOL = addr(0xc5)
+      await insertEvents(own, [
+        launch({ token: OLD, ticker: "ZAP" }),
+        launch({ token: POOL, ticker: "ZAP", startsInPool: true, targetRaise: null }),
+        trade({ token: OLD, blockTimestamp: T0 + 500 }),
+        swap({ token: POOL, blockTimestamp: T0 + 100 }),
+      ])
+      const hits = await findTokens(own, "zap")
+      expect(hits.map((h) => [h.token, h.bonded])).toEqual([
+        [POOL, true],
+        [OLD, false],
+      ])
+    } finally {
+      await own.end()
+    }
+  })
 })

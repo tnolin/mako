@@ -156,7 +156,9 @@ export function tokensNamed(
   // shortcut: compares every launch's ticker and name; add an expression index past ~100K launches.
   return sql`
     select l.entity as token, l.payload->>'ticker' as ticker, l.payload->>'name' as name,
-      exists (select 1 from indexer.events b where b.entity = l.entity and b.type = 'launchpad.bond') as bonded,
+      -- A token that started in a pool trades there from launch, like a bonded one.
+      exists (select 1 from indexer.events b where b.entity = l.entity and b.type = 'launchpad.bond')
+        or coalesce((l.payload->>'startsInPool')::boolean, false) as bonded,
       (select (t.payload->>'blockTimestamp')::int from indexer.events t
         where t.entity = l.entity and t.type in ('launchpad.trade', 'launchpad.swap')
         order by t.id desc limit 1) as "lastTradeTs"

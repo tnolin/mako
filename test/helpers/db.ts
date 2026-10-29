@@ -15,21 +15,24 @@ export async function resetDb(url: string): Promise<Sql> {
   return sql
 }
 
-/** Inserts events as the indexer would, in order. Returns their ids. */
+/**
+ * Inserts events as the indexer would, in order. Returns their ids. Each row's `created_at` is its block time, as
+ * when the indexer keeps up with the chain; `writtenAt` (unix seconds) sets it instead, as for a backfill.
+ */
 export async function insertEvents(
   sql: Sql,
   events: StoredEvent[],
-  opts: { confirmed?: boolean; subs?: string[] } = {},
+  opts: { confirmed?: boolean; subs?: string[]; writtenAt?: number } = {},
 ): Promise<string[]> {
   const ids: string[] = []
   for (const [i, e] of events.entries()) {
     // NFT events key on their collection contract, launchpad events on the token.
     const entity = "contract" in e ? e.contract : e.token
     const [row] = await sql<{ id: string }[]>`
-      insert into indexer.events (type, entity, payload, block, block_hash, tx_hash, log_index, sub, confirmed)
+      insert into indexer.events (type, entity, payload, block, block_hash, tx_hash, log_index, sub, confirmed, created_at)
       values (${e.type}, ${entity}, ${sql.json(e as unknown as postgres.JSONValue)}, ${e.blockNumber},
               ${`0x${e.blockNumber.padStart(64, "0")}`}, ${e.txHash}, ${e.logIndex}, ${opts.subs?.[i] ?? ""},
-              ${opts.confirmed ?? true})
+              ${opts.confirmed ?? true}, to_timestamp(${opts.writtenAt ?? e.blockTimestamp}))
       returning id`
     ids.push(row!.id)
   }

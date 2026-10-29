@@ -7,7 +7,7 @@ import type {
 } from "@ink-indexer/events"
 import type postgres from "postgres"
 import type { Sql } from "../db"
-import { eventsAfter, launchesAround, maxEventId, type Row } from "../history"
+import { eventsAfter, launchesAround, maxEventId, type Row, type Written } from "../history"
 import type { TokenLaunchpads } from "../launchpads"
 import type { Logger } from "../log"
 import { loadNftState, type NftState } from "../nft/state"
@@ -79,6 +79,16 @@ export async function initCursor(sql: Sql, fromId?: string): Promise<string> {
 }
 
 const nowS = () => Math.floor(Date.now() / 1000)
+
+/**
+ * A trade or swap the indexer wrote more than this many seconds after its block is history it caught up on (a
+ * backfill, or a restart after an outage), not live trading, and never reaches the rules.
+ */
+export const LATE_WRITE_S = 3600
+
+const writtenLate = (ev: Written<IndexerEvent>): boolean =>
+  (ev.p.type === "launchpad.trade" || ev.p.type === "launchpad.swap") &&
+  ev.writtenTs - ev.p.blockTimestamp > LATE_WRITE_S
 
 /**
  * The time before which nft.* events never alert (unix seconds): `override` (NFT_ALERTS_SINCE) when set,
@@ -205,7 +215,7 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
 
 async function processBatch(
   deps: PollerDeps,
-  events: Row<IndexerEvent>[],
+  events: Written<IndexerEvent>[],
   nft: NftState,
 ): Promise<number> {
   const { sql, log } = deps
@@ -244,6 +254,8 @@ async function processBatch(
     if (ev.p.type.startsWith("nft.")) prev = nft.apply(ev as Row<NftEvent>)
     // Backfilled NFT history: the cursor moves past it and nothing is sent.
     if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue
+    // Trades and swaps the indexer caught up on: the cursor moves past them and nothing is sent.
+    if (writtenLate(ev)) continue
     try {
       cands.push(
         ...(await rules(ev, { sql, prices: deps.prices, log, nft, now, nftSince: cutoff }, prev)),

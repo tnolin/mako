@@ -51,6 +51,19 @@ describe("synthetic events", () => {
     expect(evs.map((e) => e.id)).toEqual([ids[1], ids[2]])
   })
 
+  it("eventsAfter returns writtenTs", async () => {
+    const [late] = await insertEvents(sql, [trade({ token: addr(0xf1), blockNumber: "900" })], {
+      writtenAt: T0 + 86_400,
+    })
+    try {
+      const evs = await eventsAfter(sql, ids[0]!)
+      expect(evs.find((e) => e.id === ids[1])!.writtenTs).toBe(T0 + 60)
+      expect(evs.find((e) => e.id === late)!.writtenTs).toBe(T0 + 86_400)
+    } finally {
+      await sql`delete from indexer.events where id = ${late!}`
+    }
+  })
+
   it("reads confirmed events after a cursor, in id order", async () => {
     const evs = await eventsAfter(sql, ids[0]!)
     expect(evs.map((e) => e.p.type)).toEqual([

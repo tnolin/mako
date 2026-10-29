@@ -19,6 +19,7 @@ import {
   nftLaunch,
   nftMint,
   nftSale,
+  swap,
   T0,
   trade,
 } from "./helpers/events"
@@ -879,4 +880,59 @@ it("records the launchpad of every launch it reads", async () => {
   await pollOnce(deps({ launchpads }))
   expect(launchpads.get(A)).toBe("inkypump")
   expect(launchpads.get(addr(0xa2))).toBeUndefined()
+})
+
+describe("events the indexer wrote long after their block", () => {
+  const DAY = 86_400
+  const now = T0 + 30 * DAY
+
+  it("backfilled swaps written long after their block send nothing", async () => {
+    await addUser(sql, 901)
+    const s = basicPreset("private")
+    await addChat(sql, -9001, "supergroup", s)
+    await watchToken(sql, -9001, L.token)
+    const ids = await insertEvents(sql, [L, bond()])
+    await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
+    const late = []
+    for (let i = 0; i < 25; i++) {
+      // A pool pump from 10 ETH to 14 ETH market cap, with big trades on both sides.
+      late.push(
+        swap({
+          quoteAmount: eth(1),
+          quoteLiquidity: eth(5),
+          marketCap: eth(10 + (i * 4) / 24),
+          blockTimestamp: T0 + 7200 + i * 10,
+        }),
+        trade({
+          trader: C,
+          side: "sell",
+          quoteAmount: eth(1),
+          soldBps: 9000 - i,
+          blockTimestamp: T0 + 7200 + i * 10,
+        }),
+      )
+    }
+    const lateIds = await insertEvents(sql, late, { writtenAt: now })
+    const seen: string[] = []
+    const rules: PollerDeps["rules"] = async (ev, ctx, prev) => {
+      seen.push(ev.p.type)
+      const { rulesFor } = await import("../src/rules/index")
+      return rulesFor(ev, ctx, prev)
+    }
+    expect(await pollOnce(deps({ now: () => now, rules }))).toBe(50)
+    expect(seen).toEqual([])
+    expect(await sql`select 1 from bot.deliveries`).toHaveLength(0)
+    expect(await cursor()).toBe(lateIds.at(-1))
+  })
+
+  it("a swap written on time while the bot was behind still takes the normal path", async () => {
+    await addUser(sql, 902)
+    const ids = await insertEvents(sql, [L, bond()])
+    await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
+    // Written 50 minutes after its block: indexer lag under the cutoff.
+    const s = swap({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })
+    await insertEvents(sql, [s], { writtenAt: s.blockTimestamp + 3000 })
+    await pollOnce(deps({ now: () => now }))
+    expect((await listDeliveries(sql)).map((r) => r.alert)).toEqual(["big"])
+  })
 })

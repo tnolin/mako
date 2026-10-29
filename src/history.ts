@@ -20,19 +20,22 @@ const upgrade = <T extends IndexerEvent>(rows: Row<StoredEvent>[]): Row<T>[] =>
 // Every read of the indexer lives here. Production grants allow indexer.events and indexer.cursors only.
 // Selecting `id::text` makes a bare `order by id` sort the text, so these orders use `events.id`.
 
+/** An event as the poller reads it, with the time the indexer wrote it (unix seconds). */
+export type Written<T> = Row<T> & { writtenTs: number }
+
 /** Confirmed events after `cursor`, up to and including `maxId` when given (replay tooling only). */
 export async function eventsAfter(
   sql: Sql,
   cursor: string,
   limit = 500,
   maxId?: string,
-): Promise<Row<IndexerEvent>[]> {
-  return upgrade(
-    await sql<Row<StoredEvent>[]>`
-      select id::text, payload as p from indexer.events
-      where confirmed and id > ${cursor} ${maxId === undefined ? sql`` : sql`and id <= ${maxId}`}
-      order by events.id limit ${limit}`,
-  )
+): Promise<Written<IndexerEvent>[]> {
+  const rows = await sql<Written<StoredEvent>[]>`
+    select id::text, payload as p, extract(epoch from created_at)::int as "writtenTs"
+    from indexer.events
+    where confirmed and id > ${cursor} ${maxId === undefined ? sql`` : sql`and id <= ${maxId}`}
+    order by events.id limit ${limit}`
+  return rows.map((r) => ({ id: r.id, p: current(r.p), writtenTs: r.writtenTs }))
 }
 
 /** The newest confirmed event id. Unconfirmed rows are skipped, so they are read once they confirm. */

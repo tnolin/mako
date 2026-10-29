@@ -1116,6 +1116,23 @@ describe("PUMPING after bonding", () => {
     expect(await pumpsTo("1216")).toBe(1)
   })
 
+  it("a failed second write keeps the re-arm from events before it", async () => {
+    await addUser(sql, 1218)
+    await bonded()
+    const arm = new PumpArm()
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1218")).toBe(1)
+    // A dip to +2.5% re-arms, then +22.5% pumps. The pump waits for the second write (it carries dev holds),
+    // which fails; the dip was written by the first.
+    await insertEvents(sql, [at(120, 20.5), at(180, 24.5)])
+    await sql`alter table bot.deliveries add constraint no_pumps check (alert <> 'pumping') not valid`
+    await expect(pollOnce(deps({ pumpArm: arm }))).rejects.toThrow()
+    await sql`alter table bot.deliveries drop constraint no_pumps`
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1218")).toBe(2)
+  })
+
   it("a bonded PUMPING card carries dev holds", async () => {
     await addUser(sql, 1217)
     await bonded()

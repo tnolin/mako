@@ -328,7 +328,11 @@ async function processBatch(
     const id = BigInt(d.eventId)
     return m === null || id < m ? id : m
   }, null)
-  await write(sql, rest, firstDev === null ? lastId : String(firstDev - 1n), floods)
+  const firstCursor = firstDev === null ? lastId : String(firstDev - 1n)
+  await write(sql, rest, firstCursor, floods)
+  // The re-arm state takes the changes of the events the cursor has passed, so a failed second write is routed
+  // again from the state the events before it left.
+  pumps.commit(firstCursor)
   if (dev.length > 0) {
     const holds = new Map<string, DevHolds>()
     for (const [id, p] of reads) holds.set(id, await p)
@@ -349,9 +353,6 @@ async function processBatch(
     )
     await write(sql, filled, lastId)
   }
-  // Only a fully written batch changes the re-arm state; a failed one is routed again from the old state.
-  // shortcut: when the second write fails, the retry starts at the first held-back event, so re-arm changes from
-  // the events before it are lost and one PUMPING can repeat or wait for the next dip. Commit per event if needed.
   pumps.commit()
   log("debug", "poller batch", {
     events: events.length,

@@ -177,7 +177,7 @@ export function route(
     threadId: number | null,
     s: Settings,
   ) => {
-    if (c.pump) pumps.mark(c.pump.token, chatId)
+    if (c.pump) pumps.mark(c.pump.token, chatId, c.eventId)
     else if (c.alert === "pumping") {
       const k = `${chatId}:${c.target}`
       aud.lastPump.set(k, [...(aud.lastPump.get(k) ?? []), { ts: c.eventTs, key: c.dedupeKey }])
@@ -233,7 +233,7 @@ export function route(
     m.set(k, [...(m.get(k) ?? []), { ts: c.eventTs, key: c.dedupeKey }])
   }
   for (const all of byEvent.values()) {
-    for (const c of all) if (c.pump) pumps.observe(c.pump.token, c.pump.gainBps)
+    for (const c of all) if (c.pump) pumps.observe(c.pump.token, c.pump.gainBps, c.eventId)
     // MCAP TARGET reaches only the user or chat whose target fired, beside any other alert for the event.
     for (const c of all) {
       const r = c.recipient

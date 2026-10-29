@@ -941,11 +941,27 @@ describe("events the indexer wrote long after their block", () => {
     await addUser(sql, 902)
     const ids = await insertEvents(sql, [L, bond()])
     await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
-    // Written 50 minutes after its block: indexer lag under the cutoff.
+    // Written 30 minutes after its block, the longest lag the rules still see.
     const s = swap({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })
-    await insertEvents(sql, [s], { writtenAt: s.blockTimestamp + 3000 })
+    await insertEvents(sql, [s], { writtenAt: s.blockTimestamp + 1800 })
     await pollOnce(deps({ now: () => now }))
     expect((await listDeliveries(sql)).map((r) => r.alert)).toEqual(["big"])
+  })
+
+  it("a trade written 1801 s after its block is skipped", async () => {
+    await addUser(sql, 904)
+    const ids = await insertEvents(sql, [L])
+    await sql`update bot.state set value = ${ids[0]!} where key = 'events_cursor'`
+    const t = trade({ soldBps: 8100, quoteAmount: eth(0.5), blockTimestamp: T0 + 900 })
+    const [id] = await insertEvents(sql, [t], { writtenAt: t.blockTimestamp + 1801 })
+    const seen: string[] = []
+    const rules: PollerDeps["rules"] = async (ev) => {
+      seen.push(ev.id)
+      return []
+    }
+    await pollOnce(deps({ now: () => now, rules }))
+    expect(seen).toEqual([])
+    expect(await cursor()).toBe(id)
   })
 })
 

@@ -90,9 +90,10 @@ const nowS = () => Math.floor(Date.now() / 1000)
 
 /**
  * A trade or swap the indexer wrote more than this many seconds after its block is history it caught up on (a
- * backfill, or a restart after an outage), not live trading, and never reaches the rules.
+ * backfill, or a restart after an outage), not live trading, and never reaches the rules. It matches the longest
+ * time an alert may wait in the queue (DEV SELL's 30 minutes): any alert from an older row would be dropped as late.
  */
-export const LATE_WRITE_S = 3600
+export const LATE_WRITE_S = 1800
 
 const writtenLate = (ev: Written<IndexerEvent>): boolean =>
   (ev.p.type === "launchpad.trade" || ev.p.type === "launchpad.swap") &&

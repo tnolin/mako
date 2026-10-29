@@ -1,6 +1,6 @@
 import type { LaunchEvent, SwapEvent, TradeEvent } from "@ink-indexer/events"
-import { valueText } from "../cards/money"
-import { age, bar, units, usd } from "../format"
+import { quoteUnits, valueText } from "../cards/money"
+import { age, bar, usd } from "../format"
 import { type Row, swapsOf } from "../history"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
@@ -31,7 +31,7 @@ export async function mcapTargets(
   if (ctx.now() - p.blockTimestamp > FRESH_S) return []
   const price = ctx.prices.usd(p.quoteAsset)
   if (price === null) return []
-  const mcapUsd = units(p.marketCap) * price
+  const mcapUsd = quoteUnits(p.marketCap) * price
   const rows = await ctx.sql<TargetRow[]>`
     select 'u' as kind, user_id::text as id, target_usd::float8 as usd, target_set_usd::float8 as "setUsd"
     from bot.subscriptions

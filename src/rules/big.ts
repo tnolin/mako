@@ -1,5 +1,5 @@
-import { quoteText, valueText } from "../cards/money"
-import { bar, bpsChange, units } from "../format"
+import { quoteText, quoteUnits, valueText } from "../cards/money"
+import { bar, bpsChange } from "../format"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
 import { prevSoldBps } from "./stats"
@@ -50,7 +50,7 @@ export function bigSwap(s: SwapCtx): Candidate[] {
   const before = buy ? liquidity - quote : liquidity + quote
   if (before <= 0n) return []
   const price = s.prices.usd(p.quoteAsset)
-  if (price === null || units(quote) * price < BIG_MIN_USD) return []
+  if (price === null || quoteUnits(quote) * price < BIG_MIN_USD) return []
   const sizeBps = Number((quote * 10_000n) / before)
   if (sizeBps < MIN_BIG_BPS) return []
   return [

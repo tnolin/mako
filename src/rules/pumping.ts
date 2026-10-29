@@ -1,5 +1,5 @@
-import { valueText } from "../cards/money"
-import { age, bar, buysSells, units } from "../format"
+import { quoteUnits, valueText } from "../cards/money"
+import { age, bar, buysSells } from "../format"
 import { PRIORITY, PUMP_BONDED_STEPS } from "../settings"
 import { makeCard } from "./card"
 import { buyers, pumpWindow, windowStats } from "./stats"
@@ -61,7 +61,7 @@ export function pumpingBonded(s: SwapCtx): Candidate[] {
     dedupeKey: `pump:${p.txHash}:${p.logIndex}`,
     priority: PRIORITY.pumping,
     eventTs: p.blockTimestamp,
-    mcapUsd: price === null ? null : units(mcap) * price,
+    mcapUsd: price === null ? null : quoteUnits(mcap) * price,
   }
   if (gainBps < MIN_BONDED_BPS) {
     return [

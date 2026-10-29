@@ -148,24 +148,26 @@ export async function setTarget(
   nowUsd: number,
 ): Promise<number | null> {
   const up = targetUsd > nowUsd
+  // One statement: the row lock makes it wait for a delivery that is clearing a fired target, and then read the
+  // cleared value, so the reply never names a target that already fired as the one replaced.
   const [old] =
     "userId" in owner
       ? await deps.sql<{ usd: number | null }[]>`
-          select target_usd::float8 as usd from bot.subscriptions
-          where user_id = ${owner.userId} and kind = 'watch' and target = ${ca}`
+          with old as (
+            select user_id, kind, target, target_usd from bot.subscriptions
+            where user_id = ${owner.userId} and kind = 'watch' and target = ${ca} for update)
+          update bot.subscriptions s
+          set target_usd = ${targetUsd}, target_up = ${up}, target_set_usd = ${nowUsd}, target_set_at = now()
+          from old where s.user_id = old.user_id and s.kind = old.kind and s.target = old.target
+          returning old.target_usd::float8 as usd`
       : await deps.sql<{ usd: number | null }[]>`
-          select target_usd::float8 as usd from bot.chat_token_watches
-          where chat_id = ${owner.chatId} and target = ${ca}`
-  if ("userId" in owner)
-    await deps.sql`
-      update bot.subscriptions
-      set target_usd = ${targetUsd}, target_up = ${up}, target_set_usd = ${nowUsd}, target_set_at = now()
-      where user_id = ${owner.userId} and kind = 'watch' and target = ${ca}`
-  else
-    await deps.sql`
-      update bot.chat_token_watches
-      set target_usd = ${targetUsd}, target_up = ${up}, target_set_usd = ${nowUsd}, target_set_at = now()
-      where chat_id = ${owner.chatId} and target = ${ca}`
+          with old as (
+            select chat_id, target, target_usd from bot.chat_token_watches
+            where chat_id = ${owner.chatId} and target = ${ca} for update)
+          update bot.chat_token_watches w
+          set target_usd = ${targetUsd}, target_up = ${up}, target_set_usd = ${nowUsd}, target_set_at = now()
+          from old where w.chat_id = old.chat_id and w.target = old.target
+          returning old.target_usd::float8 as usd`
   return old?.usd ?? null
 }
 

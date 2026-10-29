@@ -10,6 +10,7 @@ import {
   WATCH_USAGE,
 } from "../src/menus/copy"
 import { parseWatchArgs } from "../src/menus/watches"
+import { setTarget } from "../src/menus/watchlist"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
@@ -594,6 +595,33 @@ describe("/watch with a market cap target", () => {
     await h.text("/watch $goblo")
     expect(h.last("sendMessage")!.text).toBe(dm.watching("$GOBLO", "token"))
     expect(await target()).toEqual([{ target: A, usd: null, up: null, setUsd: null, setAt: false }])
+  })
+
+  it("a target that fires while it is being replaced is not named as replaced", async () => {
+    await priced()
+    await h.text("/watch $GOBLO 500k")
+    const deps = { sql } as Parameters<typeof setTarget>[0]
+    // The poller clears the fired target and holds its row lock until the delivery commits.
+    let release!: () => void
+    const held = new Promise<void>((r) => {
+      release = r
+    })
+    let locked!: () => void
+    const isLocked = new Promise<void>((r) => {
+      locked = r
+    })
+    const clearing = sql.begin(async (tx) => {
+      await tx`update bot.subscriptions set target_usd = null, target_up = null, target_set_usd = null, target_set_at = null`
+      locked()
+      await held
+    })
+    await isLocked
+    const replacing = setTarget(deps, { userId }, A, 750_000, 210_000)
+    await new Promise((r) => setTimeout(r, 100))
+    release()
+    await clearing
+    expect(await replacing).toBeNull()
+    expect(await target()).toMatchObject([{ usd: 750_000 }])
   })
 
   it("the watched list shows the target", async () => {

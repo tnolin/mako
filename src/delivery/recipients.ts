@@ -346,10 +346,13 @@ export async function loadAudience(
     ? await sql<{ chatId: string; target: string }[]>`
         select chat_id::text as "chatId", target from bot.chat_token_watches where target = any(${tokens})`
     : []
+  // Curve PUMPING's cooldown is an hour, and only a candidate within its queue window can still be sent, so two
+  // hours of deliveries cover it. Bonded PUMPING re-arms in memory and reads none.
   const pumps = tokens.length
     ? await sql<{ chatId: string; token: string; ts: number; key: string }[]>`
         select chat_id::text as "chatId", token, extract(epoch from event_ts)::int as ts, dedupe_key as key
-        from bot.deliveries where alert = 'pumping' and token = any(${tokens}) and status <> 'superseded'`
+        from bot.deliveries where alert = 'pumping' and token = any(${tokens}) and status <> 'superseded'
+          and event_ts > to_timestamp(${nowS - 2 * 3600})`
     : []
   type OwnerRow = { userId: string | null; chatId: string | null; contract: string }
   type SentRow = { chatId: string; token: string; ts: number; key: string }

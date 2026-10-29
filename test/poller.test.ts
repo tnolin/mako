@@ -1093,6 +1093,19 @@ describe("PUMPING after bonding", () => {
     expect(await pumpsTo("1214")).toBe(2)
   })
 
+  it("reads only the last two hours of PUMPING deliveries for the cooldown", async () => {
+    for (const [key, ts] of [
+      ["pump:old", T0 - 2 * 3600 - 1],
+      ["pump:recent", T0 - 3599],
+    ] as const)
+      await sql`
+        insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
+        values (1219, 'private', 'pumping', ${L.token}, ${key}, 3, to_timestamp(${ts}), '{}')`
+    const { loadAudience } = await import("../src/delivery/recipients")
+    const aud = await loadAudience(sql, [L.token], T0)
+    expect(aud.lastPump.get(`1219:${L.token}`)?.map((p) => p.key)).toEqual(["pump:recent"])
+  })
+
   it("curve PUMPING still uses the hourly cooldown", async () => {
     await addUser(sql, 1215)
     await insertEvents(sql, [L])
@@ -1100,7 +1113,7 @@ describe("PUMPING after bonding", () => {
       insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
       values (1215, 'private', 'pumping', ${L.token}, 'pump:earlier', 3, to_timestamp(${T0 + 30}), '{}')`
     await insertEvents(sql, [trade({ soldBps: 2000, blockTimestamp: T0 + 60 })])
-    await pollOnce(deps())
+    await pollOnce(deps({ now: () => T0 + 60 }))
     expect(await pumpsTo("1215")).toBe(1)
   })
 

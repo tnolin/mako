@@ -126,12 +126,13 @@ async function clearTarget(
           update bot.subscriptions
           set target_usd = null, target_up = null, target_set_usd = null, target_set_at = null
           where user_id = ${t.owner.user} and kind = 'watch' and target = ${token}
-            and target_usd = ${t.usd}::numeric
+            and target_usd = ${t.usd}::numeric and extract(epoch from target_set_at) = ${t.setAt}::numeric
           returning 1`
       : await tx`
           update bot.chat_token_watches
           set target_usd = null, target_up = null, target_set_usd = null, target_set_at = null
           where chat_id = ${t.owner.chat} and target = ${token} and target_usd = ${t.usd}::numeric
+            and extract(epoch from target_set_at) = ${t.setAt}::numeric
           returning 1`
   return hit.length > 0
 }

@@ -543,11 +543,11 @@ describe("MCAP TARGET", () => {
     const m = pick(cs, "mcap")!
     expect(m).toMatchObject({
       target: L.token,
-      dedupeKey: `mcap:u${id}:${L.token}:500000`,
+      dedupeKey: `mcap:u${id}:${L.token}:500000:${AT - 3600}.000000`,
       priority: 1,
       eventTs: AT,
       recipient: { user: id },
-      mcapTarget: { usd: 500_000, setUsd: 210_000 },
+      mcapTarget: { usd: 500_000, setUsd: 210_000, setAt: `${AT - 3600}.000000` },
     })
     expect(m.card.title).toBe("MCAP TARGET")
     expect(m.card.rows).toEqual([
@@ -624,7 +624,7 @@ describe("MCAP TARGET", () => {
     const cs = await runAt(AT, [...bonded, swap({ marketCap: eth(204.8), blockTimestamp: AT })])
     expect(pick(cs, "mcap")).toMatchObject({
       recipient: { chat: "-1001" },
-      dedupeKey: `mcap:c-1001:${L.token}:500000`,
+      dedupeKey: `mcap:c-1001:${L.token}:500000:${AT - 3600}.000000`,
     })
   })
 })

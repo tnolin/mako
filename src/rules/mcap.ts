@@ -14,7 +14,8 @@ import type { Candidate, RuleCtx } from "./types"
 const FRESH_S = 1800
 const HOUR_S = 3600
 
-type TargetRow = { kind: "u" | "c"; id: string; usd: number; setUsd: number }
+/** `setAt` is target_set_at as exact epoch seconds (a decimal string), which tells two settings of one amount apart. */
+type TargetRow = { kind: "u" | "c"; id: string; usd: number; setUsd: number; setAt: string }
 
 /**
  * MCAP TARGET: one candidate per watch whose target this trade or swap reached, bound to that user or chat. A target
@@ -33,13 +34,15 @@ export async function mcapTargets(
   if (price === null) return []
   const mcapUsd = quoteUnits(p.marketCap) * price
   const rows = await ctx.sql<TargetRow[]>`
-    select 'u' as kind, user_id::text as id, target_usd::float8 as usd, target_set_usd::float8 as "setUsd"
+    select 'u' as kind, user_id::text as id, target_usd::float8 as usd, target_set_usd::float8 as "setUsd",
+      extract(epoch from target_set_at)::text as "setAt"
     from bot.subscriptions
     where kind = 'watch' and target = ${p.token} and target_usd is not null
       and target_set_at <= to_timestamp(${p.blockTimestamp})
       and ((target_up and ${mcapUsd}::numeric >= target_usd) or (not target_up and ${mcapUsd}::numeric <= target_usd))
     union all
-    select 'c', chat_id::text, target_usd::float8, target_set_usd::float8
+    select 'c', chat_id::text, target_usd::float8, target_set_usd::float8,
+      extract(epoch from target_set_at)::text
     from bot.chat_token_watches
     where target = ${p.token} and target_usd is not null
       and target_set_at <= to_timestamp(${p.blockTimestamp})
@@ -53,11 +56,12 @@ export async function mcapTargets(
     alert: "mcap",
     eventId: ev.id,
     target: p.token,
-    dedupeKey: `mcap:${r.kind}${r.id}:${p.token}:${r.usd}`,
+    // One delivery per setting of a target: the same amount set again later is a new target.
+    dedupeKey: `mcap:${r.kind}${r.id}:${p.token}:${r.usd}:${r.setAt}`,
     priority: PRIORITY.mcap,
     eventTs: p.blockTimestamp,
     recipient: r.kind === "u" ? { user: r.id } : { chat: r.id },
-    mcapTarget: { usd: r.usd, setUsd: r.setUsd },
+    mcapTarget: { usd: r.usd, setUsd: r.setUsd, setAt: r.setAt },
     card: makeCard("mcap", "MCAP TARGET", l, [
       ["mcap", valueText(p.marketCap, p.quoteAsset, ctx.prices)],
       ...(p.type === "launchpad.trade" ? [["curve", bar(p.soldBps)] as [string, string]] : []),

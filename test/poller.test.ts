@@ -1221,6 +1221,43 @@ describe("MCAP TARGET", () => {
     expect(await targets()).toEqual([750_000])
   })
 
+  it("the same target set again after it fired fires again", async () => {
+    const id = await userTarget(1311, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT))
+    expect(await mcapRows()).toEqual(["1311:-"])
+    // Set again, to the same amount, after the first crossing.
+    await sql`
+      update bot.subscriptions set target_usd = 500000, target_up = true, target_set_usd = 210000,
+        target_set_at = to_timestamp(${AT + 60}) + interval '123456 microseconds'
+      where user_id = ${id} and kind = 'watch'`
+    await insertEvents(sql, [over({ blockTimestamp: AT + 120 })])
+    await pollOnce(at(AT + 120))
+    expect(await mcapRows()).toEqual(["1311:-", "1311:-"])
+    expect(await targets()).toEqual([null])
+  })
+
+  it("the same target set again during a crossing's batch is kept for the next crossing", async () => {
+    const id = await userTarget(1312, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    // Between the rules and the write, the user sets the same amount again: a new target, set after the crossing.
+    const rules: PollerDeps["rules"] = async (ev, ctx, prev) => {
+      const { rulesFor } = await import("../src/rules/index")
+      const out = await rulesFor(ev, ctx, prev)
+      await sql`update bot.subscriptions set target_set_at = to_timestamp(${AT + 30}) where user_id = ${id} and kind = 'watch'`
+      return out
+    }
+    await pollOnce(deps({ now: () => AT, rules }))
+    expect(await mcapRows()).toEqual([])
+    expect(await targets()).toEqual([500_000])
+    await insertEvents(sql, [over({ blockTimestamp: AT + 60 })])
+    await pollOnce(at(AT + 60))
+    expect(await mcapRows()).toEqual(["1312:-"])
+    expect(await targets()).toEqual([null])
+  })
+
   it("an event older than 30 minutes does not fire; the next fresh one does", async () => {
     await userTarget(1303, 500_000)
     await bondedToken()

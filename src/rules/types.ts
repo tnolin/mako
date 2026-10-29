@@ -56,8 +56,11 @@ export type Candidate = {
   mcapUsd?: number | null
   /** MCAP TARGET: the one user (bot.users.id) or chat (Telegram chat id) whose target fired. */
   recipient?: { user: string } | { chat: string }
-  /** MCAP TARGET: the target that fired and the market cap when it was set, in USD. */
-  mcapTarget?: { usd: number; setUsd: number }
+  /**
+   * MCAP TARGET: the target that fired and the market cap when it was set, in USD, and when it was set (exact epoch
+   * seconds as a decimal string).
+   */
+  mcapTarget?: { usd: number; setUsd: number; setAt: string }
 }
 
 export type RuleCtx = {

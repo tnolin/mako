@@ -28,7 +28,7 @@ export type Delivery = {
   supersedesBonding: boolean
   holds?: Candidate["holds"]
   /** MCAP TARGET: the target to clear in the same transaction; the row is written only if it is still set. */
-  clearTarget?: { owner: NonNullable<Candidate["recipient"]>; usd: number }
+  clearTarget?: { owner: NonNullable<Candidate["recipient"]>; usd: number; setAt: string }
 }
 
 type UserT = { userId: string; chatId: string; settings: Settings }
@@ -199,7 +199,7 @@ export function route(
       supersedesBonding: c.supersedesBonding ?? false,
       holds: c.holds,
       ...(c.recipient && c.mcapTarget
-        ? { clearTarget: { owner: c.recipient, usd: c.mcapTarget.usd } }
+        ? { clearTarget: { owner: c.recipient, usd: c.mcapTarget.usd, setAt: c.mcapTarget.setAt } }
         : {}),
     })
   }

@@ -1,11 +1,35 @@
 import { type AddressInfo, connect } from "node:net"
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
+import { TokenLaunchpads, tradeLink } from "../src/launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "../src/links"
 import { resetDb } from "./helpers/db"
 
 const CA = "0x5ab27c4e9d1f03b8a6e2c5d7f940b1a8c3d6e3c8"
 const D = "3f2b8a2e-1c4d-4e5f-8a9b-0c1d2e3f4a5b"
+
+describe("redirect by launchpad", () => {
+  it("the redirect handler makes no SQL call", async () => {
+    const launchpads = new TokenLaunchpads([[CA, "inkypump"]])
+    const server = createLinkServer({
+      target: (ca) => tradeLink(launchpads.get(ca) ?? "inkypump", ca, { INKYPUMP_REF_CODE: "M" }),
+      join: () => "https://inkypump.com/ink",
+      // The click log is the only database work, and it never holds up the response.
+      onClick: () => new Promise(() => {}),
+      log: () => {},
+    })
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    try {
+      const port = (server.address() as AddressInfo).port
+      const res = await fetch(`http://127.0.0.1:${port}/t/${CA}`, { redirect: "manual" })
+      expect(res.status).toBe(302)
+      expect(res.headers.get("location")).toBe(`https://inkypump.com/ink/trade/${CA}?ref=M`)
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  })
+})
 
 describe("redirect server", () => {
   const clicks: [string | null, string | null][] = []

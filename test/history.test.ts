@@ -15,10 +15,11 @@ import {
   maxEventId,
   nearBonding,
   swapsOf,
+  tokenLaunchpads,
   tradesOf,
 } from "../src/history"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
-import { addr, bond, launch, swap, T0, trade, tradeV1 } from "./helpers/events"
+import { addr, bond, launch, launchV1, swap, T0, trade, tradeV1 } from "./helpers/events"
 import { loadFixture } from "./helpers/fixtures"
 
 let sql: Sql
@@ -248,6 +249,27 @@ describe("swaps", () => {
       atTs: T0 + 30,
     })
     expect(await lastMarketOf(own, addr(0xdead))).toBeNull()
+  })
+})
+
+describe("token launchpads", () => {
+  it("lists each launched token with its launchpad, v1 rows included", async () => {
+    const own = await resetDb(inject("databaseUrl"))
+    try {
+      await insertEvents(own, [
+        launchV1({ token: addr(0xb1) }),
+        launch({ token: addr(0xb2), launchpad: "tsunami" }),
+        trade({ token: addr(0xb3) }),
+      ])
+      expect(new Map(await tokenLaunchpads(own))).toEqual(
+        new Map([
+          [addr(0xb1), "inkypump"],
+          [addr(0xb2), "tsunami"],
+        ]),
+      )
+    } finally {
+      await own.end()
+    }
   })
 })
 

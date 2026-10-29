@@ -8,6 +8,7 @@ import type {
 import type postgres from "postgres"
 import type { Sql } from "../db"
 import { eventsAfter, launchesAround, maxEventId, type Row } from "../history"
+import type { TokenLaunchpads } from "../launchpads"
 import type { Logger } from "../log"
 import { loadNftState, type NftState } from "../nft/state"
 import type { Prices } from "../prices"
@@ -43,6 +44,8 @@ export type PollerDeps = {
   nftAlertsSince?: number
   /** Unix seconds; tests set it. */
   now?: () => number
+  /** Each token's launchpad, for the Trade redirect; every launch read is recorded here. */
+  launchpads?: TokenLaunchpads
   /** Upper bound (inclusive) on the event ids read. Set only by the replay script; unset in production. */
   maxId?: string
 }
@@ -209,6 +212,7 @@ async function processBatch(
   const lastId = events.at(-1)!.id
   // Launch floods: decided from launch events alone, so a re-run or replay classifies the same way.
   const launches = events.filter((e) => e.p.type === "launchpad.launch") as Row<LaunchEvent>[]
+  for (const l of launches) deps.launchpads?.set(l.p.token, l.p.launchpad)
   let starts = new Map<string, string>()
   if (launches.length > 0) {
     const minTs = launches.reduce(

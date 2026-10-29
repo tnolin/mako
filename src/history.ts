@@ -164,6 +164,14 @@ export function tokensNamed(
     limit 8`
 }
 
+/** Every launched token with its launchpad key. Version 1 rows already carry `launchpad`. */
+export async function tokenLaunchpads(sql: Sql): Promise<[string, string][]> {
+  const rows = await sql<{ token: string; launchpad: string }[]>`
+    select distinct entity as token, payload->>'launchpad' as launchpad
+    from indexer.events where type = 'launchpad.launch'`
+  return rows.map((r) => [r.token, r.launchpad])
+}
+
 /** Launches by a creator up to an id, and how many of them bonded. Uses events_launch_creator. */
 export async function creatorStats(
   sql: Sql,

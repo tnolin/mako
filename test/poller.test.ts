@@ -1,6 +1,7 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { initCursor, type PollerDeps, pollOnce, startPoller } from "../src/delivery/poller"
+import { TokenLaunchpads } from "../src/launchpads"
 import { deleteUserData } from "../src/menus/users"
 import type { Prices } from "../src/prices"
 import type { DevHolds } from "../src/rpc"
@@ -869,4 +870,13 @@ describe("a group that watches a token", () => {
     await pollOnce(deps())
     expect(await alertsOf("-1001")).toEqual([])
   })
+})
+
+it("records the launchpad of every launch it reads", async () => {
+  const launchpads = new TokenLaunchpads()
+  const A = addr(0xa1)
+  await insertEvents(sql, [launch({ token: A }), trade({ token: A })])
+  await pollOnce(deps({ launchpads }))
+  expect(launchpads.get(A)).toBe("inkypump")
+  expect(launchpads.get(addr(0xa2))).toBeUndefined()
 })

@@ -4,6 +4,7 @@ import {
   type Launchpad,
   launchpadNames,
   referralLink,
+  TokenLaunchpads,
   tradeLink,
 } from "../src/launchpads"
 
@@ -27,16 +28,35 @@ it("falls back to the first launchpad for an unknown key", () => {
   expect(tradeLink("nope", CA, {})).toBe(`https://inkypump.com/ink/trade/${CA}`)
 })
 
+const two: Record<string, Launchpad> = {
+  ...LAUNCHPADS,
+  tsunami: {
+    name: "Tsunami",
+    tradeUrl: (ca) => `https://tsunami.example/${ca}`,
+    refParam: "r",
+    refEnv: "TSUNAMI_REF_CODE",
+    referralUrl: () => "https://tsunami.example",
+  },
+}
+
+it("trade link uses the token's launchpad", () => {
+  const lps = new TokenLaunchpads([[CA, "tsunami"]])
+  expect(tradeLink(lps.get(CA) ?? "inkypump", CA, { TSUNAMI_REF_CODE: "M" }, two)).toBe(
+    `https://tsunami.example/${CA}?r=M`,
+  )
+  const other = "0x1111111111111111111111111111111111111111"
+  lps.set(other, "inkypump")
+  expect(lps.get(other)).toBe("inkypump")
+})
+
+it("unknown token falls back to InkyPump", () => {
+  const lps = new TokenLaunchpads()
+  expect(lps.get(CA)).toBeUndefined()
+  expect(tradeLink(lps.get(CA) ?? "inkypump", CA, {}, two)).toBe(
+    `https://inkypump.com/ink/trade/${CA}`,
+  )
+})
+
 it("names launchpads from config only", () => {
-  const two: Record<string, Launchpad> = {
-    ...LAUNCHPADS,
-    tsunami: {
-      name: "Tsunami",
-      tradeUrl: (ca) => `https://tsunami.example/${ca}`,
-      refParam: "r",
-      refEnv: "TSUNAMI_REF_CODE",
-      referralUrl: () => "https://tsunami.example",
-    },
-  }
   expect(launchpadNames(two)).toBe("InkyPump or Tsunami")
 })

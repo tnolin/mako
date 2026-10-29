@@ -23,6 +23,25 @@ export const LAUNCHPADS = {
 
 export type LaunchpadKey = keyof typeof LAUNCHPADS
 
+/**
+ * Each token's launchpad key, held in memory so the Trade redirect never reads the database. Loaded once at start
+ * and kept current by the poller from the launches it reads.
+ * shortcut: one entry per launched token for the life of the process. Past a few hundred thousand tokens, keep
+ * only recently traded ones and resolve the rest with a cached lookup.
+ */
+export class TokenLaunchpads {
+  private readonly byToken: Map<string, string>
+  constructor(entries: Iterable<readonly [string, string]> = []) {
+    this.byToken = new Map(entries)
+  }
+  set(token: string, key: string): void {
+    this.byToken.set(token, key)
+  }
+  get(token: string): string | undefined {
+    return this.byToken.get(token)
+  }
+}
+
 // shortcut: an unknown key falls back to the first launchpad, which is only right while there is one.
 // Upgrade path: once a second launchpad exists, treat an unknown key as an error.
 export function launchpadOf(key: string, list: Record<string, Launchpad> = LAUNCHPADS): Launchpad {

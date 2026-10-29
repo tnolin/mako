@@ -6,6 +6,7 @@ import { clean, escapeHtml } from "../format"
 import { lastMarketOf, launchOf } from "../history"
 import { makeNftAlertCard } from "../nft/card"
 import { matchCollection } from "../nft/match"
+import type { NftState } from "../nft/state"
 import {
   muteCollection,
   mutesOf,
@@ -257,6 +258,9 @@ export function parseWatchArgs(text: string): {
   return { query: words.slice(0, -1).join(" "), targetUsd, badAmount: false }
 }
 
+/** A collection whose slug or whole name is the query, not one that only contains it. */
+const exactCollection = (state: NftState, q: string) => state.matches(q).some((m) => m.tier <= 2)
+
 const shortCa = (ca: string) => `${ca.slice(0, 6)}…${ca.slice(-4)}`
 
 /**
@@ -334,7 +338,12 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
   if (badAmount) return void (await replyHere(ctx, TARGET_BAD_AMOUNT, false))
   const ca = findAddress(query)
   if (ca && (await launchOf(deps.sql, ca))) return watchOne(ctx, deps, ca, targetUsd, true)
-  const hits = ca ? [] : await findTokens(deps.sql, query)
+  // A plain name (no `$`, no amount) that is exactly a collection's name or slug watches the collection, as
+  // /watch did before tokens could be named; `$TICKER` or an address picks the token.
+  const plainName = !ca && targetUsd === null && !query.startsWith("$")
+  const state = deps.nft?.()
+  const collectionFirst = plainName && state !== undefined && exactCollection(state, query)
+  const hits = ca || collectionFirst ? [] : await findTokens(deps.sql, query)
   if (hits.length === 1) return watchOne(ctx, deps, hits[0]!.token, targetUsd, true)
   if (hits.length > 1) {
     const bare = query.replace(/^\$/, "").toLowerCase()
@@ -355,7 +364,6 @@ async function watchCommand(ctx: Context, deps: BotDeps, raw: string): Promise<v
     })
     return
   }
-  const state = deps.nft?.()
   if (!state) return void (await ctx.reply(COPY.loading))
   const m = matchCollection(state, text)
   // A market cap target is for tokens: a collection named with an amount is refused, not watched.

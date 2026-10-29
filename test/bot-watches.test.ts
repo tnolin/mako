@@ -8,7 +8,7 @@ import { nftAlertKeyboard } from "../src/platforms/telegram/render"
 import type { Prices } from "../src/prices"
 import { addChat, addUser } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
-import { addr, nftCollection } from "./helpers/events"
+import { addr, launch, nftCollection } from "./helpers/events"
 import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -365,6 +365,26 @@ describe("/watch in a DM", () => {
     expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
     await h.text("/watch Ink Hornet $5k")
     expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
+    expect(await rows("nft_watches")).toHaveLength(0)
+  })
+
+  it("a collection and a token with the same name: the name watches the collection, $TICKER the token", async () => {
+    const T = addr(0xd7)
+    await insertEvents(sql, [launch({ token: T, ticker: "HORNET", name: "Ink Hornet" })])
+    await h.text("/watch Ink Hornet")
+    expect(h.last("sendMessage")!.text).toBe(dm.watching(N, "nft"))
+    expect(await rows("nft_watches")).toHaveLength(1)
+    expect(await sql`select target from bot.subscriptions`).toEqual([])
+    await h.text("/watch $HORNET")
+    expect(h.last("sendMessage")!.text).toBe(dm.watching("$HORNET", "token"))
+    expect(await sql`select target from bot.subscriptions`).toEqual([{ target: T }])
+  })
+
+  it("a token name that only partly matches a collection watches the token", async () => {
+    const T = addr(0xd8)
+    await insertEvents(sql, [launch({ token: T, ticker: "INK", name: "Ink" })])
+    await h.text("/watch ink")
+    expect(h.last("sendMessage")!.text).toBe(dm.watching("$INK", "token"))
     expect(await rows("nft_watches")).toHaveLength(0)
   })
 

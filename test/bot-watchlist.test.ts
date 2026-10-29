@@ -582,12 +582,22 @@ describe("/watch with a market cap target", () => {
     await h.text("/watch $GOBLO 500k")
     await h.tap("wl")
     expect(kbOf(h.last("editMessageText"))[0]![0]).toEqual({
-      text: "$GOBLO · $500K",
+      text: "Goblo · $500K",
       callback_data: `t:${A}:wl`,
     })
     await h.text("/watch $GOBLO 1.5m", { chat: group, from: 200 })
     await h.tap(`gl:${group.id}:t`)
-    expect(kbOf(h.last("editMessageText"))[0]![0]!.text).toBe("$GOBLO · $1.5M")
+    expect(kbOf(h.last("editMessageText"))[0]![0]!.text).toBe("Goblo · $1.5M")
+  })
+
+  it("the watched list falls back to the ticker for a token with no name", async () => {
+    await insertEvents(sql, [
+      launch({ token: B, ticker: "NONAME", name: null }),
+      trade({ token: B, marketCap: String(84n * ETH) }),
+    ])
+    await h.text(`/watch ${B} 500k`)
+    await h.tap("wl")
+    expect(kbOf(h.last("editMessageText"))[0]![0]!.text).toBe("$NONAME · $500K")
   })
 
   it("the Tokens menu describes the target", async () => {

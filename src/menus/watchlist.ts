@@ -1,3 +1,4 @@
+import type { LaunchEvent } from "@ink-indexer/events"
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { logAction } from "../actions"
@@ -168,9 +169,15 @@ export async function setTarget(
   return old?.usd ?? null
 }
 
-/** A watched list's button: the ticker, then the market cap target when one is set. */
-const watchLabel = (ticker: string, target: string | null) =>
-  target === null ? cutName(ticker) : `${cutName(ticker)} · ${usd(Number(target))}`
+/**
+ * A watched list's button: the ticker, or with a market cap target set, the token's name (the ticker without one)
+ * and the target.
+ */
+const watchLabel = (l: LaunchEvent | undefined, target: string | null) => {
+  const ticker = `$${clean(l?.ticker, 32) || "?"}`
+  if (target === null) return cutName(ticker)
+  return `${cutName(clean(l?.name, 64) || ticker)} · ${usd(Number(target))}`
+}
 
 /** A group's Watched tokens, shown in an admin's DM (never in the group). Live admin check on every tap. */
 async function groupTokensScreen(
@@ -204,13 +211,12 @@ async function groupTokensScreen(
     deps.sql,
     rows.map((r) => r.target),
   )
-  const label = (t: string) => `$${clean(meta.get(t)?.ticker, 32) || "?"}`
   const title = `<b>Watched tokens for ${escapeHtml(await chatTitle(ctx, chatId))}</b>`
   const back = [btn("Back", `al:${chatId}`)]
   if (rows.length === 0) return show(ctx, `${title}\n${WATCHED_EMPTY}`, [back])
   await show(ctx, `${title}\n${WATCHED_INTRO}`, [
     ...rows.map((r) => [
-      btn(watchLabel(label(r.target), r.usd), `t:${r.target}:y${chatCode(chatId)}`),
+      btn(watchLabel(meta.get(r.target), r.usd), `t:${r.target}:y${chatCode(chatId)}`),
       btn("Remove", `gl:${chatId}:t:${r.target}`),
     ]),
     back,
@@ -244,7 +250,6 @@ async function listScreen(ctx: Context, deps: BotDeps, user: User, kind: Kind): 
     deps.sql,
     rows.map((r) => r.target),
   )
-  const label = (t: string) => `$${clean(meta.get(t)?.ticker, 32) || "?"}`
   const [title, intro, empty] =
     kind === "watch"
       ? ["Watched tokens", WATCHED_INTRO, WATCHED_EMPTY]
@@ -253,7 +258,7 @@ async function listScreen(ctx: Context, deps: BotDeps, user: User, kind: Kind): 
   if (rows.length === 0) return show(ctx, `<b>${title}</b>\n${empty}`, [back])
   await show(ctx, `<b>${title}</b>\n${intro}`, [
     ...rows.map((r) => [
-      btn(watchLabel(label(r.target), r.usd), `t:${r.target}:${kind === "watch" ? "wl" : "mu"}`),
+      btn(watchLabel(meta.get(r.target), r.usd), `t:${r.target}:${kind === "watch" ? "wl" : "mu"}`),
       kind === "watch" ? btn("Remove", `wl:rm:${r.target}`) : btn("Unmute", `um:${r.target}`),
     ]),
     back,

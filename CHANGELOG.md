@@ -15,6 +15,8 @@
 ### Changed
 
 - The PUMPING and BIG BUY/SELL descriptions in Token alerts and the welcome card cover pool trades.
+- A bonded token's `/t` card counts its pool swaps in its volume and trades.
+- NEW TOKEN leaves out the bond target for a token that starts in a pool.
 - The skipped-alerts summary counts only alerts that were crowded out by volume. An alert that was already late when it was queued is skipped without being counted.
 
 ### Fixed

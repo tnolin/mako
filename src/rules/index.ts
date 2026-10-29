@@ -53,8 +53,9 @@ export async function swapCtx(ev: Row<SwapEvent>, ctx: RuleCtx): Promise<SwapCtx
 }
 
 /**
- * Candidate alerts for one confirmed event. Reads only indexer.events. For an nft.collection or nft.drop event, `prev`
- * is the snapshot it replaced in the NFT state; the state already holds the event.
+ * Candidate alerts for one confirmed event. Reads indexer.events, and for MCAP TARGET the market cap targets on
+ * bot.subscriptions and bot.chat_token_watches. For an nft.collection or nft.drop event, `prev` is the snapshot it
+ * replaced in the NFT state; the state already holds the event.
  */
 export async function rulesFor(
   ev: Row<IndexerEvent>,

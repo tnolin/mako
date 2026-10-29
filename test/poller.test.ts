@@ -647,8 +647,20 @@ it("poller end to end: nft.drop then nft.mint rows land with the right keys and 
   await addChat(sql, -1001, "supergroup")
   await insertEvents(sql, [nftCollection(), nftDrop({ blockTimestamp: T0 + 60 })])
   expect(await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: 0 }))).toBe(2)
+  // The allowlist stage opens first; the feed does not carry it.
   await insertEvents(sql, [nftMint({ blockTimestamp: T0 + 3600 })])
   await pollOnce(deps({ now: () => T0 + 3610, nftAlertsSince: 0 }))
+  expect((await nftRows()).map((r) => r.alert)).toEqual(["upcoming"])
+  await insertEvents(sql, [
+    nftMint({
+      stageIndex: 0,
+      stageLabel: "Public",
+      stagePriceWei: String(5n * 10n ** 14n),
+      stageStartTs: T0 + 7200,
+      blockTimestamp: T0 + 7200,
+    }),
+  ])
+  await pollOnce(deps({ now: () => T0 + 7210, nftAlertsSince: 0 }))
   const rows = await nftRows()
   expect(rows).toEqual([
     expect.objectContaining({
@@ -730,8 +742,16 @@ it("applies backfilled NFT history to the state but sends nothing for it", async
   ])
   await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: T0 }))
   expect(await nftRows()).toEqual([])
-  await insertEvents(sql, [nftMint({ blockTimestamp: T0 + 3600 })])
-  await pollOnce(deps({ now: () => T0 + 3610, nftAlertsSince: T0 }))
+  await insertEvents(sql, [
+    nftMint({
+      stageIndex: 0,
+      stageLabel: "Public",
+      stagePriceWei: String(5n * 10n ** 14n),
+      stageStartTs: T0 + 7200,
+      blockTimestamp: T0 + 7200,
+    }),
+  ])
+  await pollOnce(deps({ now: () => T0 + 7210, nftAlertsSince: T0 }))
   // The mint start knows the collection is real because the old snapshot built the state.
   expect(await nftRows()).toEqual([expect.objectContaining({ alert: "mintstart", chat_id: "101" })])
 })

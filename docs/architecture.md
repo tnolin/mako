@@ -67,8 +67,8 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 | Alert | Fires when |
 | --- | --- |
 | UPCOMING MINT | A mint is scheduled |
-| MINT STARTING | A mint stage opens, other than a Team stage; a mint without stages sends it with no stage label |
-| MINTED | A collection's mint passes a mark (25%, 50% or 75%) |
+| MINT STARTING | The public stage of a mint opens; a mint without stages sends it with no stage label. A watched collection also sends it for each stage other than a Team stage |
+| MINTED | A watched collection's mint passes a mark (25%, 50% or 75%) |
 | SOLD OUT | A collection mints out |
 | NEW COLLECTION | A new Chimera collection has a name and an image |
 | BIG SALE | A sale at or above 0.05, 0.1, 0.25 or 0.5 ETH |

@@ -98,6 +98,13 @@ function startDue(st: CollectionState, now: number): boolean {
     )
   )
 }
+/**
+ * Whether the stage a mint event reports is the public one. The indexer types every drop stage and the
+ * public sale is `public`; allowlist, Team and any other stage is private. A stage that can't be matched
+ * to the drop is not treated as public.
+ */
+const publicStage = (st: CollectionState, ev: NftMintEvent): boolean =>
+  stageAt(st.drop, ev.stageStartTs)?.type === "public"
 /** A mint with no stages (not a SeaDrop drop): its one `stage_start` reads MINT STARTING without a stage label. */
 const stageless = (st: CollectionState): boolean => (st.col ? !st.col.seadrop : !st.drop)
 
@@ -214,7 +221,15 @@ function stageStart(
       contract: b.contract,
     },
   )
-  return cand(b, "mintstart", `mintstart:${b.contract}:${ev.stageIndex}`, card, at, feedOk(st))
+  // The All collections feed carries only the stage that opens the mint to everyone; a watcher gets every non-Team stage.
+  return cand(
+    b,
+    "mintstart",
+    `mintstart:${b.contract}:${ev.stageIndex}`,
+    card,
+    at,
+    feedOk(st) && publicStage(st, ev),
+  )
 }
 
 function minted(b: Base, st: CollectionState, ev: NftMintEvent): Candidate | null {
@@ -241,7 +256,8 @@ function minted(b: Base, st: CollectionState, ev: NftMintEvent): Candidate | nul
     `minted:${ev.markBps}:${b.contract}`,
     card,
     ev.blockTimestamp,
-    feedOk(st),
+    // Progress marks go to watchers only.
+    false,
     {
       markBps: ev.markBps,
     },

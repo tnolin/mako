@@ -70,20 +70,32 @@ export async function tradesOf(
   )
 }
 
-/** A token's pool swaps in id order, from `sinceTs` (blockTimestamp) up to and including `uptoId` when given. */
+/**
+ * A token's pool swaps in id order, from `sinceTs` (blockTimestamp) up to and including `uptoId` when given. With
+ * both, the scan is narrowed by block first, as in launchesAround: Ink makes about one block per second, so blocks
+ * within 10× the time span are a safe superset.
+ */
 export async function swapsOf(
   sql: Sql,
   token: string,
   uptoId?: string,
   sinceTs = 0,
 ): Promise<Row<SwapEvent>[]> {
-  // shortcut: filters the token's swaps on the payload's timestamp; narrow by block like launchesAround
-  // once a token holds tens of thousands of swaps.
+  let fromBlock: string | null = null
+  if (uptoId !== undefined && sinceTs > 0) {
+    const [to] = await sql<{ block: string; ts: number }[]>`
+      select block::text, (payload->>'blockTimestamp')::float8 as ts from indexer.events where id = ${uptoId}`
+    if (to) {
+      const span = Math.max(0, to.ts - sinceTs)
+      fromBlock = String(BigInt(to.block) - BigInt(Math.ceil(span * 10) + 100))
+    }
+  }
   return upgrade(
     await sql<Row<StoredEvent>[]>`
       select id::text, payload as p from indexer.events
       where entity = ${token} and type = 'launchpad.swap'
         ${uptoId === undefined ? sql`` : sql`and id <= ${uptoId}`}
+        ${fromBlock === null ? sql`` : sql`and block >= ${fromBlock}::bigint`}
         and (payload->>'blockTimestamp')::bigint >= ${sinceTs}
       order by events.id`,
   )

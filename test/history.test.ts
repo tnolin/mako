@@ -318,3 +318,24 @@ describe("id ordering", () => {
     }
   })
 })
+
+describe("swap window", () => {
+  it("swapsOf narrows the window by block, so it reads only recent blocks", async () => {
+    const own2 = await resetDb(inject("databaseUrl"))
+    try {
+      const W = addr(0xab)
+      const [far, near, ev] = await insertEvents(own2, [
+        // Inside the time window but far below the block range: Ink makes one block per second, so a real swap
+        // 100 s back is about 100 blocks back.
+        swap({ token: W, blockNumber: "50", blockTimestamp: T0 + 1900 }),
+        swap({ token: W, blockNumber: "99900", blockTimestamp: T0 + 1900 }),
+        swap({ token: W, blockNumber: "100000", blockTimestamp: T0 + 2000 }),
+      ])
+      const rows = await swapsOf(own2, W, ev!, T0 + 1400)
+      expect(rows.map((r) => r.id)).toEqual([near, ev])
+      expect(rows.map((r) => r.id)).not.toContain(far)
+    } finally {
+      await own2.end()
+    }
+  })
+})

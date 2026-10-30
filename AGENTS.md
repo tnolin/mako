@@ -2,7 +2,7 @@
 
 ## Layout
 
-- `src/rules`: one file per token alert. Each turns an indexer event, plus that token's history, into candidate cards. `stats.ts` holds the pure trade math.
+- `src/rules`: one file per token alert. Each turns an indexer event, plus that token's history, into candidate cards. `stats.ts` holds the pure trade math, and `pump-arm.ts` the re-arm state of PUMPING after bonding.
 - `src/nft`: NFT alerts. `state.ts` is the in-memory collection state, `rules/mint.ts` and `rules/market.ts` the rules, `policy.ts` the thresholds and limits, `watches.ts` the watches, mutes and reminders, `opensea.ts` the live item reads.
 - `src/cards`: the platform-neutral `Card` type and money formatting (ADR 0002).
 - `src/delivery`: `poller.ts` (events to `bot.deliveries`), `recipients.ts` (who gets what: feeds, watches, mutes, thresholds, caps), `sender.ts` (queue drain and throttles), `notices.ts` (admin DMs), `retention.ts`.
@@ -26,7 +26,7 @@
 ## Adding an alert
 
 1. Add the kind to `AlertKind`, `PRIORITY`, `ALERT_LABEL`, `ALERT_DESC` and the preset in `src/settings.ts`. A token alert also goes in `TOKEN_ALERTS` and `ALERT_HELP`; an NFT alert goes in `NFT_ALL_ALERTS` or `NFT_WATCHED_ALERTS`, with its thresholds in `src/nft/policy.ts`.
-2. Write the rule in `src/rules/<alert>.ts` (tokens) or `src/nft/rules/` (NFTs) with tests, and register it in `src/rules/index.ts`.
+2. Write the rule in `src/rules/<alert>.ts` (tokens) or `src/nft/rules/` (NFTs) with tests, and register it in `src/rules/index.ts`. A token rule that applies after bonding also goes on the swap path there: `swapCtx` loads a pool swap's context, and the swap rules sit beside the trade rules.
 3. Its settings row and routing button come from `ALERTS`, and the button callback patterns in `src/menus/alerts.ts`, `src/menus/start.ts` and `src/menus/chats.ts` are built from `ALERT_PATTERN` in `src/settings.ts`, so they need no edit. A threshold needs a picker in `src/menus/alerts.ts`. Describe its format in the PR.
 
 ## Adding a launchpad

@@ -1,7 +1,8 @@
-import type { TradeEvent } from "@ink-indexer/events"
+import type { SwapEvent, TradeEvent } from "@ink-indexer/events"
 import { expect, it } from "vitest"
 import type { Row } from "../src/history"
 import {
+  buyers,
   devCounts,
   devPnl,
   launchTxTrades,
@@ -9,7 +10,7 @@ import {
   pumpWindow,
   windowStats,
 } from "../src/rules/stats"
-import { addr, ETH, hash, T0, trade } from "./helpers/events"
+import { addr, ETH, hash, swap, T0, trade } from "./helpers/events"
 
 const C = addr(0xc1)
 const rows = (ts: Partial<TradeEvent>[]): Row<TradeEvent>[] =>
@@ -29,6 +30,29 @@ it("sums volume and counts inside a time window up to an id", () => {
   ])
   expect(windowStats(t, T0 + 50, "2")).toEqual({ volume: 2n * ETH, buys: 0, sells: 1 })
   expect(windowStats(t, 0, "3")).toEqual({ volume: 7n * ETH, buys: 2, sells: 1 })
+})
+
+const swapRows = (ss: Partial<SwapEvent>[]): Row<SwapEvent>[] =>
+  ss.map((o, i) => ({ id: String(i + 1), p: swap(o) }))
+
+it("windowStats sums swap quote amounts", () => {
+  const s = swapRows([
+    { blockTimestamp: T0, quoteAmount: String(ETH) },
+    { blockTimestamp: T0 + 100, quoteAmount: String(2n * ETH), side: "sell" },
+    { blockTimestamp: T0 + 200, quoteAmount: String(4n * ETH) },
+  ])
+  expect(windowStats(s, T0 + 50, "3")).toEqual({ volume: 6n * ETH, buys: 1, sells: 1 })
+})
+
+it("buyers counts distinct buying wallets", () => {
+  const s = swapRows([
+    { trader: addr(0xe1) },
+    { trader: addr(0xe2) },
+    { trader: addr(0xe1) },
+    { trader: addr(0xe3), side: "sell" },
+  ])
+  expect(buyers(s)).toBe(2)
+  expect(buyers([])).toBe(0)
 })
 
 it("computes dev realized PnL by average cost", () => {

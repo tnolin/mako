@@ -1,0 +1,76 @@
+import type { LaunchEvent, SwapEvent, TradeEvent } from "@ink-indexer/events"
+import { quoteUnits, valueText } from "../cards/money"
+import { age, bar, usd } from "../format"
+import { type Row, swapsOf, tradesOf } from "../history"
+import { PRIORITY } from "../settings"
+import { makeCard } from "./card"
+import { windowStats } from "./stats"
+import type { Candidate, RuleCtx } from "./types"
+
+/**
+ * An event older than this is past MCAP TARGET's 30-minute queue window: its delivery would be dropped as late after
+ * the target was cleared, so it doesn't fire. The next fresh trade past the target does.
+ */
+const FRESH_S = 1800
+const HOUR_S = 3600
+
+/** `setAt` is target_set_at as exact epoch seconds (a decimal string), which tells two settings of one amount apart. */
+type TargetRow = { kind: "u" | "c"; id: string; usd: number; setUsd: number; setAt: string }
+
+/**
+ * MCAP TARGET: one candidate per watch whose target this trade or swap reached, bound to that user or chat. A target
+ * set after the event's block never fires on it. `trades` are the token's curve trades up to the event, or empty on
+ * the swap path, where they and the hour's swaps are read only when a target fires.
+ */
+export async function mcapTargets(
+  ctx: RuleCtx,
+  ev: Row<TradeEvent | SwapEvent>,
+  launch: Row<LaunchEvent>,
+  trades: Row<TradeEvent>[],
+): Promise<Candidate[]> {
+  const p = ev.p
+  if (ctx.now() - p.blockTimestamp > FRESH_S) return []
+  const price = ctx.prices.usd(p.quoteAsset)
+  if (price === null) return []
+  const mcapUsd = quoteUnits(p.marketCap) * price
+  const rows = await ctx.sql<TargetRow[]>`
+    select 'u' as kind, user_id::text as id, target_usd::float8 as usd, target_set_usd::float8 as "setUsd",
+      extract(epoch from target_set_at)::text as "setAt"
+    from bot.subscriptions
+    where kind = 'watch' and target = ${p.token} and target_usd is not null
+      and target_set_at <= to_timestamp(${p.blockTimestamp})
+      and ((target_up and ${mcapUsd}::numeric >= target_usd) or (not target_up and ${mcapUsd}::numeric <= target_usd))
+    union all
+    select 'c', chat_id::text, target_usd::float8, target_set_usd::float8,
+      extract(epoch from target_set_at)::text
+    from bot.chat_token_watches
+    where target = ${p.token} and target_usd is not null
+      and target_set_at <= to_timestamp(${p.blockTimestamp})
+      and ((target_up and ${mcapUsd}::numeric >= target_usd) or (not target_up and ${mcapUsd}::numeric <= target_usd))`
+  if (rows.length === 0) return []
+  const from = p.blockTimestamp - HOUR_S
+  const [curve, swaps] = await Promise.all([
+    trades.length > 0 ? trades : tradesOf(ctx.sql, p.token, ev.id),
+    swapsOf(ctx.sql, p.token, ev.id, from),
+  ])
+  const vol = windowStats([...curve, ...swaps], from, ev.id).volume
+  const l = launch.p
+  return rows.map((r) => ({
+    alert: "mcap",
+    eventId: ev.id,
+    target: p.token,
+    // One delivery per setting of a target: the same amount set again later is a new target.
+    dedupeKey: `mcap:${r.kind}${r.id}:${p.token}:${r.usd}:${r.setAt}`,
+    priority: PRIORITY.mcap,
+    eventTs: p.blockTimestamp,
+    recipient: r.kind === "u" ? { user: r.id } : { chat: r.id },
+    mcapTarget: { usd: r.usd, setUsd: r.setUsd, setAt: r.setAt },
+    card: makeCard("mcap", "MCAP TARGET", l, [
+      ["mcap", valueText(p.marketCap, p.quoteAsset, ctx.prices)],
+      ...(p.type === "launchpad.trade" ? [["curve", bar(p.soldBps)] as [string, string]] : []),
+      ["target", `${usd(r.usd)} (set at ${usd(r.setUsd)})`],
+      ["volume", `${valueText(vol, p.quoteAsset, ctx.prices)} (1h)`],
+      ["age", age(p.blockTimestamp - l.blockTimestamp)],
+    ]),
+  }))
+}

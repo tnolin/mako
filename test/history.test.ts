@@ -5,17 +5,21 @@ import {
   bondOf,
   creatorStats,
   cursorBlock,
+  devTradesOf,
   eventsAfter,
   hotNow,
   justBonded,
+  lastMarketOf,
   launchesOf,
   launchOf,
   maxEventId,
   nearBonding,
+  swapsOf,
+  tokenLaunchpads,
   tradesOf,
 } from "../src/history"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
-import { addr, bond, launch, trade } from "./helpers/events"
+import { addr, bond, launch, launchV1, swap, T0, trade, tradeV1 } from "./helpers/events"
 import { loadFixture } from "./helpers/fixtures"
 
 let sql: Sql
@@ -45,6 +49,19 @@ describe("synthetic events", () => {
   it("stops at maxId when given", async () => {
     const evs = await eventsAfter(sql, ids[0]!, 500, ids[2]!)
     expect(evs.map((e) => e.id)).toEqual([ids[1], ids[2]])
+  })
+
+  it("eventsAfter returns writtenTs", async () => {
+    const [late] = await insertEvents(sql, [trade({ token: addr(0xf1), blockNumber: "900" })], {
+      writtenAt: T0 + 86_400,
+    })
+    try {
+      const evs = await eventsAfter(sql, ids[0]!)
+      expect(evs.find((e) => e.id === ids[1])!.writtenTs).toBe(T0 + 60)
+      expect(evs.find((e) => e.id === late)!.writtenTs).toBe(T0 + 86_400)
+    } finally {
+      await sql`delete from indexer.events where id = ${late!}`
+    }
   })
 
   it("reads confirmed events after a cursor, in id order", async () => {
@@ -174,6 +191,107 @@ describe("discovery windows", () => {
   })
 })
 
+describe("schema versions", () => {
+  it("tradesOf returns v1 and v2 rows in id order with athMarketCap set", async () => {
+    const own = await resetDb(inject("databaseUrl"))
+    try {
+      const T = addr(0xa7)
+      await insertEvents(own, [
+        tradeV1({ token: T, marketCap: "100", soldBps: 1000 }),
+        trade({ token: T, marketCap: "300", athMarketCap: "400", soldBps: 2000 }),
+        tradeV1({ token: T, marketCap: "200", soldBps: 3000 }),
+      ])
+      const rows = await tradesOf(own, T)
+      expect(rows.map((r) => [r.p.v, r.p.soldBps, r.p.athMarketCap])).toEqual([
+        [2, 1000, "100"],
+        [2, 2000, "400"],
+        [2, 3000, "200"],
+      ])
+      const all = await eventsAfter(own, "0")
+      expect(all.every((r) => r.p.v === 2)).toBe(true)
+    } finally {
+      await own.end()
+    }
+  })
+})
+
+describe("swaps", () => {
+  const T = addr(0xa8)
+  const DEV = addr(0xc8)
+  let own: Sql
+  let ids: string[] = []
+  beforeAll(async () => {
+    own = await resetDb(inject("databaseUrl"))
+    ids = await insertEvents(own, [
+      launch({ token: T, creator: DEV }),
+      trade({ token: T, trader: DEV, blockTimestamp: T0 + 10, marketCap: "50" }),
+      trade({ token: T, blockTimestamp: T0 + 20 }),
+      swap({ token: T, blockTimestamp: T0 + 1000, marketCap: "70", athMarketCap: "90" }),
+      swap({ token: T, trader: DEV, side: "sell", blockTimestamp: T0 + 1500 }),
+      swap({ token: addr(0xa9), blockTimestamp: T0 + 1600 }),
+      swap({ token: T, blockTimestamp: T0 + 1700, marketCap: "80", athMarketCap: "95" }),
+      tradeV1({ token: addr(0xaa), blockTimestamp: T0 + 30, marketCap: "33" }),
+      tradeV1({ token: addr(0xac), blockTimestamp: T0 + 30, marketCap: "50" }),
+      tradeV1({ token: addr(0xac), blockTimestamp: T0 + 40, marketCap: "33" }),
+    ])
+  })
+  afterAll(() => own.end())
+
+  it("swapsOf returns only the window", async () => {
+    const rows = await swapsOf(own, T, ids[4]!, T0 + 1100)
+    expect(rows.map((r) => r.id)).toEqual([ids[4]])
+    expect((await swapsOf(own, T, ids[6]!, T0)).map((r) => r.id)).toEqual([ids[3], ids[4], ids[6]])
+  })
+
+  it("devTradesOf returns only the creator's trades and swaps", async () => {
+    const d = await devTradesOf(own, T, DEV, ids[6]!)
+    expect(d.trades.map((r) => r.id)).toEqual([ids[1]])
+    expect(d.swaps.map((r) => r.id)).toEqual([ids[4]])
+    const early = await devTradesOf(own, T, DEV, ids[3]!)
+    expect(early.swaps).toEqual([])
+  })
+
+  it("lastMarketOf reads the newest trade or swap", async () => {
+    expect(await lastMarketOf(own, T)).toEqual({
+      marketCap: 80n,
+      quote: "0x0000000000000000000000000000000000000000",
+      ath: 95n,
+      atTs: T0 + 1700,
+    })
+    expect(await lastMarketOf(own, addr(0xaa))).toMatchObject({
+      marketCap: 33n,
+      ath: 33n,
+      atTs: T0 + 30,
+    })
+    expect(await lastMarketOf(own, addr(0xdead))).toBeNull()
+  })
+
+  it("lastMarketOf takes a v1 token's ath from its highest market cap", async () => {
+    expect(await lastMarketOf(own, addr(0xac))).toMatchObject({ marketCap: 33n, ath: 50n })
+  })
+})
+
+describe("token launchpads", () => {
+  it("lists each launched token with its launchpad, v1 rows included", async () => {
+    const own = await resetDb(inject("databaseUrl"))
+    try {
+      await insertEvents(own, [
+        launchV1({ token: addr(0xb1) }),
+        launch({ token: addr(0xb2), launchpad: "tsunami" }),
+        trade({ token: addr(0xb3) }),
+      ])
+      expect(new Map(await tokenLaunchpads(own))).toEqual(
+        new Map([
+          [addr(0xb1), "inkypump"],
+          [addr(0xb2), "tsunami"],
+        ]),
+      )
+    } finally {
+      await own.end()
+    }
+  })
+})
+
 describe("real fixtures", () => {
   it("loads the bonded MIM history", async () => {
     await resetDb(inject("databaseUrl")).then((s) => s.end())
@@ -203,6 +321,27 @@ describe("id ordering", () => {
       expect((await tradesOf(own, T, ids[99]!)).map((t) => t.id)).toEqual(ids.slice(0, 100))
     } finally {
       await own.end()
+    }
+  })
+})
+
+describe("swap window", () => {
+  it("swapsOf narrows the window by block, so it reads only recent blocks", async () => {
+    const own2 = await resetDb(inject("databaseUrl"))
+    try {
+      const W = addr(0xab)
+      const [far, near, ev] = await insertEvents(own2, [
+        // Inside the time window but far below the block range: Ink makes one block per second, so a real swap
+        // 100 s back is about 100 blocks back.
+        swap({ token: W, blockNumber: "50", blockTimestamp: T0 + 1900 }),
+        swap({ token: W, blockNumber: "99900", blockTimestamp: T0 + 1900 }),
+        swap({ token: W, blockNumber: "100000", blockTimestamp: T0 + 2000 }),
+      ])
+      const rows = await swapsOf(own2, W, ev!, T0 + 1400)
+      expect(rows.map((r) => r.id)).toEqual([near, ev])
+      expect(rows.map((r) => r.id)).not.toContain(far)
+    } finally {
+      await own2.end()
     }
   })
 })

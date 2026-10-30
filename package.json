@@ -18,7 +18,7 @@
     "start": "tsx --env-file-if-exists=.env src/main.ts"
   },
   "dependencies": {
-    "@ink-indexer/events": "github:tnolin/ink-indexer#events-v2&path:/packages/events",
+    "@ink-indexer/events": "github:tnolin/ink-indexer#events-v3&path:/packages/events",
     "@sentry/node": "11.6.0",
     "grammy": "1.46.0",
     "postgres": "^3.4.9",

@@ -6,8 +6,8 @@ import { startSender } from "./delivery/sender"
 import { createViewer } from "./delivery/viewer"
 import { createHealth } from "./health"
 import { createHeartbeat } from "./heartbeat"
-import { cursorBlock } from "./history"
-import { referralLink, tradeLink } from "./launchpads"
+import { cursorBlock, tokenLaunchpads } from "./history"
+import { referralLink, TokenLaunchpads, tradeTarget } from "./launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "./links"
 import { log } from "./log"
 import { ABOUT, GROUP_COMMANDS, PRIVATE_COMMANDS, SHORT_ABOUT } from "./menus/main"
@@ -94,6 +94,7 @@ await Promise.all([
   bot.api.setMyShortDescription(SHORT_ABOUT),
 ]).catch((err) => log("warn", "could not set commands or description", { error: String(err) }))
 
+const launchpads = new TokenLaunchpads(await tokenLaunchpads(sql))
 const balanceOf = rpcBalanceOf(env.INK_RPC_URL || DEFAULT_RPC)
 const stopPoller = startPoller({
   sql,
@@ -103,6 +104,7 @@ const stopPoller = startPoller({
   readHolds: (r) => readDevHolds(balanceOf, r),
   nftAlertsSince,
   nftState,
+  launchpads,
 })
 const stopReminders = startReminders({ sql, nft: () => nftState.current, log })
 const notify = createNotify({ sql, api: bot.api, botUsername, log })
@@ -115,7 +117,7 @@ const stopSender = startSender({
 })
 
 const server = createLinkServer({
-  target: (ca) => tradeLink("inkypump", ca),
+  target: tradeTarget(launchpads),
   join: () => referralLink("inkypump"),
   onClick: (ca, d) => logTradeClick(sql, ca, d),
   onNftClick: (target, d) => logNftClick(sql, target, d),

@@ -1,11 +1,60 @@
 import { type AddressInfo, connect } from "node:net"
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
+import { LAUNCHPADS, type Launchpad, TokenLaunchpads, tradeTarget } from "../src/launchpads"
 import { createLinkServer, logNftClick, logTradeClick } from "../src/links"
 import { resetDb } from "./helpers/db"
 
 const CA = "0x5ab27c4e9d1f03b8a6e2c5d7f940b1a8c3d6e3c8"
 const D = "3f2b8a2e-1c4d-4e5f-8a9b-0c1d2e3f4a5b"
+
+describe("redirect by launchpad", () => {
+  const OTHER = "0x1111111111111111111111111111111111111111"
+  const two: Record<string, Launchpad> = {
+    ...LAUNCHPADS,
+    otherpad: {
+      name: "Otherpad",
+      tradeUrl: (ca) => `https://otherpad.example/${ca}`,
+      refParam: "r",
+      refEnv: "OTHERPAD_REF_CODE",
+      referralUrl: () => "https://otherpad.example",
+    },
+  }
+  /** Serves one Trade redirect and returns its Location. The click log never resolves. */
+  async function redirect(target: (ca: string) => string, ca: string): Promise<string | null> {
+    const server = createLinkServer({
+      target,
+      join: () => "https://inkypump.com/ink",
+      onClick: () => new Promise(() => {}),
+      log: () => {},
+    })
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    try {
+      const port = (server.address() as AddressInfo).port
+      const res = await fetch(`http://127.0.0.1:${port}/t/${ca}`, { redirect: "manual" })
+      expect(res.status).toBe(302)
+      return res.headers.get("location")
+    } finally {
+      server.closeAllConnections()
+      await new Promise<void>((r) => server.close(() => r()))
+    }
+  }
+
+  it("the redirect never waits on the click log", async () => {
+    const target = tradeTarget(new TokenLaunchpads([[CA, "inkypump"]]), { INKYPUMP_REF_CODE: "M" })
+    expect(await redirect(target, CA)).toBe(`https://inkypump.com/ink/trade/${CA}?ref=M`)
+  })
+
+  it("sends each token to its own launchpad, and an unknown token to InkyPump", async () => {
+    const target = tradeTarget(
+      new TokenLaunchpads([[CA, "otherpad"]]),
+      { INKYPUMP_REF_CODE: "M", OTHERPAD_REF_CODE: "T" },
+      two,
+    )
+    expect(await redirect(target, CA)).toBe(`https://otherpad.example/${CA}?r=T`)
+    expect(await redirect(target, OTHER)).toBe(`https://inkypump.com/ink/trade/${OTHER}?ref=M`)
+  })
+})
 
 describe("redirect server", () => {
   const clicks: [string | null, string | null][] = []
@@ -126,9 +175,7 @@ describe("redirect server", () => {
   it("302s the platform links without logging them", async () => {
     nftClicks.length = 0
     expect((await get("/p/opensea")).headers.get("location")).toBe("https://opensea.io")
-    expect((await get("/p/chimera")).headers.get("location")).toBe(
-      "https://www.chimeras.ink/discover",
-    )
+    expect((await get("/p/chimera")).headers.get("location")).toBe("https://www.chimeras.ink/")
     await new Promise((r) => setTimeout(r, 20))
     expect(nftClicks).toEqual([])
   })

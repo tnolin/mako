@@ -1,4 +1,4 @@
-import type { TradeEvent } from "@ink-indexer/events"
+import type { SwapEvent, TradeEvent } from "@ink-indexer/events"
 import type { Row } from "../history"
 
 const lt = (a: string, b: string) => BigInt(a) < BigInt(b)
@@ -14,9 +14,9 @@ export function prevSoldBps(trades: Row<TradeEvent>[], id: string): number {
   return v
 }
 
-/** Volume (sum of quoteAmount) and buy/sell counts for trades at or after `fromTs`, up to `uptoId`. */
+/** Volume (sum of quoteAmount) and buy/sell counts for trades or swaps at or after `fromTs`, up to `uptoId`. */
 export function windowStats(
-  trades: Row<TradeEvent>[],
+  trades: Row<TradeEvent | SwapEvent>[],
   fromTs: number,
   uptoId: string,
 ): { volume: bigint; buys: number; sells: number } {
@@ -32,10 +32,22 @@ export function windowStats(
   return { volume, buys, sells }
 }
 
-const devTrades = (trades: Row<TradeEvent>[], creator: string, uptoId: string) =>
+/** Distinct wallets that bought, by the transaction sender. */
+export function buyers(swaps: Row<SwapEvent>[]): number {
+  return new Set(swaps.filter((s) => s.p.side === "buy").map((s) => s.p.trader)).size
+}
+
+type Fill = Row<TradeEvent | SwapEvent>
+
+const devTrades = (trades: Fill[], creator: string, uptoId: string) =>
   trades.filter((t) => t.p.trader === creator && le(t.id, uptoId))
 
-export function devCounts(trades: Row<TradeEvent>[], creator: string, uptoId: string) {
+/** Curve trades and pool swaps as one history in id order. */
+export function fills(trades: Row<TradeEvent>[], swaps: Row<SwapEvent>[]): Fill[] {
+  return [...trades, ...swaps].sort((a, b) => (lt(a.id, b.id) ? -1 : lt(b.id, a.id) ? 1 : 0))
+}
+
+export function devCounts(trades: Fill[], creator: string, uptoId: string) {
   const d = devTrades(trades, creator, uptoId)
   return {
     buys: d.filter((t) => t.p.side === "buy").length,
@@ -44,10 +56,10 @@ export function devCounts(trades: Row<TradeEvent>[], creator: string, uptoId: st
 }
 
 /**
- * Realized PnL of the creator's curve trades by average cost. Tokens sold beyond what the creator
- * bought on the curve (allocation, transfers) carry a zero cost basis.
+ * Realized PnL of the creator's curve trades and pool swaps by average cost, in id order. Tokens sold
+ * beyond what the creator bought (allocation, transfers) carry a zero cost basis.
  */
-export function devPnl(trades: Row<TradeEvent>[], creator: string, uptoId: string) {
+export function devPnl(trades: Fill[], creator: string, uptoId: string) {
   let qty = 0n
   let cost = 0n
   let realized = 0n

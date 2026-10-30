@@ -201,6 +201,7 @@ describe("groups", () => {
       "BONDED",
       "DEV SELL",
       "BIG BUY/SELL",
+      "MCAP TARGET",
       "UPCOMING MINT",
       "MINT STARTING",
       "MINTED",
@@ -215,6 +216,15 @@ describe("groups", () => {
     ])
     await h.tap("rt:mintstart", { chat: G, thread: 9 })
     expect((await chat(G.id))?.settings.routes).toEqual({ mintstart: 9 })
+  })
+
+  it("the route screen lists MCAP TARGET and routes it", async () => {
+    await addChat(sql, G.id, "supergroup", basicPreset("supergroup"))
+    await h.text("/route", { chat: G, thread: 9 })
+    await h.tap("rt:mcap", { chat: G, thread: 9 })
+    const s = (await chat(G.id))?.settings
+    expect(s?.routes).toEqual({ mcap: 9 })
+    expect(s?.alerts.mcap.on).toBe(true)
   })
 
   it("stores the topic's name from /setup and /route, and follows a rename", async () => {
@@ -504,6 +514,16 @@ describe("chat settings details", () => {
       // Saved before names were stored.
       "MINT STARTING → topic 12",
     ])
+  })
+
+  it("lists a routed MCAP TARGET under Token Alerts", async () => {
+    await addChat(sql, G.id, "supergroup", {
+      ...basicPreset("supergroup"),
+      routes: { mcap: 9 },
+      topicNames: { "9": "Targets" },
+    })
+    await h.tap(`gc:${G.id}`)
+    expect(h.last("editMessageText")!.text).toContain("<u>Token Alerts</u>\nMCAP TARGET → Targets")
   })
 
   it("leaves out a section with nothing routed, and reads General for the General topic", async () => {

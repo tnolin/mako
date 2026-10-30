@@ -1,5 +1,5 @@
 import type { BondEvent, LaunchEvent, TradeEvent } from "@ink-indexer/events"
-import { valueText } from "../cards/money"
+import { quoteUnits, valueText } from "../cards/money"
 import { age, amount, buysSells, compact, count, units } from "../format"
 import type { Row } from "../history"
 import type { Prices } from "../prices"
@@ -25,7 +25,7 @@ export function bonded(
   rows.push(
     [
       "pool",
-      `${amount(units(b.liquidityQuote))} ${prices.symbol(b.quoteAsset)} + ${compact(units(b.liquidityTokens))} ${card.ticker}`,
+      `${amount(quoteUnits(b.liquidityQuote))} ${prices.symbol(b.quoteAsset)} + ${compact(units(b.liquidityTokens))} ${card.ticker}`,
     ],
     ["volume", valueText(w.volume, l.quoteAsset, prices)],
     ["trades", count(w.buys + w.sells)],

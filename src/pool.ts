@@ -1,5 +1,7 @@
 import { DEFAULT_RPC } from "./rpc"
 
+/** Uniswap v4 PoolManager on Ink, where every pool bonded before events schema version 2 lives. */
+export const UNISWAP_V4_POOL_MANAGER = "0x360e68faccca8ca495c1b759fd9eee466db9fb32"
 /** Uniswap v4 StateView on Ink (Uniswap's v4 deployments page, checked 2026-10-14). */
 export const STATE_VIEW = "0x76fd297e2d437cd7f76d50f01afe6160f86e9990"
 /** getSlot0(bytes32) */

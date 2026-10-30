@@ -1,14 +1,21 @@
 import { amount, units, usd } from "../format"
 import type { Prices } from "../prices"
 
-/** "0.42 ETH ($1.1K)", or "0.42 ETH" without a price. Quote assets have 18 decimals. */
+/**
+ * A quote amount (ETH, an xStock) in whole units.
+ * shortcut: every quote asset indexed today has 18 decimals, so this assumes 18. A quote with other decimals, such
+ * as USDG, needs per-asset decimals here before it gets a USD price.
+ */
+export const quoteUnits = (raw: string | bigint): number => units(raw)
+
+/** "0.42 ETH ($1.1K)", or "0.42 ETH" without a price. */
 export function quoteText(
   raw: string | bigint,
   quote: string,
   prices: Prices,
   withUsd = true,
 ): string {
-  const n = units(raw)
+  const n = quoteUnits(raw)
   const text = `${amount(n)} ${prices.symbol(quote)}`
   const p = withUsd ? prices.usd(quote) : null
   return p === null ? text : `${text} (${usd(n * p)})`
@@ -16,7 +23,7 @@ export function quoteText(
 
 /** Market cap and volume: dollars when priced, otherwise the quote amount. */
 export function valueText(raw: string | bigint, quote: string, prices: Prices): string {
-  const n = units(raw)
+  const n = quoteUnits(raw)
   const p = prices.usd(quote)
   return p === null ? `${amount(n)} ${prices.symbol(quote)}` : usd(n * p)
 }
@@ -25,7 +32,7 @@ export function valueText(raw: string | bigint, quote: string, prices: Prices): 
 export function pnlText(realized: bigint, basis: bigint, quote: string, prices: Prices): string {
   const sign = realized < 0n ? "−" : "+"
   const abs = realized < 0n ? -realized : realized
-  const text = `${sign}${amount(units(abs))} ${prices.symbol(quote)}`
+  const text = `${sign}${amount(quoteUnits(abs))} ${prices.symbol(quote)}`
   if (basis <= 0n) return text
   return `${text} (${sign}${Number((abs * 100n) / basis)}%)`
 }

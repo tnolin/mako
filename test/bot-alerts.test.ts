@@ -61,10 +61,10 @@ const TOKEN_TEXT = [
   "<b>Alert Types</b>",
   "NEW TOKEN - newly detected tokens created.",
   "BONDING - When a token passes your set threshold.",
-  "PUMPING - When a token's curve jumps 15%+ in 10 min.",
+  "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 20%+ in 10 min after bonding.",
   "BONDED - A token that has bonded/graduated.",
   "DEV SELL - When the creator sells any amount of their own token.",
-  "BIG BUY/SELL - one trade worth 5%+ of the token's bond target.",
+  "BIG BUY/SELL - one trade worth 5%+ of the token's bond target, or of its pool's liquidity after bonding.",
 ].join("\n")
 
 const ALL_BODY = [
@@ -131,7 +131,7 @@ describe("token alerts", () => {
     expect((await userSettings()).alerts.big.pctBps).toBe(1000)
     await h.tap("al:u:tk")
     expect(screen().text).toContain(
-      "BIG BUY/SELL - one trade worth 10%+ of the token's bond target.",
+      "BIG BUY/SELL - one trade worth 10%+ of the token's bond target, or of its pool's liquidity after bonding.",
     )
     expect(labels(screen()).flat()).toContain("BIG BUY/SELL at: 10%")
   })
@@ -148,6 +148,8 @@ describe("token alerts", () => {
       ["BIG BUY/SELL", "Show Image"],
       ["BONDING at: 80%, 90%"],
       ["BIG BUY/SELL at: 5%"],
+      ["PUMPING after bond: +20%"],
+      ["PUMPING min mcap: $50K"],
       ["Reset to default"],
       ["Back"],
     ])
@@ -167,6 +169,44 @@ describe("token alerts", () => {
     expect(s).toMatchObject({ on: false, image: false })
     const pumping = rows(screen())[2]!
     expect(pumping.map((b) => b.style)).toEqual([undefined, undefined])
+  })
+
+  it("picker sets pumping threshold", async () => {
+    await addUser(sql, 100)
+    await h.tap("al:u:p:pumpPct")
+    expect(labels(screen())).toEqual([["+15%", "+20%", "+30%", "+50%"], ["Back"]])
+    expect(rows(screen())[0]!.map((b) => b.style)).toEqual([
+      undefined,
+      "success",
+      undefined,
+      undefined,
+    ])
+    await h.tap("al:u:p:pumpPct:2")
+    expect((await userSettings()).alerts.pumping.pctBps).toBe(3000)
+    await h.tap("al:u:tk")
+    expect(labels(screen()).flat()).toContain("PUMPING after bond: +30%")
+    expect(screen().text).toContain("or its market cap rises 30%+ in 10 min after bonding.")
+  })
+
+  it("picker sets feed floor", async () => {
+    await addUser(sql, 100)
+    await h.tap("al:u:p:pumpFloor")
+    expect(labels(screen())).toEqual([["$25K", "$50K", "$100K", "$250K"], ["Back"]])
+    await h.tap("al:u:p:pumpFloor:3")
+    expect((await userSettings()).alerts.pumping.floorUsd).toBe(250_000)
+    await h.tap("al:u:tk")
+    expect(labels(screen()).flat()).toContain("PUMPING min mcap: $250K")
+  })
+
+  it("Back from the PUMPING pickers returns to Token alerts", async () => {
+    await addUser(sql, 100)
+    for (const k of ["pumpPct", "pumpFloor"]) {
+      await h.tap(`al:u:p:${k}`)
+      expect(find(screen(), "Back").callback_data).toBe("al:u:tk")
+    }
+    await addChat(sql, G.id, "supergroup", basicPreset("supergroup"))
+    await h.tap(`al:${G.id}:p:pumpPct`)
+    expect(find(screen(), "Back").callback_data).toBe(`al:${G.id}:tk`)
   })
 
   it("the BONDING picker is multi-select with the chosen marks green", async () => {
@@ -284,7 +324,7 @@ describe("picker screens", () => {
   it("each picker shows its own line", async () => {
     await addUser(sql, 100)
     const text: Record<string, string> = {
-      big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target.",
+      big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target, or of its pool's liquidity after bonding.",
       minted: "MINTED - Sends when a collection's mint progress crosses the following %:",
       bigsale: "BIG SALE - Sends when an NFT sells for at least:",
       under:
@@ -300,6 +340,14 @@ describe("picker screens", () => {
     }
     await h.tap("al:u:p:bonding")
     expect(screen().text).toBe("<b>BONDING marks</b>\n\nAlert when a curve passes:")
+    await h.tap("al:u:p:pumpPct")
+    expect(screen().text).toBe(
+      "<b>PUMPING after bond</b>\n\nHow much a bonded token's market cap has to rise within 10 min before you get a PUMPING alert.",
+    )
+    await h.tap("al:u:p:pumpFloor")
+    expect(screen().text).toBe(
+      "<b>PUMPING min mcap</b>\n\nBonded tokens below this market cap don't send PUMPING. Tokens you watch always do.",
+    )
   })
 })
 
@@ -319,6 +367,15 @@ describe("Reset to default", () => {
     await h.tap("al:u:reset:tk")
     expect((await userSettings()).alerts.new.on).toBe(true)
     expect(await userSettings()).toEqual(basicPreset("private"))
+  })
+
+  it("Reset to default restores both PUMPING thresholds", async () => {
+    await addUser(sql, 100)
+    await h.tap("al:u:p:pumpPct:3")
+    await h.tap("al:u:p:pumpFloor:0")
+    expect((await userSettings()).alerts.pumping).toMatchObject({ pctBps: 5000, floorUsd: 25_000 })
+    await h.tap("al:u:reset:tk")
+    expect((await userSettings()).alerts.pumping).toMatchObject({ pctBps: 2000, floorUsd: 50_000 })
     expect(screen().text).toContain("Token alerts")
   })
 
@@ -429,6 +486,8 @@ describe("colour fallback and label lengths", () => {
       "al:u:nw",
       "al:u:p:bonding",
       "al:u:p:big",
+      "al:u:p:pumpPct",
+      "al:u:p:pumpFloor",
       "al:u:p:minted",
       "al:u:p:bigsale",
       "al:u:p:under",

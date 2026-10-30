@@ -138,7 +138,7 @@ describe("bot descriptions", () => {
 
 describe("command menus", () => {
   it("match the exact text", () => {
-    const watch = "Watch a token or NFT: /watch <address or name>"
+    const watch = "Watch a token or NFT: /watch <name or address> [mcap]"
     expect(PRIVATE_COMMANDS).toEqual([
       { command: "start", description: "Start MAKO" },
       { command: "menu", description: "Main menu" },
@@ -197,7 +197,7 @@ describe("Tokens and NFTs screens", () => {
         "",
         "Available Commands:",
         "/t &lt;address&gt; - Looks up a token.",
-        "/watch &lt;address&gt; - Adds a token to your watchlist.",
+        "/watch &lt;token&gt; [mcap] watch a token, with an optional market cap alert",
       ].join("\n"),
     )
     expect(labels(p)).toEqual([
@@ -276,10 +276,10 @@ const DEFAULTS = {
   token: [
     "NEW TOKEN - newly detected tokens created.",
     "BONDING - When a token passes your set threshold.",
-    "PUMPING - When a token's curve jumps 15%+ in 10 min.",
+    "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 20%+ in 10 min after bonding.",
     "BONDED - A token that has bonded/graduated.",
     "DEV SELL - When the creator sells any amount of their own token.",
-    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target.",
+    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target, or of its pool's liquidity after bonding.",
   ],
   all: [
     "UPCOMING MINT - When a new mint is scheduled.",

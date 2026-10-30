@@ -1,6 +1,7 @@
 import { expect, it } from "vitest"
 import {
   ALERT_DESC,
+  ALERT_HELP,
   ALERT_LABEL,
   ALERT_PATTERN,
   ALERTS,
@@ -10,10 +11,13 @@ import {
   NFT_ALL_ALERTS,
   NFT_WATCHED_ALERTS,
   PRIORITY,
+  PUMP_BONDED_STEPS,
+  PUMP_FLOOR_STEPS,
   readSettings,
   resetScreen,
   SETTINGS_LABEL,
   TOKEN_ALERTS,
+  wantsImage,
 } from "../src/settings"
 
 it("turns every token alert and image on in the basic preset", () => {
@@ -40,6 +44,36 @@ it("drops invalid marks and thresholds", () => {
   expect(s.alerts.big.pctBps).toBe(500)
 })
 
+it("default pumping pctBps is 2000 and floorUsd 50000", () => {
+  for (const t of ["private", "group", "supergroup", "channel"] as const)
+    expect(basicPreset(t).alerts.pumping).toEqual({
+      on: true,
+      image: true,
+      pctBps: 2000,
+      floorUsd: 50_000,
+    })
+  expect(PUMP_BONDED_STEPS).toEqual([1500, 2000, 3000, 5000])
+  expect(PUMP_FLOOR_STEPS).toEqual([25_000, 50_000, 100_000, 250_000])
+})
+
+it("an invalid stored pctBps falls back", () => {
+  const bad = readSettings(
+    { alerts: { pumping: { on: true, image: true, pctBps: 1234, floorUsd: "50000" } } },
+    "private",
+  )
+  expect(bad.alerts.pumping).toMatchObject({ pctBps: 2000, floorUsd: 50_000 })
+  const good = readSettings(
+    { alerts: { pumping: { on: true, image: true, pctBps: 5000, floorUsd: 250_000 } } },
+    "private",
+  )
+  expect(good.alerts.pumping).toMatchObject({ pctBps: 5000, floorUsd: 250_000 })
+})
+
+it("a stored pumping setting from before the bonded thresholds keeps its switches", () => {
+  const s = readSettings({ alerts: { pumping: { on: false, image: false } } }, "group")
+  expect(s.alerts.pumping).toEqual({ on: false, image: false, pctBps: 2000, floorUsd: 50_000 })
+})
+
 it("turns all alerts off but keeps routing", () => {
   const s = allOff({ ...basicPreset("private"), thread: 3, routes: { new: 9 } })
   for (const a of ALERTS) expect(s.alerts[a].on).toBe(false)
@@ -58,6 +92,7 @@ it("orders priorities as decided", () => {
     mintstart: 2,
     reminder: 2,
     rare: 2,
+    mcap: 1,
     pumping: 3,
     upcoming: 3,
     minted: 3,
@@ -204,11 +239,18 @@ it("resetScreen restores one screen and keeps routes", () => {
 it("ALERT_DESC follows the chosen thresholds", () => {
   const s = basicPreset("private")
   expect(ALERT_DESC("big", s)).toBe(
-    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target.",
+    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target, or of its pool's liquidity after bonding.",
   )
   s.alerts.big.pctBps = 250
   expect(ALERT_DESC("big", s)).toBe(
-    "BIG BUY/SELL - one trade worth 2.5%+ of the token's bond target.",
+    "BIG BUY/SELL - one trade worth 2.5%+ of the token's bond target, or of its pool's liquidity after bonding.",
+  )
+  expect(ALERT_DESC("pumping", s)).toBe(
+    "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 20%+ in 10 min after bonding.",
+  )
+  s.alerts.pumping.pctBps = 3000
+  expect(ALERT_DESC("pumping", s)).toBe(
+    "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 30%+ in 10 min after bonding.",
   )
   expect(ALERT_DESC("bigsale", s)).toBe("BIG SALE - When an NFT sells for 0.1 ETH or more.")
   s.alerts.bigsale.minWei = "250000000000000000"
@@ -254,4 +296,25 @@ it("loads stored settings that still hold a mintlive alert or route", () => {
   expect(s.alerts).not.toHaveProperty("mintlive")
   expect(s.routes).toEqual({ mintstart: 6 })
   expect(s.pausedRoutes).toEqual([])
+})
+
+it("readSettings keeps mcap on and its image flag", () => {
+  expect(basicPreset("group").alerts.mcap).toEqual({ on: true, image: true })
+  const s = readSettings({ alerts: { mcap: { on: false, image: false } } }, "private")
+  expect(s.alerts.mcap).toEqual({ on: true, image: false })
+  expect(readSettings(allOff(basicPreset("private")), "private").alerts.mcap.on).toBe(true)
+  expect(ALERT_LABEL.mcap).toBe("MCAP TARGET")
+  expect(LONG_WINDOW).toContain("mcap")
+  expect(TOKEN_ALERTS).not.toContain("mcap")
+})
+
+it("wantsImage works for mcap", () => {
+  const s = basicPreset("private")
+  expect(wantsImage(s, "mcap")).toBe(true)
+  s.alerts.mcap.image = false
+  expect(wantsImage(s, "mcap")).toBe(false)
+})
+
+it("ALERT_HELP describes BIG BUY/SELL for the curve and the pool", () => {
+  expect(ALERT_HELP.big).toBe("one trade worth 5%+ of the bond target or pool")
 })

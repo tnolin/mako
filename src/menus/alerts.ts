@@ -23,6 +23,8 @@ import {
   MARKS,
   NFT_ALL_ALERTS,
   NFT_WATCHED_ALERTS,
+  PUMP_BONDED_STEPS,
+  PUMP_FLOOR_STEPS,
   readSettings,
   resetScreen,
   SETTINGS_LABEL,
@@ -143,6 +145,20 @@ const SCREEN_OF = (k: AlertKind): Screen =>
     : (NFT_ALL_ALERTS as readonly string[]).includes(k)
       ? "na"
       : "nw"
+/** The screen each picker's Back returns to. Not every picker belongs to an alert kind of its own. */
+const PICKER_SCREEN: Record<string, Screen> = {
+  bonding: "tk",
+  big: "tk",
+  pumpPct: "tk",
+  pumpFloor: "tk",
+  minted: "na",
+  bigsale: "na",
+  under: "nw",
+  rare: "nw",
+  floor: "nw",
+  sweep: "nw",
+  sale: "nw",
+}
 const SCREEN_PATTERN = "tk|na|nw"
 const RESET_SCREEN = { tk: "token", na: "nft_all", nw: "nft_watched" } as const
 
@@ -155,10 +171,14 @@ type Picker = {
   /** The button on the alert screen. */
   button(s: Settings): string
   multi?: boolean
+  /** Buttons per row; 3 when unset. */
+  perRow?: number
   get(s: Settings): Value[]
   set(s: Settings, v: Value[]): void
 }
 const eth = (w: Value) => `${ethTrim(String(w))} ETH`
+const gain = (v: Value) => `+${pct(Number(v))}`
+const kUsd = (v: Value) => `$${Number(v) / 1000}K`
 const marks = (v: Value[]) => v.map((m) => pct(Number(m))).join(", ") || "none"
 const PICKERS: Record<string, Picker> = {
   bonding: {
@@ -178,6 +198,26 @@ const PICKERS: Record<string, Picker> = {
     get: (s) => [s.alerts.big.pctBps],
     set: (s, [v]) => {
       s.alerts.big.pctBps = v as (typeof BIG_STEPS)[number]
+    },
+  },
+  pumpPct: {
+    values: PUMP_BONDED_STEPS,
+    label: gain,
+    button: (s) => `PUMPING after bond: ${gain(s.alerts.pumping.pctBps)}`,
+    perRow: 4,
+    get: (s) => [s.alerts.pumping.pctBps],
+    set: (s, [v]) => {
+      s.alerts.pumping.pctBps = v as (typeof PUMP_BONDED_STEPS)[number]
+    },
+  },
+  pumpFloor: {
+    values: PUMP_FLOOR_STEPS,
+    label: kUsd,
+    button: (s) => `PUMPING min mcap: ${kUsd(s.alerts.pumping.floorUsd)}`,
+    perRow: 4,
+    get: (s) => [s.alerts.pumping.floorUsd],
+    set: (s, [v]) => {
+      s.alerts.pumping.floorUsd = v as (typeof PUMP_FLOOR_STEPS)[number]
     },
   },
   minted: {
@@ -246,10 +286,19 @@ const PICKERS: Record<string, Picker> = {
   },
 }
 const PICKER_PATTERN = Object.keys(PICKERS).join("|")
+/** A bold title above the picker's line, for the pickers that have one. */
+const PICKER_TITLE: Record<string, string> = {
+  bonding: "BONDING marks",
+  pumpPct: "PUMPING after bond",
+  pumpFloor: "PUMPING min mcap",
+}
 /** One line on each picker screen. */
 const PICKER_TEXT: Record<string, string> = {
-  bonding: "<b>BONDING marks</b>\nAlert when a curve passes:",
-  big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target.",
+  bonding: "Alert when a curve passes:",
+  big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target, or of its pool's liquidity after bonding.",
+  pumpPct:
+    "How much a bonded token's market cap has to rise within 10 min before you get a PUMPING alert.",
+  pumpFloor: "Bonded tokens below this market cap don't send PUMPING. Tokens you watch always do.",
   minted: "MINTED - Sends when a collection's mint progress crosses the following %:",
   bigsale: "BIG SALE - Sends when an NFT sells for at least:",
   under: "UNDER FLOOR - Sends when an NFT is listed at least this % under the current floor price:",
@@ -258,8 +307,11 @@ const PICKER_TEXT: Record<string, string> = {
   sweep: "SWEEP - Sends when one wallet buys this many NFTs within 10 mins:",
   sale: "SOLD - Sends when an item on your watchlist sells for at least this amount:",
 }
-const pickerText = (kind: string): string =>
-  kind === "bonding" ? PICKER_TEXT.bonding! : escapeHtml(PICKER_TEXT[kind]!)
+const pickerText = (kind: string): string => {
+  const title = PICKER_TITLE[kind]
+  const text = escapeHtml(PICKER_TEXT[kind]!)
+  return title ? `<b>${escapeHtml(title)}</b>\n${text}` : text
+}
 
 const toggleRow = (s: Settings, id: string, a: AlertKind): ReturnType<typeof btn>[] => {
   const row = [
@@ -321,7 +373,7 @@ async function renderScreen(ctx: Context, sc: Scope, screen: Screen): Promise<vo
   const kb: Kb = KINDS[screen].map((a) => toggleRow(s, id, a))
   const open = (k: string) => btn(PICKERS[k]!.button(s), `al:${id}:p:${k}`)
   if (screen === "tk") {
-    kb.push([open("bonding")], [open("big")])
+    kb.push([open("bonding")], [open("big")], [open("pumpPct")], [open("pumpFloor")])
   } else if (screen === "na") {
     kb.push([open("minted"), open("bigsale")])
   } else {
@@ -342,8 +394,9 @@ async function renderPicker(ctx: Context, sc: Scope, kind: string): Promise<void
     chosenBtn(p.label(v), now.includes(v), `al:${sc.id}:p:${kind}:${i}`),
   )
   const kb: Kb = []
-  for (let i = 0; i < buttons.length; i += 3) kb.push(buttons.slice(i, i + 3))
-  kb.push([btn("Back", `al:${sc.id}:${SCREEN_OF(kind as AlertKind)}`)])
+  const n = p.perRow ?? 3
+  for (let i = 0; i < buttons.length; i += n) kb.push(buttons.slice(i, i + n))
+  kb.push([btn("Back", `al:${sc.id}:${PICKER_SCREEN[kind]!}`)])
   await show(ctx, pickerText(kind), kb)
 }
 /** My alerts for a user, or the group's settings screen in the DM for a chat. */
@@ -387,7 +440,7 @@ async function renderHub(ctx: Context, deps: BotDeps, sc: Scope): Promise<void> 
     )
     const paused = s.pausedRoutes ?? []
     for (const [title, kinds] of [
-      ["Token Alerts", TOKEN_ALERTS],
+      ["Token Alerts", [...TOKEN_ALERTS, "mcap"]],
       ["NFT Alerts", [...NFT_ALL_ALERTS, ...NFT_WATCHED_ALERTS]],
     ] as const) {
       const routed = kinds

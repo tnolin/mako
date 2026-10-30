@@ -1,8 +1,10 @@
 import type {
   Address,
   BondEvent,
+  BondEventV1,
   Hash,
   LaunchEvent,
+  LaunchEventV1,
   NftCollectionEvent,
   NftDropEvent,
   NftLaunchEvent,
@@ -10,8 +12,11 @@ import type {
   NftMintEvent,
   NftSaleEvent,
   NftStatsEvent,
+  SwapEvent,
   TradeEvent,
+  TradeEventV1,
 } from "@ink-indexer/events"
+import { UNISWAP_V4_POOL_MANAGER } from "../../src/pool"
 
 export const NATIVE: Address = "0x0000000000000000000000000000000000000000"
 export const T0 = 1_790_000_000
@@ -27,7 +32,7 @@ const next = () => ++seq
 export function launch(o: Partial<LaunchEvent> = {}): LaunchEvent {
   const n = next()
   return {
-    v: 1,
+    v: 2,
     type: "launchpad.launch",
     chainId: 57073,
     launchpad: "inkypump",
@@ -47,15 +52,27 @@ export function launch(o: Partial<LaunchEvent> = {}): LaunchEvent {
     quoteAsset: NATIVE,
     targetRaise: String(3n * ETH),
     totalSupply: String(10n ** 27n),
+    startsInPool: false,
+    poolId: null,
+    poolManager: null,
+    customHook: null,
+    hookModules: null,
     ...o,
   }
 }
 
-/** Defaults: a 0.02 ETH buy by trader 0xe1 at 10% sold, after the launch block. */
+/** A launch row as stored before events schema version 2. */
+export function launchV1(o: Partial<LaunchEventV1> = {}): LaunchEventV1 {
+  const { v: _, startsInPool, poolId, poolManager, customHook, hookModules, ...rest } = launch()
+  return { ...rest, v: 1, launchpad: "inkypump", targetRaise: String(3n * ETH), ...o }
+}
+
+/** Defaults: a 0.02 ETH buy by trader 0xe1 at 10% sold, after the launch block. ath defaults to the market cap. */
 export function trade(o: Partial<TradeEvent> = {}): TradeEvent {
   const n = next()
+  const marketCap = o.marketCap ?? String(5n * ETH)
   return {
-    v: 1,
+    v: 2,
     type: "launchpad.trade",
     chainId: 57073,
     launchpad: "inkypump",
@@ -75,16 +92,23 @@ export function trade(o: Partial<TradeEvent> = {}): TradeEvent {
     progressBpsBefore: 0,
     progressBpsAfter: 1000,
     soldBps: 1000,
-    marketCap: String(5n * ETH),
+    marketCap,
+    athMarketCap: marketCap,
     quoteAsset: NATIVE,
     ...o,
   }
 }
 
+/** A curve trade row as stored before events schema version 2. */
+export function tradeV1(o: Partial<TradeEventV1> = {}): TradeEventV1 {
+  const { v: _, athMarketCap, ...rest } = trade()
+  return { ...rest, v: 1, launchpad: "inkypump", ...o }
+}
+
 export function bond(o: Partial<BondEvent> = {}): BondEvent {
   const n = next()
   return {
-    v: 1,
+    v: 2,
     type: "launchpad.bond",
     chainId: 57073,
     launchpad: "inkypump",
@@ -95,9 +119,51 @@ export function bond(o: Partial<BondEvent> = {}): BondEvent {
     blockNumber: String(1000 + n),
     blockTimestamp: T0 + 3600,
     poolId: hash(0x1d),
+    poolManager: UNISWAP_V4_POOL_MANAGER,
     liquidityQuote: String(21n * 10n ** 17n),
     liquidityTokens: String(214n * 10n ** 24n),
     quoteAsset: NATIVE,
+    ...o,
+  }
+}
+
+/** A bond row as stored before events schema version 2. */
+export function bondV1(o: Partial<BondEventV1> = {}): BondEventV1 {
+  const { v: _, poolManager, ...rest } = bond()
+  return { ...rest, v: 1, launchpad: "inkypump", ...o }
+}
+
+/**
+ * Defaults: a 0.05 ETH pool buy by trader 0xe1 through router 0x7e, market cap 20 ETH (also the ath), quote side
+ * 4 ETH, pool hash(9), after the bond. ath defaults to the market cap.
+ */
+export function swap(o: Partial<SwapEvent> = {}): SwapEvent {
+  const n = next()
+  const marketCap = o.marketCap ?? String(20n * ETH)
+  return {
+    v: 2,
+    type: "launchpad.swap",
+    chainId: 57073,
+    launchpad: "inkypump",
+    token: addr(0xd1),
+    launchId: hash(0x1d),
+    txHash: hash(n),
+    logIndex: n,
+    blockNumber: String(1000 + n),
+    blockTimestamp: T0 + 7200,
+    poolId: hash(9),
+    poolManager: UNISWAP_V4_POOL_MANAGER,
+    side: "buy",
+    trader: addr(0xe1),
+    router: addr(0x7e),
+    tokenAmount: String(25n * 10n ** 23n),
+    quoteAmount: String(5n * 10n ** 16n),
+    quoteAsset: NATIVE,
+    price: String(2n * 10n ** 10n),
+    marketCap,
+    athMarketCap: marketCap,
+    quoteLiquidity: String(4n * ETH),
+    supply: String(10n ** 27n),
     ...o,
   }
 }

@@ -13,7 +13,7 @@ It reads normalized events from [ink-indexer](https://github.com/tnolin/ink-inde
 
 MAKO currently works with:
 - **Ink:** reads launches, trades, mints and sales directly from the chain.
-- **InkyPump:** memecoin launches and bonding progress.
+- **InkyPump:** memecoin launches, bonding progress, and trading in each token's Uniswap pool after it bonds.
 - **OpenSea:** NFT collection details, floors, listings, rarity ranks and mint schedules. View and Buy buttons open OpenSea.
 - **Chimera:** new Chimera-404 collections.
 
@@ -25,10 +25,11 @@ MAKO currently works with:
 | --- | --- |
 | NEW TOKEN | A token launches. When more than 10 launch on one launchpad within 5 minutes, they are grouped into one message per minute until it slows down. |
 | BONDING | A token's bonding curve passes 80% or 90%. A 50% mark can be turned on in My alerts. |
-| PUMPING | A token's curve rises 15 points or more within 10 minutes. At most once an hour per token in each chat. |
+| PUMPING | On the curve: the curve rises 15 points or more within 10 minutes, at most once an hour per token in each chat. After bonding: the market cap rises 20% or more over its lowest point in the last 10 minutes (15%, 30% or 50% can be chosen), once until the rise falls back under 5%. Feeds get it from a $50K market cap (adjustable); watched tokens always do. |
 | BONDED | A token fills its curve and its liquidity moves to a Uniswap pool. |
-| DEV SELL | The wallet that created a token sells some of it on the curve. |
-| BIG BUY / BIG SELL | One trade of 5% or more of the token's bond target. 2.5% or 10% can be chosen in My alerts. |
+| DEV SELL | The wallet that created a token sells some of it, on the curve or in its pool. |
+| BIG BUY / BIG SELL | One trade of 5% or more of the token's bond target, or, after bonding, of its pool's liquidity and worth at least $1,000. 2.5% or 10% can be chosen in My alerts. |
+| MCAP TARGET | A watched token's market cap reaches the target set with `/watch <token> <amount>`. Sent once, then the target is cleared. |
 
 ### NFT alerts
 
@@ -58,11 +59,13 @@ These alerts are only for NFTs you added to your watchlist.
 | SOLD | an item sells for 0.05 ETH or more. |
 | REMINDERS | a message 15 min before each mint stage. |
 
-Each alert can be turned off, and its image hidden, in My alerts.
+Each alert can be turned off, and its image hidden, in My alerts. MCAP TARGET has no switch or image setting: it goes only to whoever set the target.
 
 ## Watched & Muted
 
 Watching: I'll send you every alert type for tokens or NFTs that you add to your watchlist, even for the alerts turned off. This also includes mint reminders 15 minutes before each mint stage.
+
+Market cap target: `/watch $GOBLO 500k` watches the token and sends MCAP TARGET when its market cap reaches $500K. An amount below the current market cap alerts when it drops to it. Amounts read like `500k`, `1.5m`, `$500k` or `500000`. A new amount replaces the old one, and the Watched tokens list shows it. A token can be named by address, `$TICKER` or name.
 
 Stop watching: It can still appear in your feeds.
 
@@ -82,7 +85,7 @@ Remind me: These alerts are only for an NFT's upcoming mint stages. Select 'Remi
 Commands:
 
     /t <address> look up a token
-    /watch <address> watch a token
+    /watch <token> [mcap] watch a token, with an optional market cap alert
     /nft <collection> [1h|24h|7d|30d]
     /nft <collection> <id> look up one NFT
 
@@ -123,7 +126,7 @@ You can delete your data in Settings → Delete my data. Server backups are dele
 
 | Path | What it does |
 | --- | --- |
-| [`src/rules`](src/rules) | Turns launchpad events into token alerts: NEW TOKEN, BONDING, PUMPING, BONDED, DEV SELL, BIG BUY/SELL |
+| [`src/rules`](src/rules) | Turns launchpad events and pool swaps into token alerts: NEW TOKEN, BONDING, PUMPING, BONDED, DEV SELL, BIG BUY/SELL, MCAP TARGET |
 | [`src/nft`](src/nft) | Collection state, mint and market rules, watches, mint reminders, OpenSea item reads |
 | [`src/delivery`](src/delivery) | Routing, queue, per-chat throttling, overflow summaries, admin notices |
 | [`src/menus`](src/menus) | Button screens: menu, Tokens, NFTs, cards, watched and muted lists, alert settings, groups and channels |

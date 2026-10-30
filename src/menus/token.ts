@@ -2,7 +2,7 @@ import type { BondEvent, LaunchEvent } from "@ink-indexer/events"
 import type { Bot, Context } from "grammy"
 import { valueText } from "../cards/money"
 import { age, bar, buysSells, clean, escapeHtml } from "../format"
-import { bondOf, cursorBlock, DAY_BLOCKS, launchOf, tradesOf } from "../history"
+import { bondOf, cursorBlock, DAY_BLOCKS, launchOf, swapsOf, tradesOf } from "../history"
 import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
@@ -46,8 +46,9 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   const { sql, prices } = deps
   const l = await launchOf(sql, ca)
   if (!l) return null
-  const [trades, b, cursor] = await Promise.all([
+  const [trades, swaps, b, cursor] = await Promise.all([
     tradesOf(sql, ca),
+    swapsOf(sql, ca),
     bondOf(sql, ca),
     cursorBlock(sql),
   ])
@@ -57,8 +58,8 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   const dev = devCounts(trades, l.p.creator, last?.id ?? l.id)
   const rows: [string, string][] = []
   if (b) {
-    // We don't index post-bond trades, so a bonded token's volume and trades are its curve totals.
-    const w = windowStats(trades, 0, b.id)
+    // A bonded token's volume and trades are its curve totals plus every pool swap since.
+    const w = windowStats([...trades, ...swaps], 0, swaps.at(-1)?.id ?? b.id)
     const ago = `${bondedAgo(now - b.p.blockTimestamp)} ago`
     const live = await liveMcap(deps, b.p, l.p)
     if (live !== null) {

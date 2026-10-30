@@ -16,10 +16,10 @@ export function newToken(
 ): Candidate {
   const l = ev.p
   const card = makeCard("new", "NEW TOKEN", l, [], creatorLinks(l))
-  const rows: [string, string][] = [
-    ["pair", `${card.ticker}/${prices.symbol(l.quoteAsset)}`],
-    ["bonds at", quoteText(l.targetRaise, l.quoteAsset, prices)],
-  ]
+  const rows: [string, string][] = [["pair", `${card.ticker}/${prices.symbol(l.quoteAsset)}`]]
+  // A token that starts in a pool has no curve, so nothing to bond at.
+  if (l.targetRaise !== null)
+    rows.push(["bonds at", quoteText(l.targetRaise, l.quoteAsset, prices)])
   const devBuys = launchTxTrades(trades, l.txHash).filter(
     (t) => t.p.side === "buy" && t.p.trader === l.creator,
   )

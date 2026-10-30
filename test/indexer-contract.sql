@@ -1,4 +1,4 @@
--- The parts of ink-indexer's schema that MAKO reads, copied at tag events-v2
+-- The parts of ink-indexer's schema that MAKO reads, copied at tag events-v3
 -- (packages/db/migrations/0001_init.sql, 0002_events_bot_indexes.sql, 0003_events_sub.sql,
 -- 0006_opensea_budget.sql and 0012_opensea_spacing.sql). Update with the tag.
 create schema indexer;

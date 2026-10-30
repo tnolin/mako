@@ -7,12 +7,14 @@ import type {
 } from "@ink-indexer/events"
 import type postgres from "postgres"
 import type { Sql } from "../db"
-import { eventsAfter, launchesAround, maxEventId, type Row } from "../history"
+import { eventsAfter, launchesAround, maxEventId, type Row, type Written } from "../history"
+import type { TokenLaunchpads } from "../launchpads"
 import type { Logger } from "../log"
 import { loadNftState, type NftState } from "../nft/state"
 import type { Prices } from "../prices"
 import type { DevHolds, HoldsReq } from "../rpc"
 import { type Candidate, rulesFor, withDevHolds } from "../rules/index"
+import { PumpArm } from "../rules/pump-arm"
 import { PRIORITY } from "../settings"
 import {
   FLOOD_WINDOW_S,
@@ -43,8 +45,17 @@ export type PollerDeps = {
   nftAlertsSince?: number
   /** Unix seconds; tests set it. */
   now?: () => number
+  /** Each token's launchpad, for the Trade redirect; every launch read is recorded here. */
+  launchpads?: TokenLaunchpads
   /** Upper bound (inclusive) on the event ids read. Set only by the replay script; unset in production. */
   maxId?: string
+  /**
+   * Runs the rules on trades and swaps the indexer wrote long after their block, which are skipped otherwise. Set
+   * only by the replay script, whose local database was filled after the fact.
+   */
+  keepLateWrites?: boolean
+  /** Bonded PUMPING re-arm state, kept between passes (startPoller sets it). Unset, every pass starts empty. */
+  pumpArm?: PumpArm
 }
 
 /** postgres.js and Node network errors carry a string `code`; a rule's own bugs do not. */
@@ -78,6 +89,17 @@ export async function initCursor(sql: Sql, fromId?: string): Promise<string> {
 const nowS = () => Math.floor(Date.now() / 1000)
 
 /**
+ * A trade or swap the indexer wrote more than this many seconds after its block is history it caught up on (a
+ * backfill, or a restart after an outage), not live trading, and never reaches the rules. It matches the longest
+ * time an alert may wait in the queue (DEV SELL's 30 minutes): any alert from an older row would be dropped as late.
+ */
+export const LATE_WRITE_S = 1800
+
+const writtenLate = (ev: Written<IndexerEvent>): boolean =>
+  (ev.p.type === "launchpad.trade" || ev.p.type === "launchpad.swap") &&
+  ev.writtenTs - ev.p.blockTimestamp > LATE_WRITE_S
+
+/**
  * The time before which nft.* events never alert (unix seconds): `override` (NFT_ALERTS_SINCE) when set,
  * else the time the bot first ran with NFT rules, stored once so a restart reuses it. The indexer's NFT
  * backfill writes old events as new rows; their `blockTimestamp` is below this time. Events from while the
@@ -91,6 +113,28 @@ export async function nftCutoff(sql: Sql, override?: number, now = nowS): Promis
     insert into bot.state (key, value) values ('nft_alerts_since', ${String(now())})
     on conflict (key) do nothing returning value`
   return Number((ins ?? (await read()))!.value)
+}
+
+async function clearTarget(
+  tx: postgres.TransactionSql,
+  token: string,
+  t: NonNullable<Delivery["clearTarget"]>,
+): Promise<boolean> {
+  const hit =
+    "user" in t.owner
+      ? await tx`
+          update bot.subscriptions
+          set target_usd = null, target_up = null, target_set_usd = null, target_set_at = null
+          where user_id = ${t.owner.user} and kind = 'watch' and target = ${token}
+            and target_usd = ${t.usd}::numeric and extract(epoch from target_set_at) = ${t.setAt}::numeric
+          returning 1`
+      : await tx`
+          update bot.chat_token_watches
+          set target_usd = null, target_up = null, target_set_usd = null, target_set_at = null
+          where chat_id = ${t.owner.chat} and target = ${token} and target_usd = ${t.usd}::numeric
+            and extract(epoch from target_set_at) = ${t.setAt}::numeric
+          returning 1`
+  return hit.length > 0
 }
 
 /** Inserts deliveries and moves the cursor in one short transaction. No network calls inside. */
@@ -117,7 +161,14 @@ async function write(
                 where platform_user_id = any(${dmIds}::bigint[]) for share`
             ).map((u) => u.id),
           )
-    const rows = all.filter((r) => r.chatType !== "private" || live.has(r.chatId))
+    const rows: Delivery[] = []
+    for (const r of all) {
+      if (r.chatType === "private" && !live.has(r.chatId)) continue
+      // MCAP TARGET clears its target with the delivery. A target changed or cleared since the rules read it
+      // matches no row, and the delivery is dropped.
+      if (r.clearTarget && !(await clearTarget(tx, r.token, r.clearTarget))) continue
+      rows.push(r)
+    }
     // 9 columns per row; 1,000 rows stays well under Postgres' 65,535 parameters.
     for (let i = 0; i < rows.length; i += 1000) {
       const chunk = rows.slice(i, i + 1000).map((r) => ({
@@ -202,13 +253,14 @@ export async function pollOnce(deps: PollerDeps): Promise<number> {
 
 async function processBatch(
   deps: PollerDeps,
-  events: Row<IndexerEvent>[],
+  events: Written<IndexerEvent>[],
   nft: NftState,
 ): Promise<number> {
   const { sql, log } = deps
   const lastId = events.at(-1)!.id
   // Launch floods: decided from launch events alone, so a re-run or replay classifies the same way.
   const launches = events.filter((e) => e.p.type === "launchpad.launch") as Row<LaunchEvent>[]
+  for (const l of launches) deps.launchpads?.set(l.p.token, l.p.launchpad)
   let starts = new Map<string, string>()
   if (launches.length > 0) {
     const minTs = launches.reduce(
@@ -240,6 +292,8 @@ async function processBatch(
     if (ev.p.type.startsWith("nft.")) prev = nft.apply(ev as Row<NftEvent>)
     // Backfilled NFT history: the cursor moves past it and nothing is sent.
     if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue
+    // Trades and swaps the indexer caught up on: the cursor moves past them and nothing is sent.
+    if (!deps.keepLateWrites && writtenLate(ev)) continue
     try {
       cands.push(
         ...(await rules(ev, { sql, prices: deps.prices, log, nft, now, nftSince: cutoff }, prev)),
@@ -256,10 +310,12 @@ async function processBatch(
   if (skipped === 0) limiter.ok("rule")
   const flooded = launches.filter((l) => starts.has(l.id))
   const aud = await loadAudience(sql, [...new Set(cands.map((c) => c.target))], now())
-  const deliveries = route(cands, aud)
+  const pumps = (deps.pumpArm ?? new PumpArm()).draft()
+  const deliveries = route(cands, aud, pumps)
   const floods = flooded.length === 0 ? [] : floodRows(flooded, starts, newTokenChats(aud))
-  const dev = deliveries.filter((d) => d.alert === "devsell")
-  const rest = deliveries.filter((d) => d.alert !== "devsell")
+  // DEV SELL and bonded PUMPING show the creator's balance, read over RPC.
+  const dev = deliveries.filter((d) => d.holds)
+  const rest = deliveries.filter((d) => !d.holds)
   // Start the dev holds reads first; the other alerts are written while they run.
   const reads = new Map<string, Promise<DevHolds>>()
   for (const d of dev) {
@@ -273,7 +329,11 @@ async function processBatch(
     const id = BigInt(d.eventId)
     return m === null || id < m ? id : m
   }, null)
-  await write(sql, rest, firstDev === null ? lastId : String(firstDev - 1n), floods)
+  const firstCursor = firstDev === null ? lastId : String(firstDev - 1n)
+  await write(sql, rest, firstCursor, floods)
+  // The re-arm state takes the changes of the events the cursor has passed, so a failed second write is routed
+  // again from the state the events before it left.
+  pumps.commit(firstCursor)
   if (dev.length > 0) {
     const holds = new Map<string, DevHolds>()
     for (const [id, p] of reads) holds.set(id, await p)
@@ -283,13 +343,18 @@ async function processBatch(
             ...d,
             payload: {
               ...d.payload,
-              card: withDevHolds(d.payload.card, holds.get(d.eventId) ?? null),
+              card: withDevHolds(
+                d.payload.card,
+                holds.get(d.eventId) ?? null,
+                d.alert === "devsell" ? { after: "dev" } : { before: "bonded" },
+              ),
             },
           }
         : d,
     )
     await write(sql, filled, lastId)
   }
+  pumps.commit()
   log("debug", "poller batch", {
     events: events.length,
     deliveries: deliveries.length,
@@ -301,7 +366,12 @@ async function processBatch(
 /** Polls every second, straight away again after a full batch. Returns a stop function. */
 export function startPoller(deps: PollerDeps): () => void {
   const limiter = createFailureLimiter({ report: deps.report, log: deps.log })
-  const shared = { ...deps, limiter, nftState: deps.nftState ?? {} }
+  const shared = {
+    ...deps,
+    limiter,
+    nftState: deps.nftState ?? {},
+    pumpArm: deps.pumpArm ?? new PumpArm(),
+  }
   let stopped = false
   let timer: ReturnType<typeof setTimeout> | undefined
   const loop = async () => {

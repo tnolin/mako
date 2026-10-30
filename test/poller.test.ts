@@ -1,9 +1,11 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { initCursor, type PollerDeps, pollOnce, startPoller } from "../src/delivery/poller"
+import { TokenLaunchpads } from "../src/launchpads"
 import { deleteUserData } from "../src/menus/users"
 import type { Prices } from "../src/prices"
 import type { DevHolds } from "../src/rpc"
+import { PumpArm } from "../src/rules/pump-arm"
 import { allOff, basicPreset } from "../src/settings"
 import { addChat, addUser, listDeliveries, subscribe, watchToken } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
@@ -18,6 +20,7 @@ import {
   nftLaunch,
   nftMint,
   nftSale,
+  swap,
   T0,
   trade,
 } from "./helpers/events"
@@ -868,5 +871,484 @@ describe("a group that watches a token", () => {
     await insertEvents(sql, [L])
     await pollOnce(deps())
     expect(await alertsOf("-1001")).toEqual([])
+  })
+})
+
+it("records the launchpad of every launch it reads", async () => {
+  const launchpads = new TokenLaunchpads()
+  const A = addr(0xa1)
+  await insertEvents(sql, [launch({ token: A }), trade({ token: A })])
+  await pollOnce(deps({ launchpads }))
+  expect(launchpads.get(A)).toBe("inkypump")
+  expect(launchpads.get(addr(0xa2))).toBeUndefined()
+})
+
+describe("events the indexer wrote long after their block", () => {
+  const DAY = 86_400
+  const now = T0 + 30 * DAY
+
+  it("backfilled swaps written long after their block send nothing", async () => {
+    await addUser(sql, 901)
+    const s = basicPreset("private")
+    await addChat(sql, -9001, "supergroup", s)
+    await watchToken(sql, -9001, L.token)
+    const ids = await insertEvents(sql, [L, bond()])
+    await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
+    const late = []
+    for (let i = 0; i < 25; i++) {
+      // A pool pump from 10 ETH to 14 ETH market cap, with big trades on both sides.
+      late.push(
+        swap({
+          quoteAmount: eth(1),
+          quoteLiquidity: eth(5),
+          marketCap: eth(10 + (i * 4) / 24),
+          blockTimestamp: T0 + 7200 + i * 10,
+        }),
+        trade({
+          trader: C,
+          side: "sell",
+          quoteAmount: eth(1),
+          soldBps: 9000 - i,
+          blockTimestamp: T0 + 7200 + i * 10,
+        }),
+      )
+    }
+    const lateIds = await insertEvents(sql, late, { writtenAt: now })
+    const seen: string[] = []
+    const rules: PollerDeps["rules"] = async (ev, ctx, prev) => {
+      seen.push(ev.p.type)
+      const { rulesFor } = await import("../src/rules/index")
+      return rulesFor(ev, ctx, prev)
+    }
+    expect(await pollOnce(deps({ now: () => now, rules }))).toBe(50)
+    expect(seen).toEqual([])
+    expect(await sql`select 1 from bot.deliveries`).toHaveLength(0)
+    expect(await cursor()).toBe(lateIds.at(-1))
+  })
+
+  it("a replay can keep rows written late", async () => {
+    await addUser(sql, 903)
+    const ids = await insertEvents(sql, [L, bond()])
+    await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
+    await insertEvents(sql, [swap({ quoteAmount: eth(0.4), quoteLiquidity: eth(8.4) })], {
+      writtenAt: now,
+    })
+    await pollOnce(deps({ now: () => now, keepLateWrites: true }))
+    expect((await listDeliveries(sql)).map((r) => r.alert)).toEqual(["big"])
+  })
+
+  it("a swap written on time while the bot was behind still takes the normal path", async () => {
+    await addUser(sql, 902)
+    const ids = await insertEvents(sql, [L, bond()])
+    await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
+    // Written 30 minutes after its block, the longest lag the rules still see.
+    const s = swap({ quoteAmount: eth(0.4), quoteLiquidity: eth(8.4) })
+    await insertEvents(sql, [s], { writtenAt: s.blockTimestamp + 1800 })
+    await pollOnce(deps({ now: () => now }))
+    expect((await listDeliveries(sql)).map((r) => r.alert)).toEqual(["big"])
+  })
+
+  it("a trade written 1801 s after its block is skipped", async () => {
+    await addUser(sql, 904)
+    const ids = await insertEvents(sql, [L])
+    await sql`update bot.state set value = ${ids[0]!} where key = 'events_cursor'`
+    const t = trade({ soldBps: 8100, quoteAmount: eth(0.5), blockTimestamp: T0 + 900 })
+    const [id] = await insertEvents(sql, [t], { writtenAt: t.blockTimestamp + 1801 })
+    const seen: string[] = []
+    const rules: PollerDeps["rules"] = async (ev) => {
+      seen.push(ev.id)
+      return []
+    }
+    await pollOnce(deps({ now: () => now, rules }))
+    expect(seen).toEqual([])
+    expect(await cursor()).toBe(id)
+  })
+})
+
+describe("PUMPING after bonding", () => {
+  /** A bonded token, with the cursor past its launch and bond. */
+  const bonded = async () => {
+    const ids = await insertEvents(sql, [L, trade({ txHash: L.txHash, trader: C }), bond()])
+    await sql`update bot.state set value = ${ids[2]!} where key = 'events_cursor'`
+  }
+  /** A pool swap `at` seconds after T0 + 7200, at a market cap of `cap` ETH ($2,500 each). */
+  const at = (at: number, cap: number, o: Parameters<typeof swap>[0] = {}) =>
+    swap({ marketCap: eth(cap), blockTimestamp: T0 + 7200 + at, ...o })
+  const pumpsTo = async (chat: string) =>
+    (await listDeliveries(sql)).filter((r) => r.alert === "pumping" && r.chat_id === chat).length
+  const pumpRows = async () =>
+    (await listDeliveries(sql)).filter((r) => r.alert === "pumping").map((r) => r.chat_id)
+
+  it("fires at +20% over the 10-minute low", async () => {
+    await addUser(sql, 1201)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 23.9), at(120, 24)])
+    await pollOnce(deps())
+    expect(await pumpRows()).toEqual(["1201"])
+  })
+
+  it("does not fire again until the gain drops under +5%, then fires again after re-arm", async () => {
+    await addUser(sql, 1202)
+    await bonded()
+    const arm = new PumpArm()
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1202")).toBe(1)
+    // Still +25% and +21% over the low: armed state holds across batches.
+    await insertEvents(sql, [at(120, 25), at(180, 24.2)])
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1202")).toBe(1)
+    // +4.5% re-arms, then +20% fires again.
+    await insertEvents(sql, [at(240, 20.9), at(300, 24)])
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1202")).toBe(2)
+  })
+
+  it("two qualifying swaps in one batch send one PUMPING", async () => {
+    await addUser(sql, 1203)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 24), at(120, 24.4)])
+    await pollOnce(deps())
+    expect(await pumpsTo("1203")).toBe(1)
+  })
+
+  it("a dip under +5% between them sends two", async () => {
+    await addUser(sql, 1204)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 24), at(120, 20.5), at(180, 24.4)])
+    await pollOnce(deps())
+    expect(await pumpsTo("1204")).toBe(2)
+  })
+
+  it("per-chat thresholds: a +30% chat skips a +24% pump", async () => {
+    const s = basicPreset("private")
+    await addUser(sql, 1205)
+    await addUser(sql, 1206, {
+      ...s,
+      alerts: { ...s.alerts, pumping: { ...s.alerts.pumping, pctBps: 3000 } },
+    })
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 24.8)])
+    await pollOnce(deps())
+    expect(await pumpRows()).toEqual(["1205"])
+  })
+
+  it("feed floor blocks a $40K token but a watcher gets it", async () => {
+    await addUser(sql, 1207)
+    const w = await addUser(sql, 1208)
+    await subscribe(sql, w, "watch", L.token)
+    await addChat(sql, -1209, "supergroup", allOff(basicPreset("supergroup")))
+    await watchToken(sql, -1209, L.token)
+    await bonded()
+    // 13 ETH to 16 ETH: +23%, at $40K.
+    await insertEvents(sql, [at(0, 13), at(60, 16)])
+    await pollOnce(deps())
+    expect((await pumpRows()).sort()).toEqual(["-1209", "1208"])
+  })
+
+  it("a lower floor lets the feed have it", async () => {
+    const s = basicPreset("private")
+    await addUser(sql, 1210, {
+      ...s,
+      alerts: { ...s.alerts, pumping: { ...s.alerts.pumping, floorUsd: 25_000 } },
+    })
+    await bonded()
+    await insertEvents(sql, [at(0, 13), at(60, 16)])
+    await pollOnce(deps())
+    expect(await pumpRows()).toEqual(["1210"])
+  })
+
+  it("a watcher still needs its own threshold", async () => {
+    const s = basicPreset("private")
+    const w = await addUser(sql, 1211, {
+      ...s,
+      alerts: { ...s.alerts, pumping: { ...s.alerts.pumping, pctBps: 5000 } },
+    })
+    await subscribe(sql, w, "watch", L.token)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 28)])
+    await pollOnce(deps())
+    expect(await pumpRows()).toEqual([])
+  })
+
+  it("stale price blocks the feed but not a watcher", async () => {
+    await addUser(sql, 1212)
+    const w = await addUser(sql, 1213)
+    await subscribe(sql, w, "watch", L.token)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 30)])
+    const stale: Prices = { usd: () => null, symbol: () => "ETH" }
+    await pollOnce(deps({ prices: stale }))
+    expect(await pumpRows()).toEqual(["1213"])
+  })
+
+  it("bonded PUMPING ignores the hourly cooldown", async () => {
+    await addUser(sql, 1214)
+    await bonded()
+    await sql`
+      insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
+      values (1214, 'private', 'pumping', ${L.token}, 'pump:earlier', 3, to_timestamp(${T0 + 7100}), '{}')`
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await pollOnce(deps())
+    expect(await pumpsTo("1214")).toBe(2)
+  })
+
+  it("reads only the last two hours of PUMPING deliveries for the cooldown", async () => {
+    for (const [key, ts] of [
+      ["pump:old", T0 - 2 * 3600 - 1],
+      ["pump:recent", T0 - 3599],
+    ] as const)
+      await sql`
+        insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
+        values (1219, 'private', 'pumping', ${L.token}, ${key}, 3, to_timestamp(${ts}), '{}')`
+    const { loadAudience } = await import("../src/delivery/recipients")
+    const aud = await loadAudience(sql, [L.token], T0)
+    expect(aud.lastPump.get(`1219:${L.token}`)?.map((p) => p.key)).toEqual(["pump:recent"])
+  })
+
+  it("curve PUMPING still uses the hourly cooldown", async () => {
+    await addUser(sql, 1215)
+    await insertEvents(sql, [L])
+    await sql`
+      insert into bot.deliveries (chat_id, chat_type, alert, token, dedupe_key, priority, event_ts, card)
+      values (1215, 'private', 'pumping', ${L.token}, 'pump:earlier', 3, to_timestamp(${T0 + 30}), '{}')`
+    await insertEvents(sql, [trade({ soldBps: 2000, blockTimestamp: T0 + 60 })])
+    await pollOnce(deps({ now: () => T0 + 60 }))
+    expect(await pumpsTo("1215")).toBe(1)
+  })
+
+  it("a failed write does not mark the recipient", async () => {
+    await addUser(sql, 1216)
+    await bonded()
+    const arm = new PumpArm()
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await sql`alter table bot.deliveries add constraint no_pumps check (alert <> 'pumping') not valid`
+    await expect(pollOnce(deps({ pumpArm: arm }))).rejects.toThrow()
+    await sql`alter table bot.deliveries drop constraint no_pumps`
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1216")).toBe(1)
+  })
+
+  it("a failed second write keeps the re-arm from events before it", async () => {
+    await addUser(sql, 1218)
+    await bonded()
+    const arm = new PumpArm()
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1218")).toBe(1)
+    // A dip to +2.5% re-arms, then +22.5% pumps. The pump waits for the second write (it carries dev holds),
+    // which fails; the dip was written by the first.
+    await insertEvents(sql, [at(120, 20.5), at(180, 24.5)])
+    await sql`alter table bot.deliveries add constraint no_pumps check (alert <> 'pumping') not valid`
+    await expect(pollOnce(deps({ pumpArm: arm }))).rejects.toThrow()
+    await sql`alter table bot.deliveries drop constraint no_pumps`
+    await pollOnce(deps({ pumpArm: arm }))
+    expect(await pumpsTo("1218")).toBe(2)
+  })
+
+  it("a bonded PUMPING card carries dev holds", async () => {
+    await addUser(sql, 1217)
+    await bonded()
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    const asked: unknown[] = []
+    await pollOnce(
+      deps({
+        readHolds: async (r) => {
+          asked.push(r)
+          return { pct: 4.2, now: false }
+        },
+      }),
+    )
+    const [row] = (await listDeliveries(sql)).filter((r) => r.alert === "pumping")
+    expect(asked).toMatchObject([{ token: L.token, holder: C }])
+    const rows = row!.card.type === "card" ? row!.card.card.rows : []
+    expect(rows.map(([k]) => k)).toEqual([
+      "pumped",
+      "mcap",
+      "ath",
+      "liquidity",
+      "volume",
+      "trades",
+      "buyers",
+      "dev holds",
+      "bonded",
+    ])
+    expect(rows[7]).toEqual(["dev holds", "4.2%"])
+  })
+})
+
+describe("MCAP TARGET", () => {
+  /** A bonded token with the cursor past its launch and bond; swaps run from T0 + 7200. */
+  const bondedToken = async () => {
+    const ids = await insertEvents(sql, [L, bond()])
+    await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
+  }
+  const AT = T0 + 7200
+  const mc = (usd: number) => eth(usd / 2500)
+  const over = (o: Parameters<typeof swap>[0] = {}) =>
+    swap({ marketCap: mc(520_000), blockTimestamp: AT, ...o })
+  const userTarget = async (tg: number, usd: number, up = true) => {
+    const id = await addUser(sql, tg)
+    await sql`
+      insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+      values (${id}, 'watch', ${L.token}, ${usd}, ${up}, 210000, to_timestamp(${T0}))`
+    return id
+  }
+  const targets = async () =>
+    (
+      await sql<{ usd: number | null }[]>`
+        select target_usd::float8 as usd from bot.subscriptions where kind = 'watch'
+        union all select target_usd::float8 from bot.chat_token_watches`
+    ).map((r) => r.usd)
+  const mcapRows = async () =>
+    (await listDeliveries(sql))
+      .filter((r) => r.alert === "mcap")
+      .map((r) => `${r.chat_id}:${r.thread_id ?? "-"}`)
+  const at = (n: number) => deps({ now: () => n })
+
+  it("fires once and clears: the next swap above target sends nothing", async () => {
+    await userTarget(1301, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over(), over({ blockTimestamp: AT + 30 })])
+    await pollOnce(at(AT + 60))
+    expect(await mcapRows()).toEqual(["1301:-"])
+    expect(await targets()).toEqual([null])
+    await insertEvents(sql, [over({ blockTimestamp: AT + 90 })])
+    await pollOnce(at(AT + 120))
+    expect(await mcapRows()).toEqual(["1301:-"])
+  })
+
+  it("a replaced target is not cleared by an older crossing", async () => {
+    const id = await userTarget(1302, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    // The user sets a new target while the batch is between its rules and its write.
+    const rules: PollerDeps["rules"] = async (ev, ctx, prev) => {
+      const { rulesFor } = await import("../src/rules/index")
+      const out = await rulesFor(ev, ctx, prev)
+      await sql`update bot.subscriptions set target_usd = 750000 where user_id = ${id}`
+      return out
+    }
+    await pollOnce(deps({ now: () => AT, rules }))
+    expect(await mcapRows()).toEqual([])
+    expect(await targets()).toEqual([750_000])
+  })
+
+  it("the same target set again after it fired fires again", async () => {
+    const id = await userTarget(1311, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT))
+    expect(await mcapRows()).toEqual(["1311:-"])
+    // Set again, to the same amount, after the first crossing.
+    await sql`
+      update bot.subscriptions set target_usd = 500000, target_up = true, target_set_usd = 210000,
+        target_set_at = to_timestamp(${AT + 60}) + interval '123456 microseconds'
+      where user_id = ${id} and kind = 'watch'`
+    await insertEvents(sql, [over({ blockTimestamp: AT + 120 })])
+    await pollOnce(at(AT + 120))
+    expect(await mcapRows()).toEqual(["1311:-", "1311:-"])
+    expect(await targets()).toEqual([null])
+  })
+
+  it("the same target set again during a crossing's batch is kept for the next crossing", async () => {
+    const id = await userTarget(1312, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    // Between the rules and the write, the user sets the same amount again: a new target, set after the crossing.
+    const rules: PollerDeps["rules"] = async (ev, ctx, prev) => {
+      const { rulesFor } = await import("../src/rules/index")
+      const out = await rulesFor(ev, ctx, prev)
+      await sql`update bot.subscriptions set target_set_at = to_timestamp(${AT + 30}) where user_id = ${id} and kind = 'watch'`
+      return out
+    }
+    await pollOnce(deps({ now: () => AT, rules }))
+    expect(await mcapRows()).toEqual([])
+    expect(await targets()).toEqual([500_000])
+    await insertEvents(sql, [over({ blockTimestamp: AT + 60 })])
+    await pollOnce(at(AT + 60))
+    expect(await mcapRows()).toEqual(["1312:-"])
+    expect(await targets()).toEqual([null])
+  })
+
+  it("an event older than 30 minutes does not fire; the next fresh one does", async () => {
+    await userTarget(1303, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT + 1801))
+    expect(await mcapRows()).toEqual([])
+    expect(await targets()).toEqual([500_000])
+    await insertEvents(sql, [over({ blockTimestamp: AT + 1900 })])
+    await pollOnce(at(AT + 1910))
+    expect(await mcapRows()).toEqual(["1303:-"])
+  })
+
+  it("stale price, then recovery past the target, fires once", async () => {
+    await userTarget(1304, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over(), over({ blockTimestamp: AT + 30 })])
+    const stale: Prices = { usd: () => null, symbol: () => "ETH" }
+    await pollOnce(deps({ now: () => AT + 60, prices: stale }))
+    expect(await mcapRows()).toEqual([])
+    expect(await targets()).toEqual([500_000])
+    await insertEvents(sql, [over({ blockTimestamp: AT + 90 }), over({ blockTimestamp: AT + 95 })])
+    await pollOnce(at(AT + 100))
+    expect(await mcapRows()).toEqual(["1304:-"])
+    expect(await targets()).toEqual([null])
+  })
+
+  it("a group target goes to the group, not to members", async () => {
+    await addUser(sql, 1305)
+    await addChat(sql, -1306, "supergroup", { ...basicPreset("supergroup"), thread: 4 })
+    await sql`
+      insert into bot.chat_token_watches (chat_id, target, target_usd, target_up, target_set_usd, target_set_at)
+      values (-1306, ${L.token}, 500000, true, 210000, to_timestamp(${T0}))`
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT))
+    expect(await mcapRows()).toEqual(["-1306:4"])
+    expect(await targets()).toEqual([null])
+  })
+
+  it("a group target follows routes.mcap, and a paused mcap route keeps the target", async () => {
+    const s = basicPreset("supergroup")
+    await addChat(sql, -1307, "supergroup", { ...s, thread: 4, routes: { mcap: 8 } })
+    await addChat(sql, -1308, "supergroup", { ...s, routes: { mcap: 8 }, pausedRoutes: ["mcap"] })
+    for (const chat of [-1307, -1308])
+      await sql`
+        insert into bot.chat_token_watches (chat_id, target, target_usd, target_up, target_set_usd, target_set_at)
+        values (${chat}, ${L.token}, 500000, true, 210000, to_timestamp(${T0}))`
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT))
+    expect(await mcapRows()).toEqual(["-1307:8"])
+    const left = await sql<{ chat_id: string; usd: number | null }[]>`
+      select chat_id::text, target_usd::float8 as usd from bot.chat_token_watches order by chat_id`
+    expect(left).toEqual([
+      { chat_id: "-1307", usd: null },
+      { chat_id: "-1308", usd: 500_000 },
+    ])
+  })
+
+  it("a muted user's target never fires", async () => {
+    const id = await userTarget(1309, 500_000)
+    await sql`insert into bot.subscriptions (user_id, kind, target) values (${id}, 'mute', ${L.token})`
+    await bondedToken()
+    await insertEvents(sql, [over()])
+    await pollOnce(at(AT))
+    expect(await mcapRows()).toEqual([])
+  })
+
+  it("MCAP TARGET and BIG BUY from one swap both reach a watcher", async () => {
+    await userTarget(1310, 500_000)
+    await bondedToken()
+    await insertEvents(sql, [over({ quoteAmount: eth(0.4), quoteLiquidity: eth(8.4) })])
+    await pollOnce(at(AT))
+    expect(
+      (await listDeliveries(sql))
+        .filter((r) => r.chat_id === "1310")
+        .map((r) => r.alert)
+        .sort(),
+    ).toEqual(["big", "mcap"])
   })
 })

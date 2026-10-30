@@ -1,6 +1,6 @@
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
-import { dm, NOT_FOUND, popup, WATCH_LIMIT } from "../src/menus/copy"
+import { dm, NOT_FOUND, popup, TARGET_TOKENS_ONLY, WATCH_LIMIT } from "../src/menus/copy"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { watch } from "../src/nft/watches"
 import { createBot } from "../src/platforms/telegram/bot"
@@ -8,7 +8,7 @@ import { nftAlertKeyboard } from "../src/platforms/telegram/render"
 import type { Prices } from "../src/prices"
 import { addChat, addUser } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
-import { addr, nftCollection } from "./helpers/events"
+import { addr, launch, nftCollection } from "./helpers/events"
 import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -358,6 +358,50 @@ describe("/watch in a DM", () => {
     expect(await rows("nft_watches")).toHaveLength(1)
     await h.text(`/watch ${C}`)
     expect(h.last("sendMessage")!.text).toBe(dm.alreadyWatching(N))
+  })
+
+  it("/watch on an NFT collection with an amount refuses the target and watches nothing", async () => {
+    await h.text("/watch ink-hornet 1000")
+    expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
+    expect(TARGET_TOKENS_ONLY).toBe(
+      "Market cap alerts are for tokens only. To watch this collection, send /watch with its name alone.",
+    )
+    await h.text("/watch Ink Hornet $5k")
+    expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
+    expect(await rows("nft_watches")).toHaveLength(0)
+  })
+
+  it("a collection and a token with the same name: the name watches the collection, $TICKER the token", async () => {
+    const T = addr(0xd7)
+    await insertEvents(sql, [launch({ token: T, ticker: "HORNET", name: "Ink Hornet" })])
+    await h.text("/watch Ink Hornet")
+    expect(h.last("sendMessage")!.text).toBe(dm.watching(N, "nft"))
+    expect(await rows("nft_watches")).toHaveLength(1)
+    expect(await sql`select target from bot.subscriptions`).toEqual([])
+    await h.text("/watch $HORNET")
+    expect(h.last("sendMessage")!.text).toBe(dm.watching("$HORNET", "token"))
+    expect(await sql`select target from bot.subscriptions`).toEqual([{ target: T }])
+  })
+
+  it("a collection whose name ends in a number watches the collection, with no target", async () => {
+    const APE = addr(0xa9e)
+    const ids = await insertEvents(sql, [
+      nftCollection({ contract: APE, slug: "apefest-2026", name: "APEFEST 2026" }),
+    ])
+    state = await loadNftState(sql, ids.at(-1)!)
+    await h.text("/watch apefest 2026")
+    expect(h.last("sendMessage")!.text).toBe(dm.watching("APEFEST 2026", "nft"))
+    expect(await rows("nft_watches")).toEqual([{ contract: APE }])
+    await h.text("/watch APEFEST 2026 $5k")
+    expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
+  })
+
+  it("a token name that only partly matches a collection watches the token", async () => {
+    const T = addr(0xd8)
+    await insertEvents(sql, [launch({ token: T, ticker: "INK", name: "Ink" })])
+    await h.text("/watch ink")
+    expect(h.last("sendMessage")!.text).toBe(dm.watching("$INK", "token"))
+    expect(await rows("nft_watches")).toHaveLength(0)
   })
 
   it("says it was not found for a name or address nothing matches", async () => {

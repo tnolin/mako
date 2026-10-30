@@ -1,4 +1,4 @@
-import type { LaunchEvent, TradeEvent } from "@ink-indexer/events"
+import type { BondEvent, LaunchEvent, SwapEvent, TradeEvent } from "@ink-indexer/events"
 import type { Card } from "../cards/card"
 import type { Sql } from "../db"
 import type { Row } from "../history"
@@ -47,6 +47,20 @@ export type Candidate = {
   floorDir?: "up" | "down"
   /** FLOOR UP / DOWN: the absolute move in basis points. */
   floorBps?: number
+  /**
+   * PUMPING after bonding: the market cap gain over the 10-minute low. Every pool swap carries one, so the re-arm
+   * state sees each gain; an `observeOnly` candidate is below every threshold and is never sent.
+   */
+  pump?: { token: string; gainBps: number; observeOnly?: true }
+  /** PUMPING after bonding: the market cap in USD, or null without a current price. */
+  mcapUsd?: number | null
+  /** MCAP TARGET: the one user (bot.users.id) or chat (Telegram chat id) whose target fired. */
+  recipient?: { user: string } | { chat: string }
+  /**
+   * MCAP TARGET: the target that fired and the market cap when it was set, in USD, and when it was set (exact epoch
+   * seconds as a decimal string).
+   */
+  mcapTarget?: { usd: number; setUsd: number; setAt: string }
 }
 
 export type RuleCtx = {
@@ -66,5 +80,16 @@ export type TradeCtx = {
   launch: Row<LaunchEvent>
   /** The token's trades up to and including `ev`, in id order. */
   trades: Row<TradeEvent>[]
+  prices: Prices
+}
+
+export type SwapCtx = {
+  ev: Row<SwapEvent>
+  launch: Row<LaunchEvent>
+  bond: Row<BondEvent> | null
+  /** The token's swaps in the 600 s up to and including `ev`, in id order. */
+  swaps: Row<SwapEvent>[]
+  /** The creator's curve trades and pool swaps up to `ev`; loaded only when the creator made this swap. */
+  dev: { trades: Row<TradeEvent>[]; swaps: Row<SwapEvent>[] } | null
   prices: Prices
 }

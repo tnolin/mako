@@ -1,24 +1,41 @@
-import type { BondEvent, IndexerEvent, LaunchEvent, TradeEvent } from "@ink-indexer/events"
+import type {
+  BondEvent,
+  IndexerEvent,
+  LaunchEvent,
+  StoredEvent,
+  SwapEvent,
+  TradeEvent,
+} from "@ink-indexer/events"
 import type { Sql } from "./db"
 import type { LaunchMark } from "./delivery/flood"
+import { current } from "./events"
 
 /** An indexer event and its table id (a decimal string). */
 export type Row<T> = { id: string; p: T }
 
+/** Stored rows in their current shapes. `T` is the shape the query's `type` filter selects. */
+const upgrade = <T extends IndexerEvent>(rows: Row<StoredEvent>[]): Row<T>[] =>
+  rows.map((r) => ({ id: r.id, p: current(r.p) as T }))
+
 // Every read of the indexer lives here. Production grants allow indexer.events and indexer.cursors only.
 // Selecting `id::text` makes a bare `order by id` sort the text, so these orders use `events.id`.
 
+/** An event as the poller reads it, with the time the indexer wrote it (unix seconds). */
+export type Written<T> = Row<T> & { writtenTs: number }
+
 /** Confirmed events after `cursor`, up to and including `maxId` when given (replay tooling only). */
-export function eventsAfter(
+export async function eventsAfter(
   sql: Sql,
   cursor: string,
   limit = 500,
   maxId?: string,
-): Promise<Row<IndexerEvent>[]> {
-  return sql<Row<IndexerEvent>[]>`
-    select id::text, payload as p from indexer.events
+): Promise<Written<IndexerEvent>[]> {
+  const rows = await sql<Written<StoredEvent>[]>`
+    select id::text, payload as p, extract(epoch from created_at)::int as "writtenTs"
+    from indexer.events
     where confirmed and id > ${cursor} ${maxId === undefined ? sql`` : sql`and id <= ${maxId}`}
     order by events.id limit ${limit}`
+  return rows.map((r) => ({ id: r.id, p: current(r.p), writtenTs: r.writtenTs }))
 }
 
 /** The newest confirmed event id. Unconfirmed rows are skipped, so they are read once they confirm. */
@@ -30,28 +47,155 @@ export async function maxEventId(sql: Sql): Promise<string> {
 }
 
 export async function launchOf(sql: Sql, token: string): Promise<Row<LaunchEvent> | null> {
-  const [r] = await sql<Row<LaunchEvent>[]>`
-    select id::text, payload as p from indexer.events
-    where entity = ${token} and type = 'launchpad.launch' order by events.id limit 1`
+  const [r] = upgrade<LaunchEvent>(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.launch' order by events.id limit 1`,
+  )
   return r ?? null
 }
 
 /** A token's curve trades in id order, up to and including `uptoId` when given. */
-export function tradesOf(sql: Sql, token: string, uptoId?: string): Promise<Row<TradeEvent>[]> {
-  return uptoId === undefined
-    ? sql<Row<TradeEvent>[]>`
-        select id::text, payload as p from indexer.events
-        where entity = ${token} and type = 'launchpad.trade' order by events.id`
-    : sql<Row<TradeEvent>[]>`
-        select id::text, payload as p from indexer.events
-        where entity = ${token} and type = 'launchpad.trade' and id <= ${uptoId} order by events.id`
+export async function tradesOf(
+  sql: Sql,
+  token: string,
+  uptoId?: string,
+): Promise<Row<TradeEvent>[]> {
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.trade'
+        ${uptoId === undefined ? sql`` : sql`and id <= ${uptoId}`}
+      order by events.id`,
+  )
+}
+
+/**
+ * A token's pool swaps in id order, from `sinceTs` (blockTimestamp) up to and including `uptoId` when given. With
+ * both, the read is narrowed to recent rows: Ink makes about one block per second, so blocks within 10× the time span
+ * before `uptoId`'s block are a safe superset, and every row in those blocks has an id at or above the lowest id among
+ * them. That id bound, not the block filter, is what lets the (type, entity, id) index skip the token's older swaps.
+ */
+export async function swapsOf(
+  sql: Sql,
+  token: string,
+  uptoId?: string,
+  sinceTs = 0,
+): Promise<Row<SwapEvent>[]> {
+  let range: { from: string; to: string } | null = null
+  if (uptoId !== undefined && sinceTs > 0) {
+    const [to] = await sql<{ block: string; ts: number }[]>`
+      select block::text, (payload->>'blockTimestamp')::float8 as ts from indexer.events where id = ${uptoId}`
+    if (to) {
+      const span = Math.max(0, to.ts - sinceTs)
+      range = { from: String(BigInt(to.block) - BigInt(Math.ceil(span * 10) + 100)), to: to.block }
+    }
+  }
+  // `offset 0` keeps the planner from turning min(id) into a primary-key scan that filters on block; it reads the
+  // block range through events_block instead.
+  const near =
+    range === null
+      ? sql``
+      : sql`and block >= ${range.from}::bigint
+          and id >= (select min(id) from (select id from indexer.events
+            where block >= ${range.from}::bigint and block <= ${range.to}::bigint offset 0) b)`
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.swap'
+        ${uptoId === undefined ? sql`` : sql`and id <= ${uptoId}`}
+        ${near}
+        and (payload->>'blockTimestamp')::bigint >= ${sinceTs}
+      order by events.id`,
+  )
+}
+
+/** The market cap, quote asset, ath and time of a token's newest curve trade or pool swap. */
+export async function lastMarketOf(
+  sql: Sql,
+  token: string,
+): Promise<{ marketCap: bigint; quote: string; ath: bigint; atTs: number } | null> {
+  const [r] = await sql<{ p: StoredEvent }[]>`
+    select payload as p from indexer.events
+    where entity = ${token} and type in ('launchpad.trade', 'launchpad.swap')
+    order by events.id desc limit 1`
+  if (!r) return null
+  const p = current(r.p) as TradeEvent | SwapEvent
+  let ath = BigInt(p.athMarketCap)
+  // A version 1 row carries no ath, and every trade before it is version 1 too: take their highest market cap.
+  if (r.p.v === 1) {
+    const [m] = await sql<{ ath: string }[]>`
+      select max((payload->>'marketCap')::numeric)::text as ath from indexer.events
+      where entity = ${token} and type = 'launchpad.trade'`
+    ath = BigInt(m!.ath)
+  }
+  return { marketCap: BigInt(p.marketCap), quote: p.quoteAsset, ath, atTs: p.blockTimestamp }
+}
+
+/** The creator's curve trades and pool swaps of a token, in id order, up to and including `uptoId`. */
+export async function devTradesOf(
+  sql: Sql,
+  token: string,
+  trader: string,
+  uptoId: string,
+): Promise<{ trades: Row<TradeEvent>[]; swaps: Row<SwapEvent>[] }> {
+  const rows = await sql<(Row<StoredEvent> & { type: string })[]>`
+    select id::text, type, payload as p from indexer.events
+    where entity = ${token} and type in ('launchpad.trade', 'launchpad.swap')
+      and payload->>'trader' = ${trader} and id <= ${uptoId}
+    order by events.id`
+  return {
+    trades: upgrade(rows.filter((r) => r.type === "launchpad.trade")),
+    swaps: upgrade(rows.filter((r) => r.type === "launchpad.swap")),
+  }
 }
 
 export async function bondOf(sql: Sql, token: string): Promise<Row<BondEvent> | null> {
-  const [r] = await sql<Row<BondEvent>[]>`
-    select id::text, payload as p from indexer.events
-    where entity = ${token} and type = 'launchpad.bond' order by events.id limit 1`
+  const [r] = upgrade<BondEvent>(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.bond' order by events.id limit 1`,
+  )
   return r ?? null
+}
+
+/** A token found by ticker or name. A token that started in a pool counts as bonded. */
+export type TokenHit = {
+  token: string
+  ticker: string | null
+  name: string | null
+  bonded: boolean
+  lastTradeTs: number | null
+}
+
+/**
+ * Tokens whose ticker equals `ticker` or whose name equals one of `names`, ignoring case: bonded first, then by
+ * the newest curve trade or pool swap, at most 8.
+ */
+export function tokensNamed(sql: Sql, ticker: string, names: string[]): Promise<TokenHit[]> {
+  const lower = names.map((n) => n.toLowerCase())
+  // shortcut: compares every launch's ticker and name; add an expression index past ~100K launches.
+  return sql`
+    select l.entity as token, l.payload->>'ticker' as ticker, l.payload->>'name' as name,
+      -- A token that started in a pool trades there from launch, like a bonded one.
+      exists (select 1 from indexer.events b where b.entity = l.entity and b.type = 'launchpad.bond')
+        or coalesce((l.payload->>'startsInPool')::boolean, false) as bonded,
+      (select (t.payload->>'blockTimestamp')::int from indexer.events t
+        where t.entity = l.entity and t.type in ('launchpad.trade', 'launchpad.swap')
+        order by t.id desc limit 1) as "lastTradeTs"
+    from indexer.events l
+    where l.type = 'launchpad.launch'
+      and (lower(l.payload->>'ticker') = ${ticker.toLowerCase()} or lower(l.payload->>'name') = any(${lower}))
+    order by bonded desc, "lastTradeTs" desc nulls last, l.id desc
+    limit 8`
+}
+
+/** Every launched token with its launchpad key. Version 1 rows already carry `launchpad`. */
+export async function tokenLaunchpads(sql: Sql): Promise<[string, string][]> {
+  const rows = await sql<{ token: string; launchpad: string }[]>`
+    select distinct entity as token, payload->>'launchpad' as launchpad
+    from indexer.events where type = 'launchpad.launch'`
+  return rows.map((r) => [r.token, r.launchpad])
 }
 
 /** Launches by a creator up to an id, and how many of them bonded. Uses events_launch_creator. */
@@ -73,9 +217,14 @@ export async function creatorStats(
 
 export async function launchesOf(sql: Sql, tokens: string[]): Promise<Map<string, LaunchEvent>> {
   if (tokens.length === 0) return new Map()
-  const rows = await sql<{ p: LaunchEvent }[]>`
+  const rows = await sql<{ p: StoredEvent }[]>`
     select payload as p from indexer.events where entity = any(${tokens}) and type = 'launchpad.launch'`
-  return new Map(rows.map((r) => [r.p.token, r.p]))
+  return new Map(
+    rows.map((r) => {
+      const p = current(r.p) as LaunchEvent
+      return [p.token, p]
+    }),
+  )
 }
 
 export async function cursorBlock(sql: Sql): Promise<string | null> {
@@ -124,12 +273,14 @@ export function nearBonding(sql: Sql): Promise<{ token: string; soldBps: number 
 }
 
 /** Latest bonds of the last 7 days. Uses events_type_id. */
-export function justBonded(sql: Sql): Promise<Row<BondEvent>[]> {
-  return sql<Row<BondEvent>[]>`
-    select id::text, payload as p from indexer.events
-    where type = 'launchpad.bond'
-      and block >= (select block - ${WEEK_BLOCKS} from indexer.cursors where source = 'inkypump')
-    order by events.id desc limit 5`
+export async function justBonded(sql: Sql): Promise<Row<BondEvent>[]> {
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where type = 'launchpad.bond'
+        and block >= (select block - ${WEEK_BLOCKS} from indexer.cursors where source = 'inkypump')
+      order by events.id desc limit 5`,
+  )
 }
 
 /**

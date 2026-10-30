@@ -1,4 +1,4 @@
-import { escapeHtml } from "../format"
+import { escapeHtml, usd } from "../format"
 
 /**
  * Copy for the Watch, Mute and Remind me buttons, one function each, shared by tokens and NFTs. `name` is a token's `$TICKER` or a collection's cleaned name.
@@ -30,3 +30,19 @@ export const NOT_FOUND =
 
 export const WATCH_LIMIT = "Watch limit reached."
 export const WATCH_USAGE = "Send /watch followed by a token or NFT collection address."
+
+/** `/watch <token> <amount>`. `name` is the token's name, plain text. Amounts are in USD. */
+export const TARGET_SET = (name: string, target: number, now: number) =>
+  target >= now
+    ? `Watching ${name}. I'll alert you when its market cap reaches ${usd(target)} (now ${usd(now)}).`
+    : `Watching ${name}. I'll alert you when its market cap drops to ${usd(target)} (now ${usd(now)}).`
+export const TARGET_REPLACED = (name: string, target: number, old: number, now: number) =>
+  `${name}'s target is now ${usd(target)}, replacing ${usd(old)} (now ${usd(now)}).`
+export const TARGET_NO_PRICE = (name: string) =>
+  `I can't set a target for ${name} right now because I don't have a current price for it. Try again in a few minutes.`
+export const TARGET_BAD_AMOUNT =
+  "I couldn't read that amount. Try something like /watch $GOBLO 500k, 1.5m or $500000."
+export const TARGET_TOKENS_ONLY =
+  "Market cap alerts are for tokens only. To watch this collection, send /watch with its name alone."
+/** `called` is `$TICKER`, or the name as typed. */
+export const TARGET_PICK = (called: string) => `More than one token is called ${called}. Which one?`

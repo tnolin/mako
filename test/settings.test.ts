@@ -1,6 +1,7 @@
 import { expect, it } from "vitest"
 import {
   ALERT_DESC,
+  ALERT_HELP,
   ALERT_LABEL,
   ALERT_PATTERN,
   ALERTS,
@@ -312,4 +313,8 @@ it("wantsImage works for mcap", () => {
   expect(wantsImage(s, "mcap")).toBe(true)
   s.alerts.mcap.image = false
   expect(wantsImage(s, "mcap")).toBe(false)
+})
+
+it("ALERT_HELP describes BIG BUY/SELL for the curve and the pool", () => {
+  expect(ALERT_HELP.big).toBe("one trade worth 5%+ of the bond target or pool")
 })

@@ -43,6 +43,6 @@ export const TARGET_NO_PRICE = (name: string) =>
 export const TARGET_BAD_AMOUNT =
   "I couldn't read that amount. Try something like /watch $GOBLO 500k, 1.5m or $500000."
 export const TARGET_TOKENS_ONLY =
-  "Market cap alerts are for tokens only. Send /watch with the collection's name alone to watch it."
+  "Market cap alerts are for tokens only. To watch this collection, send /watch with its name alone."
 /** `called` is `$TICKER`, or the name as typed. */
 export const TARGET_PICK = (called: string) => `More than one token is called ${called}. Which one?`

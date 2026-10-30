@@ -173,7 +173,7 @@ export const ALERT_HELP: Record<TokenAlert, string> = {
   pumping: "curve +15% or mcap +20% in 10 min",
   bonded: "a token bonds",
   devsell: "the creator sells",
-  big: "one trade of 5%+ of bond target or pool",
+  big: "one trade worth 5%+ of the bond target or pool",
 }
 
 /** Whether the chat wants a photo for this alert. MINT REMINDER has no image switch: it always has one. */

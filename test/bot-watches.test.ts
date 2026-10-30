@@ -363,6 +363,9 @@ describe("/watch in a DM", () => {
   it("/watch on an NFT collection with an amount refuses the target and watches nothing", async () => {
     await h.text("/watch ink-hornet 1000")
     expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
+    expect(TARGET_TOKENS_ONLY).toBe(
+      "Market cap alerts are for tokens only. To watch this collection, send /watch with its name alone.",
+    )
     await h.text("/watch Ink Hornet $5k")
     expect(h.last("sendMessage")!.text).toBe(TARGET_TOKENS_ONLY)
     expect(await rows("nft_watches")).toHaveLength(0)

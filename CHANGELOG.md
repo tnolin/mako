@@ -7,7 +7,7 @@
 - MCAP TARGET: `/watch <token> <amount>` (for example `/watch $GOBLO 500k`) sends one alert when the token's market cap reaches the amount, or drops to it when the amount is below the current market cap, then clears the target. It works in DMs and, for admins, in groups, where it can be routed to a topic. A new amount replaces the old one, and Watched tokens shows it.
 - `/watch` finds a token by `$TICKER` or name as well as by address. When several tokens share the name, it lists them to pick from, bonded tokens first.
 - PUMPING after bonding: a bonded token's PUMPING fires when its market cap rises over its lowest point in the last 10 minutes by the chat's threshold, +20% by default (+15%, +30% or +50% in Token alerts). It sends once, then waits until the rise falls back under +5%. Feeds get it from a market cap of $50K by default ($25K to $250K in Token alerts); watched tokens always do.
-- BIG BUY/SELL on pool trades: after bonding, one trade worth 5% or more of the pool's liquidity (your 2.5%, 5% or 10% setting), and at least $500, sends BIG BUY or BIG SELL.
+- BIG BUY/SELL on pool trades: after bonding, one trade worth 5% or more of the pool's liquidity (your 2.5%, 5% or 10% setting), and at least $1,000, sends BIG BUY or BIG SELL.
 - DEV SELL on pool trades: the creator selling in the pool sends DEV SELL, with PnL over the creator's curve and pool trades.
 - Trade buttons open each token's own launchpad.
 - Token search ranks tokens that started in a pool with the bonded ones.

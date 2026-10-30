@@ -8,7 +8,7 @@ import type { Candidate, SwapCtx, TradeCtx } from "./types"
 /** The smallest selectable threshold; recipients compare sizeBps with their own setting. */
 export const MIN_BIG_BPS = 250
 /** A pool trade worth less than this in USD never sends BIG, however thin the pool. */
-export const BIG_MIN_USD = 500
+export const BIG_MIN_USD = 1000
 
 export function big(t: TradeCtx): Candidate[] {
   const p = t.ev.p
@@ -38,7 +38,7 @@ export function big(t: TradeCtx): Candidate[] {
 
 /**
  * BIG BUY/SELL on a pool trade, sized against the pool's quote side before the trade. Without a USD price the
- * $500 minimum can't be checked, so nothing is sent.
+ * $1,000 minimum can't be checked, so nothing is sent.
  */
 export function bigSwap(s: SwapCtx): Candidate[] {
   const p = s.ev.p

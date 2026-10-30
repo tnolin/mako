@@ -930,7 +930,7 @@ describe("events the indexer wrote long after their block", () => {
     await addUser(sql, 903)
     const ids = await insertEvents(sql, [L, bond()])
     await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
-    await insertEvents(sql, [swap({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })], {
+    await insertEvents(sql, [swap({ quoteAmount: eth(0.4), quoteLiquidity: eth(8.4) })], {
       writtenAt: now,
     })
     await pollOnce(deps({ now: () => now, keepLateWrites: true }))
@@ -942,7 +942,7 @@ describe("events the indexer wrote long after their block", () => {
     const ids = await insertEvents(sql, [L, bond()])
     await sql`update bot.state set value = ${ids[1]!} where key = 'events_cursor'`
     // Written 30 minutes after its block, the longest lag the rules still see.
-    const s = swap({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })
+    const s = swap({ quoteAmount: eth(0.4), quoteLiquidity: eth(8.4) })
     await insertEvents(sql, [s], { writtenAt: s.blockTimestamp + 1800 })
     await pollOnce(deps({ now: () => now }))
     expect((await listDeliveries(sql)).map((r) => r.alert)).toEqual(["big"])
@@ -1342,7 +1342,7 @@ describe("MCAP TARGET", () => {
   it("MCAP TARGET and BIG BUY from one swap both reach a watcher", async () => {
     await userTarget(1310, 500_000)
     await bondedToken()
-    await insertEvents(sql, [over({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })])
+    await insertEvents(sql, [over({ quoteAmount: eth(0.4), quoteLiquidity: eth(8.4) })])
     await pollOnce(at(AT))
     expect(
       (await listDeliveries(sql))

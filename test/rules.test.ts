@@ -277,7 +277,7 @@ describe("pool trades", () => {
   const bonded = [L, trade({ txHash: L.txHash, trader: C }), bond()]
 
   it("pool BIG BUY at 5% of the quote side", async () => {
-    const s = swap({ quoteAmount: eth(0.2), quoteLiquidity: eth(4.2) })
+    const s = swap({ quoteAmount: eth(0.4), quoteLiquidity: eth(8.4) })
     const cs = await run([...bonded, s])
     const b = pick(cs, "big")!
     expect(b).toMatchObject({
@@ -288,9 +288,9 @@ describe("pool trades", () => {
     })
     expect(b.card.title).toBe("BIG BUY")
     expect(b.card.rows).toEqual([
-      ["bought", "0.20 ETH ($500)"],
+      ["bought", "0.40 ETH ($1.0K)"],
       ["mcap", "$50.0K"],
-      ["liquidity", "$21.0K"],
+      ["liquidity", "$42.0K"],
     ])
   })
 
@@ -309,9 +309,15 @@ describe("pool trades", () => {
     ])
   })
 
-  it("no pool BIG under $500", async () => {
-    const cs = await run([...bonded, swap({ quoteAmount: eth(0.1), quoteLiquidity: eth(2.1) })])
-    expect(pick(cs, "big")).toBeUndefined()
+  it("no pool BIG under $1,000: a $999 trade sends nothing, a $1,000 one sends", async () => {
+    // At $2,500 per ETH, each 5% of its pool's quote side before the trade.
+    const worth = (usd: number) => {
+      const quote = (BigInt(usd) * 10n ** 18n) / 2500n
+      return swap({ quoteAmount: String(quote), quoteLiquidity: String(quote * 21n) })
+    }
+    expect(pick(await run([...bonded, worth(999)]), "big")).toBeUndefined()
+    await sql`delete from indexer.events`
+    expect(pick(await run([...bonded, worth(1000)]), "big")).toMatchObject({ sizeBps: 500 })
   })
 
   it("no pool BIG under the smallest threshold", async () => {
@@ -333,14 +339,14 @@ describe("pool trades", () => {
     const cs = await runWith(withXstock, [
       xl,
       bond({ quoteAsset: X }),
-      swap({ quoteAsset: X, quoteAmount: eth(3), quoteLiquidity: eth(63) }),
+      swap({ quoteAsset: X, quoteAmount: eth(6), quoteLiquidity: eth(126) }),
     ])
     const b = pick(cs, "big")!
     expect(b.sizeBps).toBe(500)
     expect(b.card.rows).toEqual([
-      ["bought", "3.00 NVDAx ($540)"],
+      ["bought", "6.00 NVDAx ($1.1K)"],
       ["mcap", "$3.6K"],
-      ["liquidity", "$22.7K"],
+      ["liquidity", "$45.4K"],
     ])
   })
 

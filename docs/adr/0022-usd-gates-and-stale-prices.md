@@ -12,7 +12,7 @@ Events carry amounts in their quote asset: ETH or an xStock. Three decisions now
 Each gate does nothing rather than guess when its price is stale:
 
 - **PUMPING feed minimum:** without a current price, bonded PUMPING does not reach feeds. Watchers still get it, since they skip the minimum.
-- **Pool BIG BUY/SELL:** a pool trade must be worth $500 or more, since a thin pool makes small trades look large against its quote side. Without a price, no pool BIG is sent. Curve BIG is sized against the bond target and needs no price.
+- **Pool BIG BUY/SELL:** a pool trade must be worth $1,000 or more, since a thin pool makes small trades look large against its quote side. Without a price, no pool BIG is sent. Curve BIG is sized against the bond target and needs no price.
 - **MCAP TARGET:** without a price, no target fires or clears, and no target can be set. The first fresh event past the target after the price returns fires it.
 
 Quote amounts are converted assuming 18 decimals, which holds for every quote asset indexed today. A quote with other decimals, such as USDG, needs per-asset decimals before it gets a USD price.

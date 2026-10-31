@@ -826,6 +826,26 @@ describe("quote currencies", () => {
     expect(await poolBuy(prices, WETH, 18, 1, 21)).toBeUndefined()
   })
 
+  /** The recorded USDC-quoted graduation (6 decimals), inserted up to and including `last`. */
+  async function usdcGraduate(last: "bond" | "swap") {
+    const { launch: l, closingBuy, bond: b, swap: sw } = loadTsunami().usdc
+    await insertEvents(sql, last === "bond" ? [l, closingBuy, b] : [l, closingBuy, b, sw])
+    const { prices } = await livePrices()
+    const all = await eventsAfter(sql, "0")
+    return rulesFor(all.at(-1)!, { ...ctx(sql), prices })
+  }
+
+  it("a USDC graduate's BONDED card reads its pool at 6 decimals", async () => {
+    const bonded = pick(await usdcGraduate("bond"), "bonded")!
+    expect(bonded.card.rows.find(([k]) => k === "pool")).toEqual(["pool", "12.00 USDC + 207M USDL"])
+  })
+
+  it("a USDC graduate's PUMPING market cap in dollars is read at 6 decimals", async () => {
+    // The recorded swap leaves a market cap of 2,490,887 base units: $2.49.
+    const pumping = pick(await usdcGraduate("swap"), "pumping")!
+    expect(pumping.mcapUsd).toBeCloseTo(2.490887, 6)
+  })
+
   describe("MCAP TARGET on a USDG token", () => {
     const AT = T0 + 3600
     async function fireAt(marketCap: bigint) {

@@ -76,7 +76,7 @@ describe("createPrices", () => {
 
   it("an unknown quote shows its short address", () => {
     const { prices } = setup({})
-    expect(prices.symbol("0x2d270e6886d130d724215a266106e6832161aeed")).toBe("0x2d27…aeed")
+    expect(prices.symbol(`0x${"12".repeat(20)}`)).toBe("0x1212…1212")
   })
 
   it("InkyPump's wrapper symbol still wins for w…x wrappers", async () => {

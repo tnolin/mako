@@ -17,6 +17,7 @@ import type { Prices } from "../src/prices"
 import { addChat, addUser, subscribe } from "./helpers/bot"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, ETH, launch, swap, T0, trade } from "./helpers/events"
+import { loadTsunami } from "./helpers/fixtures"
 import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -453,6 +454,29 @@ describe("/watch with a market cap target", () => {
     expect(await target()).toEqual([
       { target: A, usd: 500_000, up: true, setUsd: 210_000, setAt: true },
     ])
+  })
+
+  it("a USDC-quoted token's current value is read at 6 decimals", async () => {
+    // The recorded USDC graduate's first pool swap leaves a market cap of 2,490,887 base units: $2.49.
+    const { launch: l, closingBuy, bond: b, swap: sw } = loadTsunami().usdc
+    await insertEvents(sql, [l, closingBuy, b, sw])
+    const usdcBot = harness(
+      createBot({
+        token: "1:test",
+        botInfo: BOT_INFO,
+        sql,
+        prices: { usd: (q) => (q === l.quoteAsset ? 1 : null), symbol: () => "USDC" },
+        log: () => {},
+        report: vi.fn(),
+        linksBase: "https://go.makobot.xyz",
+        images: testImages().images,
+        nft: () => nft,
+      }),
+    )
+    await usdcBot.text(`/watch ${l.token} $100`)
+    expect(usdcBot.last("sendMessage")!.text).toBe(
+      "Watching usdcl. I'll alert you when its market cap reaches $100 (now $2).",
+    )
   })
 
   it("a target below the current cap is downward", async () => {

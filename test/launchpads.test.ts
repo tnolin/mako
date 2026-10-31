@@ -47,8 +47,24 @@ it("tradeTarget routes an ink.fun token to ink.fun", () => {
   )
 })
 
-it("names ink.fun and InkyPump from config", () => {
-  expect(launchpadNames()).toBe("InkyPump or ink.fun")
+it("names every launchpad from config", () => {
+  expect(launchpadNames()).toBe("InkyPump, ink.fun or Tsunami")
+})
+
+it("Tsunami trade link is the plain token page", () => {
+  expect(tradeLink("tsunami", CA, {})).toBe(`https://tsunami.trade/t/${CA}`)
+  expect(tradeLink("tsunami", CA, { INKYPUMP_REF_CODE: "MAKO" })).toBe(
+    `https://tsunami.trade/t/${CA}`,
+  )
+})
+
+it("Tsunami links to its home page for the launchpad link", () => {
+  expect(referralLink("tsunami", { INKYPUMP_REF_CODE: "MAKO" })).toBe("https://tsunami.trade")
+})
+
+it("tradeTarget routes a Tsunami token to Tsunami", () => {
+  const lps = new TokenLaunchpads([[CA, "tsunami"]])
+  expect(tradeTarget(lps, { INKYPUMP_REF_CODE: "MAKO" })(CA)).toBe(`https://tsunami.trade/t/${CA}`)
 })
 
 const two: Record<string, Launchpad> = {
@@ -81,5 +97,5 @@ it("unknown token falls back to InkyPump", () => {
 })
 
 it("names launchpads from config only", () => {
-  expect(launchpadNames(two)).toBe("InkyPump, ink.fun or Otherpad")
+  expect(launchpadNames(two)).toBe("InkyPump, ink.fun, Tsunami or Otherpad")
 })

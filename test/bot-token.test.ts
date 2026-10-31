@@ -9,6 +9,7 @@ import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, ETH, launch, swap, trade } from "./helpers/events"
+import { loadTsunami } from "./helpers/fixtures"
 import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -281,6 +282,14 @@ describe("token card layout", () => {
       "",
       `CA   <code>${A}</code>`,
     ])
+  })
+
+  it("a Tsunami launch card reads Name · Tsunami", async () => {
+    const { launch: l, seedBuy } = loadTsunami().shitcoin
+    await insertEvents(sql, [l, seedBuy])
+    await h.text(`/t ${l.token}`)
+    const caption = h.last("sendPhoto")!.caption
+    expect(lines(caption).slice(0, 2)).toEqual(["<b>$SHITCOIN</b>", "Shitcoin · Tsunami"])
   })
 
   it("leaves out the description and its blank line when there is none", async () => {

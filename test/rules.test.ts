@@ -7,7 +7,7 @@ import type { Prices } from "../src/prices"
 import { type Candidate, rulesFor, swapCtx, withDevHolds } from "../src/rules/index"
 import { insertEvents, resetDb } from "./helpers/db"
 import { addr, bond, hash, launch, NATIVE, swap, T0, trade } from "./helpers/events"
-import { loadFixture } from "./helpers/fixtures"
+import { loadFixture, loadTsunami } from "./helpers/fixtures"
 
 const prices: Prices = {
   usd: (q) => (q === NATIVE ? 2500 : null),
@@ -723,6 +723,22 @@ describe("ink.fun", () => {
       ["pair", "GOBLO/ETH"],
       ["bonds at", "4.20 ETH ($10.5K)"],
       ["dev buy", "0.01 ETH (1.0%)"],
+      ["dev", "1 launch | 0 bonded"],
+    ])
+  })
+})
+
+describe("Tsunami", () => {
+  it("shows bonds at 4.2 ETH and the seed buy as dev buy for the SHITCOIN launch", async () => {
+    const { launch: l, seedBuy } = loadTsunami().shitcoin
+    await insertEvents(sql, [l, seedBuy])
+    const evs = await eventsAfter(sql, "0")
+    const [c] = await rulesFor(evs[0]!, ctx(sql))
+    expect(c!.card).toMatchObject({ launchpad: "Tsunami", launchpadKey: "tsunami" })
+    expect(c!.card.rows).toEqual([
+      ["pair", "SHITCOIN/ETH"],
+      ["bonds at", "4.20 ETH ($10.5K)"],
+      ["dev buy", "0.02 ETH (1.1%)"],
       ["dev", "1 launch | 0 bonded"],
     ])
   })

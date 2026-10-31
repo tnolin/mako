@@ -27,6 +27,13 @@ export const LAUNCHPADS = {
     refEnv: null,
     referralUrl: () => "https://ink.fun",
   },
+  tsunami: {
+    name: "Tsunami",
+    tradeUrl: (ca: string) => `https://tsunami.trade/t/${ca}`,
+    refParam: null,
+    refEnv: null,
+    referralUrl: () => "https://tsunami.trade",
+  },
 } satisfies Record<string, Launchpad>
 
 export type LaunchpadKey = keyof typeof LAUNCHPADS

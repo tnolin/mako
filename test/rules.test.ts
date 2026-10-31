@@ -3,7 +3,7 @@ import type { Card } from "../src/cards/card"
 import type { Sql } from "../src/db"
 import { eventsAfter } from "../src/history"
 import { createNftState } from "../src/nft/state"
-import type { Prices } from "../src/prices"
+import { createPrices, type Prices } from "../src/prices"
 import { type Candidate, rulesFor, swapCtx, withDevHolds } from "../src/rules/index"
 import { insertEvents, resetDb } from "./helpers/db"
 import { addr, bond, hash, launch, NATIVE, swap, T0, trade } from "./helpers/events"
@@ -741,5 +741,119 @@ describe("Tsunami", () => {
       ["dev buy", "0.02 ETH (1.1%)"],
       ["dev", "1 launch | 0 bonded"],
     ])
+  })
+})
+
+describe("quote currencies", () => {
+  const KBTC = "0x73e0c0d45e048d25fc26fa3159b0aa04bfa4db98" as const
+  const USDG = "0xe343167631d89b6ffc58b88d6b7fb0228795491d" as const
+  const USDC = "0x2d270e6886d130d724215a266106e6832161eaed" as const
+  const WETH = "0x4200000000000000000000000000000000000006" as const
+  const units = (n: number, decimals: number) => String(BigInt(n) * 10n ** BigInt(decimals))
+
+  /** The bot's own price source, fed a fixed ETH/USD, with a clock the test can move. */
+  async function livePrices() {
+    let t = 0
+    const prices = createPrices({
+      fetch: (async (url: string | URL) =>
+        new Response(
+          JSON.stringify(
+            String(url).includes("kraken")
+              ? { error: [], result: { XETHZUSD: { c: ["2500", "1"] } } }
+              : { assets: [{ wrapperAddress: addr(0x943b), symbol: "AAPLx", valuation: null }] },
+          ),
+        )) as unknown as typeof fetch,
+      now: () => t,
+      log: () => {},
+    })
+    await prices.refresh()
+    return { prices, advance: (ms: number) => (t += ms) }
+  }
+
+  /** A bonded token quoted in `quote`, then a pool buy of `spent` into a pool holding `liquidity` after it. */
+  async function poolBuy(
+    p: Prices,
+    quote: `0x${string}`,
+    decimals: number,
+    spent: number,
+    liquidity: number,
+  ) {
+    const l = launch({ ...L, quoteAsset: quote })
+    await insertEvents(sql, [
+      l,
+      bond({ quoteAsset: quote }),
+      swap({
+        quoteAsset: quote,
+        quoteAmount: units(spent, decimals),
+        quoteLiquidity: units(liquidity, decimals),
+      }),
+    ])
+    const all = await eventsAfter(sql, "0")
+    return pick(await rulesFor(all.at(-1)!, { ...ctx(sql), prices: p }), "big")
+  }
+
+  it("a kBTC-quoted pool BIG BUY is not sent", async () => {
+    const { prices } = await livePrices()
+    expect(await poolBuy(prices, KBTC, 8, 5, 105)).toBeUndefined()
+  })
+
+  it("a USDG-quoted pool BIG BUY over $1,000 is sent, and one under is not", async () => {
+    const { prices } = await livePrices()
+    expect((await poolBuy(prices, USDG, 6, 1200, 24_000))?.card.rows[0]).toEqual([
+      "bought",
+      "1,200.00 USDG ($1.2K)",
+    ])
+    await sql`delete from indexer.events`
+    expect(await poolBuy(prices, USDG, 6, 900, 18_000)).toBeUndefined()
+  })
+
+  it("a USDC-quoted pool BIG BUY over $1,000 is sent", async () => {
+    const { prices } = await livePrices()
+    expect((await poolBuy(prices, USDC, 6, 1200, 24_000))?.card.rows[0]).toEqual([
+      "bought",
+      "1,200.00 USDC ($1.2K)",
+    ])
+  })
+
+  it("a WETH-quoted pool BIG BUY uses the ETH price and is not sent while ETH is stale", async () => {
+    const { prices, advance } = await livePrices()
+    expect((await poolBuy(prices, WETH, 18, 1, 21))?.card.rows[0]).toEqual([
+      "bought",
+      "1.00 WETH ($2.5K)",
+    ])
+    await sql`delete from indexer.events`
+    advance(11 * 60_000)
+    expect(await poolBuy(prices, WETH, 18, 1, 21)).toBeUndefined()
+  })
+
+  describe("MCAP TARGET on a USDG token", () => {
+    const AT = T0 + 3600
+    async function fireAt(marketCap: bigint) {
+      const [u] = await sql<{ id: string }[]>`
+        insert into bot.users (platform_user_id, settings) values (501, '{}') returning id::text`
+      await sql`
+        insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+        values (${u!.id}, 'watch', ${L.token}, 500000, true, 210000, to_timestamp(${AT - 600}))`
+      const { prices } = await livePrices()
+      await insertEvents(sql, [
+        launch({ ...L, quoteAsset: USDG }),
+        bond({ quoteAsset: USDG, blockTimestamp: T0 + 60 }),
+        swap({ quoteAsset: USDG, marketCap: String(marketCap), blockTimestamp: AT }),
+      ])
+      const all = await eventsAfter(sql, "0")
+      return pick(await rulesFor(all.at(-1)!, { ...ctx(sql), prices, now: () => AT }), "mcap")
+    }
+
+    it("compares dollars at 6 decimals", async () => {
+      const m = await fireAt(512_000n * 10n ** 6n)
+      expect(m?.card.rows.slice(0, 2)).toEqual([
+        ["mcap", "$512K"],
+        ["target", "$500K (set at $210K)"],
+      ])
+    })
+
+    it("does not fire short of the target", async () => {
+      expect(await fireAt(499_000n * 10n ** 6n)).toBeUndefined()
+    })
   })
 })

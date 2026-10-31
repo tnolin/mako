@@ -50,7 +50,7 @@ export function bigSwap(s: SwapCtx): Candidate[] {
   const before = buy ? liquidity - quote : liquidity + quote
   if (before <= 0n) return []
   const price = s.prices.usd(p.quoteAsset)
-  if (price === null || quoteUnits(quote) * price < BIG_MIN_USD) return []
+  if (price === null || quoteUnits(quote, p.quoteAsset) * price < BIG_MIN_USD) return []
   const sizeBps = Number((quote * 10_000n) / before)
   if (sizeBps < MIN_BIG_BPS) return []
   return [

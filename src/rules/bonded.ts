@@ -25,7 +25,7 @@ export function bonded(
   rows.push(
     [
       "pool",
-      `${amount(quoteUnits(b.liquidityQuote))} ${prices.symbol(b.quoteAsset)} + ${compact(units(b.liquidityTokens))} ${card.ticker}`,
+      `${amount(quoteUnits(b.liquidityQuote, b.quoteAsset))} ${prices.symbol(b.quoteAsset)} + ${compact(units(b.liquidityTokens))} ${card.ticker}`,
     ],
     ["volume", valueText(w.volume, l.quoteAsset, prices)],
     ["trades", count(w.buys + w.sells)],

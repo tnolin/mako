@@ -61,7 +61,7 @@ export function pumpingBonded(s: SwapCtx): Candidate[] {
     dedupeKey: `pump:${p.txHash}:${p.logIndex}`,
     priority: PRIORITY.pumping,
     eventTs: p.blockTimestamp,
-    mcapUsd: price === null ? null : quoteUnits(mcap) * price,
+    mcapUsd: price === null ? null : quoteUnits(mcap, p.quoteAsset) * price,
   }
   if (gainBps < MIN_BONDED_BPS) {
     return [

@@ -32,7 +32,7 @@ export async function mcapTargets(
   if (ctx.now() - p.blockTimestamp > FRESH_S) return []
   const price = ctx.prices.usd(p.quoteAsset)
   if (price === null) return []
-  const mcapUsd = quoteUnits(p.marketCap) * price
+  const mcapUsd = quoteUnits(p.marketCap, p.quoteAsset) * price
   const rows = await ctx.sql<TargetRow[]>`
     select 'u' as kind, user_id::text as id, target_usd::float8 as usd, target_set_usd::float8 as "setUsd",
       extract(epoch from target_set_at)::text as "setAt"

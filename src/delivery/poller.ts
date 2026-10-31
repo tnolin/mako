@@ -89,15 +89,15 @@ export async function initCursor(sql: Sql, fromId?: string): Promise<string> {
 const nowS = () => Math.floor(Date.now() / 1000)
 
 /**
- * A trade or swap the indexer wrote more than this many seconds after its block is history it caught up on (a
- * backfill, or a restart after an outage), not live trading, and never reaches the rules. It matches the longest
- * time an alert may wait in the queue (DEV SELL's 30 minutes): any alert from an older row would be dropped as late.
+ * A launchpad row (launch, trade, bond or swap) the indexer wrote more than this many seconds after its block is
+ * history it caught up on (a backfill, or a restart after an outage), not live trading, and never reaches the
+ * rules. It matches the longest time an alert may wait in the queue (DEV SELL's 30 minutes): any alert from an
+ * older row would be dropped as late.
  */
 export const LATE_WRITE_S = 1800
 
 const writtenLate = (ev: Written<IndexerEvent>): boolean =>
-  (ev.p.type === "launchpad.trade" || ev.p.type === "launchpad.swap") &&
-  ev.writtenTs - ev.p.blockTimestamp > LATE_WRITE_S
+  ev.p.type.startsWith("launchpad.") && ev.writtenTs - ev.p.blockTimestamp > LATE_WRITE_S
 
 /**
  * The time before which nft.* events never alert (unix seconds): `override` (NFT_ALERTS_SINCE) when set,
@@ -258,9 +258,15 @@ async function processBatch(
 ): Promise<number> {
   const { sql, log } = deps
   const lastId = events.at(-1)!.id
-  // Launch floods: decided from launch events alone, so a re-run or replay classifies the same way.
-  const launches = events.filter((e) => e.p.type === "launchpad.launch") as Row<LaunchEvent>[]
-  for (const l of launches) deps.launchpads?.set(l.p.token, l.p.launchpad)
+  const allLaunches = events.filter(
+    (e) => e.p.type === "launchpad.launch",
+  ) as Written<LaunchEvent>[]
+  for (const l of allLaunches) deps.launchpads?.set(l.p.token, l.p.launchpad)
+  // Launch floods: decided from launch events alone, so a re-run or replay classifies the same way. Launches the
+  // indexer caught up on never alert, so they neither start a flood nor count toward one.
+  const skipLate = (ev: Written<IndexerEvent>) => !deps.keepLateWrites && writtenLate(ev)
+  const launches = allLaunches.filter((l) => !skipLate(l))
+  const maxWriteLagS = deps.keepLateWrites ? undefined : LATE_WRITE_S
   let starts = new Map<string, string>()
   if (launches.length > 0) {
     const minTs = launches.reduce(
@@ -270,7 +276,7 @@ async function processBatch(
     // A long flood's start lies further back than one window: widen the history until it is certain.
     for (let back = 2 * FLOOD_WINDOW_S; ; back *= 2) {
       const from = minTs - back
-      const history = await launchesAround(sql, from, lastId)
+      const history = await launchesAround(sql, from, lastId, maxWriteLagS)
       starts = floodStarts(history)
       const unsure = uncertainStarts(history, from, starts)
       if (back >= MAX_LOOKBACK_S || !launches.some((l) => unsure.has(starts.get(l.id) ?? ""))) break
@@ -292,8 +298,8 @@ async function processBatch(
     if (ev.p.type.startsWith("nft.")) prev = nft.apply(ev as Row<NftEvent>)
     // Backfilled NFT history: the cursor moves past it and nothing is sent.
     if (ev.p.type.startsWith("nft.") && ev.p.blockTimestamp < cutoff) continue
-    // Trades and swaps the indexer caught up on: the cursor moves past them and nothing is sent.
-    if (!deps.keepLateWrites && writtenLate(ev)) continue
+    // Rows the indexer caught up on: the cursor moves past them and nothing is sent.
+    if (skipLate(ev)) continue
     try {
       cands.push(
         ...(await rules(ev, { sql, prices: deps.prices, log, nft, now, nftSince: cutoff }, prev)),

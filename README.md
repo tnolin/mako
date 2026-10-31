@@ -14,6 +14,7 @@ It reads normalized events from [ink-indexer](https://github.com/tnolin/ink-inde
 MAKO currently works with:
 - **Ink:** reads launches, trades, mints and sales directly from the chain.
 - **InkyPump:** memecoin launches, bonding progress, and trading in each token's Uniswap pool after it bonds.
+- **ink.fun:** memecoin launches, bonding progress, and trading in each token's Uniswap pool after it graduates.
 - **OpenSea:** NFT collection details, floors, listings, rarity ranks and mint schedules. View and Buy buttons open OpenSea.
 - **Chimera:** new Chimera-404 collections.
 

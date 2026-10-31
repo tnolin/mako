@@ -696,3 +696,34 @@ describe("robustness", () => {
     expect(c!.card.rows[1]![1]).toMatch(/^[\d,.]+ NVDAx$/)
   })
 })
+
+describe("ink.fun", () => {
+  it("shows bonds at 4.2 ETH and the seed buy as dev buy for an ink.fun launch", async () => {
+    const inkfun = launch({
+      launchpad: "inkfun",
+      creator: C,
+      txHash: hash(0x2b),
+      targetRaise: String(4_200n * 10n ** 15n),
+    })
+    await insertEvents(sql, [
+      inkfun,
+      trade({
+        launchpad: "inkfun",
+        txHash: inkfun.txHash,
+        trader: C,
+        side: "buy",
+        quoteAmount: eth(0.01),
+        tokenAmount: String(10n ** 25n),
+      }),
+    ])
+    const evs = await eventsAfter(sql, "0")
+    const [c] = await rulesFor(evs[0]!, ctx(sql))
+    expect(c!.card).toMatchObject({ launchpad: "ink.fun", launchpadKey: "inkfun" })
+    expect(c!.card.rows).toEqual([
+      ["pair", "GOBLO/ETH"],
+      ["bonds at", "4.20 ETH ($10.5K)"],
+      ["dev buy", "0.01 ETH (1.0%)"],
+      ["dev", "1 launch | 0 bonded"],
+    ])
+  })
+})

@@ -286,12 +286,14 @@ export async function justBonded(sql: Sql): Promise<Row<BondEvent>[]> {
 /**
  * Confirmed launches from `fromTs` (blockTimestamp) up to event `toId`, in id order, for flood detection.
  * Narrowed by block first so it uses events_block: Ink makes about one block per second, so blocks within
- * 10× the time span are a safe superset.
+ * 10× the time span are a safe superset. With `maxWriteLagS`, launches written more than that many seconds after
+ * their block (a backfill) are left out.
  */
 export async function launchesAround(
   sql: Sql,
   fromTs: number,
   toId: string,
+  maxWriteLagS?: number,
 ): Promise<LaunchMark[]> {
   const [to] = await sql<{ block: string; ts: number }[]>`
     select block::text, (payload->>'blockTimestamp')::float8 as ts from indexer.events where id = ${toId}`
@@ -304,5 +306,7 @@ export async function launchesAround(
       and block >= ${String(BigInt(to.block) - BigInt(Math.ceil(span * 10) + 100))}::bigint
       and events.id <= ${toId}
       and (payload->>'blockTimestamp')::bigint >= ${fromTs}
+      and (${maxWriteLagS ?? null}::float8 is null
+        or extract(epoch from created_at)::int - (payload->>'blockTimestamp')::float8 <= ${maxWriteLagS ?? null}::float8)
     order by events.id`
 }

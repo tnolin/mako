@@ -1,5 +1,16 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- ink.fun tokens in every token alert and in `/t`, with Trade links to the token's ink.fun page.
+
+### Fixed
+
+- Launch and bond rows written long after their block, for example by a backfill, no longer queue alerts, flood notices or "alerts skipped" summaries.
+- A bonded token's `/t` market cap uses the circulating supply once the token has traded in its pool.
+
 ## v0.3.0 (2026-10-30)
 
 ### Added

@@ -587,6 +587,23 @@ describe("bonded live market cap", () => {
     expect(noUsd.last("sendPhoto")!.caption).toContain("<code>mcap     5.33 ETH</code>")
   })
 
+  it("bonded /t market cap uses the latest swap's supply", async () => {
+    readSqrtPrice.mockResolvedValue(KRAK_SQRT)
+    await bonded()
+    await insertEvents(sql, [
+      swap({ token: A, poolId: POOL, blockNumber: "1003", supply: String(5n * 10n ** 26n) }),
+    ])
+    await h.text(`/t ${A}`)
+    expect(h.last("sendPhoto")!.caption).toContain("<code>mcap     $6.7K</code>")
+  })
+
+  it("a bonded token with no swap yet uses the launch supply", async () => {
+    readSqrtPrice.mockResolvedValue(KRAK_SQRT)
+    await bonded()
+    await h.text(`/t ${A}`)
+    expect(h.last("sendPhoto")!.caption).toContain("<code>mcap     $13.3K</code>")
+  })
+
   it("never reads the pool for a curve token", async () => {
     await h.text(`/t ${A}`)
     expect(readSqrtPrice).not.toHaveBeenCalled()

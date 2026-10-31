@@ -965,6 +965,80 @@ describe("events the indexer wrote long after their block", () => {
   })
 })
 
+describe("launch and bond rows the indexer wrote long after their block", () => {
+  const DAY = 86_400
+  const now = T0 + 30 * DAY
+  const old = T0 + 10 * DAY
+  const inkfunLaunches = (n: number, gap: number) =>
+    Array.from({ length: n }, (_, i) =>
+      launch({
+        launchpad: "inkfun",
+        token: addr(0x2000 + i),
+        creator: addr(0x3000 + i),
+        name: `Backfill ${i + 1}`,
+        ticker: `B${i + 1}`,
+        blockTimestamp: old + i * gap,
+        blockNumber: String(3000 + i),
+        txHash: hash(0x6000 + i),
+      }),
+    )
+  const alertsOf = async () => (await listDeliveries(sql)).map((r) => r.alert)
+
+  it("backfilled ink.fun launches and trades send nothing", async () => {
+    await addUser(sql, 905)
+    const launches = inkfunLaunches(65, 600)
+    const trades = launches.map((l, i) =>
+      trade({
+        launchpad: "inkfun",
+        token: l.token,
+        trader: addr(0x4000 + i),
+        blockTimestamp: l.blockTimestamp + 60,
+        blockNumber: String(Number(l.blockNumber) + 1),
+        txHash: hash(0x7000 + i),
+      }),
+    )
+    const ids = await insertEvents(sql, [...launches, ...trades], { writtenAt: now })
+    await pollOnce(deps({ now: () => now }))
+    expect(await sql`select 1 from bot.deliveries`).toHaveLength(0)
+    expect(await cursor()).toBe(ids.at(-1))
+  })
+
+  it("a burst of backfilled launches posts no flood notice and no minute card", async () => {
+    await addUser(sql, 906)
+    const ids = await insertEvents(sql, inkfunLaunches(14, 2), { writtenAt: now })
+    await pollOnce(deps({ now: () => now }))
+    expect(await sql`select 1 from bot.deliveries`).toHaveLength(0)
+    expect(await cursor()).toBe(ids.at(-1))
+  })
+
+  it("a skipped launch still maps its token to ink.fun", async () => {
+    const launchpads = new TokenLaunchpads()
+    const [l] = inkfunLaunches(1, 1)
+    await insertEvents(sql, [l!], { writtenAt: now })
+    await pollOnce(deps({ now: () => now, launchpads }))
+    expect(launchpads.get(l!.token)).toBe("inkfun")
+    expect(await alertsOf()).toEqual([])
+  })
+
+  it("a bond written long after its block sends no BONDED", async () => {
+    await addUser(sql, 907)
+    const ids = await insertEvents(sql, [L])
+    await sql`update bot.state set value = ${ids[0]!} where key = 'events_cursor'`
+    await insertEvents(sql, [bond({ blockTimestamp: L.blockTimestamp + 100 })], {
+      writtenAt: now,
+    })
+    await pollOnce(deps({ now: () => now }))
+    expect(await alertsOf()).toEqual([])
+  })
+
+  it("a launch written on time still sends NEW TOKEN", async () => {
+    await addUser(sql, 908)
+    await insertEvents(sql, [launch({ launchpad: "inkfun" })])
+    await pollOnce(deps())
+    expect(await alertsOf()).toEqual(["new"])
+  })
+})
+
 describe("PUMPING after bonding", () => {
   /** A bonded token, with the cursor past its launch and bond. */
   const bonded = async () => {

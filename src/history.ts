@@ -307,6 +307,6 @@ export async function launchesAround(
       and events.id <= ${toId}
       and (payload->>'blockTimestamp')::bigint >= ${fromTs}
       and (${maxWriteLagS ?? null}::float8 is null
-        or extract(epoch from created_at) - (payload->>'blockTimestamp')::float8 <= ${maxWriteLagS ?? null}::float8)
+        or extract(epoch from created_at)::int - (payload->>'blockTimestamp')::float8 <= ${maxWriteLagS ?? null}::float8)
     order by events.id`
 }

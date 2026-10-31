@@ -9,7 +9,7 @@ Graduated tokens trade in Uniswap v4 pools held by more than one PoolManager: Un
 
 ## Decision
 
-- **StateView by PoolManager.** `/t` reads a bonded token's market cap from the StateView that belongs to the pool's PoolManager (`STATE_VIEWS` in `src/pool.ts`). A pool whose PoolManager is not in the table gets no live market cap and no node call; the card shows the market cap at the last trade instead. The price cache is keyed by PoolManager and pool id.
+- **StateView by PoolManager.** `/t` reads a bonded token's market cap from the StateView that belongs to the pool's PoolManager (`STATE_VIEWS` in `src/pool.ts`). A pool whose PoolManager is not in the table gets no live market cap and no node call; the card shows the market cap at the token's last bonding-curve trade instead. The price cache is keyed by PoolManager and pool id.
 - **The pool a token trades in now.** `/t` reads the pool of the token's latest swap, and the bond's pool until it has one, so a token whose pool moved shows the market cap of the pool it trades in.
 - **Raw quote units.** A pool price is a ratio of base units, so the market cap comes out in the quote's own base units whatever its decimals.
 - **Quote symbols and decimals from a table.** `QUOTE_ASSETS` in `src/quotes.ts` lists the symbol and decimals of each quote currency a Tsunami token can launch against. Amounts are converted with the quote's decimals; a quote missing from the table is read as 18 decimals and shown as a short address.

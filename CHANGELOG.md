@@ -6,7 +6,7 @@
 
 - Tsunami tokens in every token alert and in `/t`, with Trade links to the token's Tsunami page.
 - Live market cap in `/t` for tokens in Calamari pools.
-- Tokens quoted in USDC, USDG, USD₮0, kBTC and uniBTC, with amounts in each currency's own decimals. USDG, USDC and USD₮0 are valued at $1 and WETH at the ETH price. Other quote currencies show their own amounts without a dollar value, so pool BIG BUY/SELL and MCAP TARGET do not fire for them.
+- Tokens quoted in USDC, USDG, USD₮0, kBTC and uniBTC, with amounts in each currency's own decimals. USDG, USDC and USD₮0 are valued at $1 and WETH at the ETH price. kBTC, uniBTC and the other currencies without a USD price (InkyPump's stock wrappers keep theirs) show their own amounts without a dollar value, so pool BIG BUY/SELL, MCAP TARGET and the PUMPING feed minimum do not fire for them.
 
 ### Fixed
 

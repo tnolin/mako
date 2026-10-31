@@ -4,6 +4,16 @@ import { DEFAULT_RPC } from "./rpc"
 export const UNISWAP_V4_POOL_MANAGER = "0x360e68faccca8ca495c1b759fd9eee466db9fb32"
 /** Uniswap v4 StateView on Ink (Uniswap's v4 deployments page, checked 2026-10-14). */
 export const STATE_VIEW = "0x76fd297e2d437cd7f76d50f01afe6160f86e9990"
+/** Calamari's PoolManager, which holds every graduated Tsunami pool, and its StateView. */
+export const CALAMARI_POOL_MANAGER = "0x6e4723a612831afb9f5b2a5ae22723c37aab9560"
+export const CALAMARI_STATE_VIEW = "0x9bf3f07e41e05d658248467760c745e278ef6211"
+
+/** The StateView that reads each PoolManager's pools, keyed by lowercase PoolManager address. */
+export const STATE_VIEWS: Record<string, string> = {
+  [UNISWAP_V4_POOL_MANAGER]: STATE_VIEW,
+  [CALAMARI_POOL_MANAGER]: CALAMARI_STATE_VIEW,
+}
+
 /** getSlot0(bytes32) */
 const GET_SLOT0 = "0xc815641c"
 const POOL_ID = /^0x[0-9a-f]{64}$/
@@ -11,13 +21,13 @@ const Q192 = 1n << 192n
 
 export const isPoolId = (id: string): boolean => POOL_ID.test(id)
 
-export type ReadSqrtPrice = (poolId: string) => Promise<bigint>
+export type ReadSqrtPrice = (poolManager: string, poolId: string) => Promise<bigint>
 
 export const POOL_PRICE_TTL_MS = 15_000
 
 /**
- * Read-only `eth_call StateView.getSlot0(poolId)` at latest; returns sqrtPriceX96. 3 s timeout.
- * Each pool's result (value or failure) is cached for 15 s, and concurrent lookups share one call.
+ * Read-only `eth_call StateView.getSlot0(poolId)` at latest on the StateView of the pool's PoolManager; returns
+ * sqrtPriceX96. 3 s timeout. Each pool's result (value or failure) is cached for 15 s, and concurrent lookups share one call.
  * shortcut: in memory and per process; expired entries are swept on every call (O(pools)).
  */
 export function rpcSqrtPrice(
@@ -26,7 +36,7 @@ export function rpcSqrtPrice(
   now: () => number = Date.now,
 ): ReadSqrtPrice {
   const cache = new Map<string, { at: number; value: Promise<bigint> }>()
-  const read = async (poolId: string): Promise<bigint> => {
+  const read = async (stateView: string, poolId: string): Promise<bigint> => {
     // Errors carry fixed text only: Node's fetch puts the full URL (and any provider key in it) in some messages.
     const res = await fetchFn(url, {
       method: "POST",
@@ -35,7 +45,7 @@ export function rpcSqrtPrice(
         jsonrpc: "2.0",
         id: 1,
         method: "eth_call",
-        params: [{ to: STATE_VIEW, data: `${GET_SLOT0}${poolId.slice(2)}` }, "latest"],
+        params: [{ to: stateView, data: `${GET_SLOT0}${poolId.slice(2)}` }, "latest"],
       }),
       signal: AbortSignal.timeout(3000),
     }).catch((err: unknown) => {
@@ -52,24 +62,28 @@ export function rpcSqrtPrice(
     }
     return BigInt(j.result.slice(0, 66))
   }
-  return (poolId) => {
+  return (poolManager, poolId) => {
+    const stateView = STATE_VIEWS[poolManager.toLowerCase()]
+    if (!stateView) return Promise.reject(new Error("unknown pool manager"))
     if (!isPoolId(poolId)) return Promise.reject(new Error("bad pool id"))
     const t = now()
     for (const [k, e] of cache) if (t - e.at >= POOL_PRICE_TTL_MS) cache.delete(k)
-    const hit = cache.get(poolId)
+    const key = `${poolManager.toLowerCase()}:${poolId}`
+    const hit = cache.get(key)
     if (hit) return hit.value
-    const value = read(poolId)
+    const value = read(stateView, poolId)
     // Each caller handles a cached failure; this only stops an unhandled-rejection warning.
     value.catch(() => {})
-    cache.set(poolId, { at: t, value })
+    cache.set(key, { at: t, value })
     return value
   }
 }
 
 /**
  * Market cap in raw quote units from a v4 pool price. v4 orders currencies by address, so native ETH (0x0) is
- * always currency0, and sqrtPriceX96² / 2^192 is currency1 per currency0. Token and quote both have 18 decimals
- * (InkyPump tokens, ETH and the xStock wrappers). Null for an uninitialized pool.
+ * always currency0, and sqrtPriceX96² / 2^192 is currency1 per currency0 in base units, so the result is in the
+ * quote's own base units whatever its decimals (6 for USDC, 8 for kBTC, 18 for ETH). Tokens have 18 decimals.
+ * Null for an uninitialized pool.
  */
 export function poolMcap(
   sqrtPriceX96: bigint,

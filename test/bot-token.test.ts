@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeEach, describe, expect, inject, it, vi } fro
 import type { Sql } from "../src/db"
 import { escapeHtml } from "../src/format"
 import { NOT_FOUND } from "../src/menus/copy"
+import { UNISWAP_V4_POOL_MANAGER } from "../src/pool"
 import { EMPTY } from "../src/menus/lists"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "../src/menus/token"
 import { createBot } from "../src/platforms/telegram/bot"
@@ -25,7 +26,9 @@ const KRAK_SQRT = 1085330431310623941983443206493297n
 const POOL = `0x${"ab".repeat(32)}` as `0x${string}`
 const log = vi.fn()
 // Default: the node is unreachable, so bonded cards use the bonded-at row unless a test opts in.
-let readSqrtPrice: ReturnType<typeof vi.fn<(poolId: string) => Promise<bigint>>>
+let readSqrtPrice: ReturnType<
+  typeof vi.fn<(poolManager: string, poolId: string) => Promise<bigint>>
+>
 
 beforeEach(async () => {
   img = testImages()
@@ -33,7 +36,7 @@ beforeEach(async () => {
   sql = await resetDb(inject("databaseUrl"))
   report.mockClear()
   log.mockReset()
-  readSqrtPrice = vi.fn(async (_poolId: string): Promise<bigint> => {
+  readSqrtPrice = vi.fn(async (_poolManager: string, _poolId: string): Promise<bigint> => {
     throw new Error("no node in tests")
   })
   h = harness(
@@ -546,7 +549,7 @@ describe("bonded live market cap", () => {
     expect(c).toMatch(/<code>bonded {3}\d+d ago<\/code>/)
     expect(c).toContain("<code>mcap     $13.3K</code>")
     expect(c).not.toContain(" at $")
-    expect(readSqrtPrice).toHaveBeenCalledWith(POOL)
+    expect(readSqrtPrice).toHaveBeenCalledWith(UNISWAP_V4_POOL_MANAGER, POOL)
   })
 
   it("falls back to the bonded-at row when the read fails, and logs a warn without the RPC URL", async () => {
@@ -616,6 +619,69 @@ describe("bonded live market cap", () => {
   it("never reads the pool for a curve token", async () => {
     await h.text(`/t ${A}`)
     expect(readSqrtPrice).not.toHaveBeenCalled()
+  })
+})
+
+describe("Tsunami pools", () => {
+  const CALAMARI = "0x6e4723a612831afb9f5b2a5ae22723c37aab9560"
+  const t = loadTsunami()
+  const botWith = (p: Prices) =>
+    harness(
+      createBot({
+        token: "1:test",
+        botInfo: BOT_INFO,
+        sql,
+        prices: p,
+        log,
+        report,
+        linksBase: "https://go.makobot.xyz",
+        images: img.images,
+        readSqrtPrice,
+      }),
+    )
+  const card = (b: ReturnType<typeof harness>) =>
+    (b.last("sendPhoto")?.caption ?? b.last("sendMessage")?.text) as string
+  const graduate = (g: typeof t.gm | typeof t.usdc) =>
+    insertEvents(sql, [g.launch, g.closingBuy, g.bond, g.swap])
+
+  it("a Tsunami token's /t market cap calls Calamari's StateView", async () => {
+    readSqrtPrice.mockResolvedValue(BigInt(t.gm.slot0SqrtPriceX96))
+    await graduate(t.gm)
+    await h.text(`/t ${t.gm.launch.token}`)
+    expect(readSqrtPrice).toHaveBeenCalledWith(CALAMARI, t.gm.bond.poolId)
+    // 697.998 ETH at $2,500.
+    expect(card(h)).toContain("<code>mcap     $1.7M</code>")
+  })
+
+  it("an unknown pool manager gives no live market cap and no call", async () => {
+    await insertEvents(sql, [
+      t.gm.launch,
+      t.gm.closingBuy,
+      { ...t.gm.bond, poolManager: addr(0x99) },
+    ])
+    await h.text(`/t ${t.gm.launch.token}`)
+    expect(readSqrtPrice).not.toHaveBeenCalled()
+    expect(card(h)).toMatch(/bonded {3}\d+d ago at /)
+    expect(card(h)).not.toContain("<code>mcap ")
+  })
+
+  it("/t reads the pool of the latest swap after a pool move", async () => {
+    readSqrtPrice.mockResolvedValue(BigInt(t.moved.slot0SqrtPriceX96))
+    await graduate(t.moved)
+    await h.text(`/t ${t.moved.launch.token}`)
+    expect(t.moved.bond.poolId).toBe(t.moved.sourcePoolId)
+    expect(readSqrtPrice).toHaveBeenCalledWith(CALAMARI, t.moved.destinationPoolId)
+    expect(readSqrtPrice).not.toHaveBeenCalledWith(CALAMARI, t.moved.sourcePoolId)
+    // 5.932 ETH at $2,500.
+    expect(card(h)).toContain("<code>mcap     $14.8K</code>")
+  })
+
+  it("the USDC graduate's /t market cap is in USDC", async () => {
+    readSqrtPrice.mockResolvedValue(BigInt(t.usdc.slot0SqrtPriceX96))
+    await graduate(t.usdc)
+    const noUsd = botWith({ usd: () => null, symbol: () => "USDC" })
+    await noUsd.text(`/t ${t.usdc.launch.token}`)
+    expect(card(noUsd)).toContain("<code>mcap     2.49 USDC</code>")
   })
 })
 

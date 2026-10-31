@@ -1,4 +1,4 @@
-import type { BondEvent, LaunchEvent } from "@ink-indexer/events"
+import type { LaunchEvent } from "@ink-indexer/events"
 import type { Bot, Context } from "grammy"
 import { valueText } from "../cards/money"
 import { age, bar, buysSells, clean, escapeHtml } from "../format"
@@ -7,7 +7,7 @@ import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
 import { btn, findAddress, type Kb, link, show, stateBtn, threadOf } from "../platforms/telegram/ui"
-import { isPoolId, poolMcap } from "../pool"
+import { isPoolId, poolMcap, STATE_VIEWS } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
 import { devCounts, windowStats } from "../rules/stats"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
@@ -26,17 +26,21 @@ function bondedAgo(seconds: number): string {
 
 export type TokenCard = { html: string; imageUrl: string | null }
 
-/** Current market cap from the token's v4 pool in raw quote units, or null when it can't be read. Never throws. */
+/**
+ * Current market cap from the token's v4 pool in raw quote units, or null when it can't be read. Never throws.
+ * `pool` is the pool the token trades in now: its latest swap's, else the bond's.
+ */
 async function liveMcap(
   deps: BotDeps,
-  b: BondEvent,
+  pool: { poolId: string | null; poolManager: string | null },
   l: LaunchEvent,
   supply: string,
 ): Promise<bigint | null> {
-  const id = String(b.poolId ?? "").toLowerCase()
-  if (!deps.readSqrtPrice || !isPoolId(id)) return null
+  const id = String(pool.poolId ?? "").toLowerCase()
+  const manager = String(pool.poolManager ?? "").toLowerCase()
+  if (!deps.readSqrtPrice || !isPoolId(id) || !STATE_VIEWS[manager]) return null
   try {
-    return poolMcap(await deps.readSqrtPrice(id), l.token, l.quoteAsset, supply)
+    return poolMcap(await deps.readSqrtPrice(manager, id), l.token, l.quoteAsset, supply)
   } catch (err) {
     // rpcSqrtPrice throws fixed messages (or the node's own error text), never the RPC URL, which can hold a key.
     deps.log("warn", "pool price read failed", {
@@ -69,7 +73,8 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
     // A launchpad that burns at graduation leaves less than the launch supply; the pool's swaps carry the current one.
     // shortcut: before a bonded token's first pool swap, market cap uses the launch supply, which is slightly high
     // for launchpads that burn at graduation. Carry the supply on launchpad.bond in the next events schema version.
-    const live = await liveMcap(deps, b.p, l.p, swaps.at(-1)?.p.supply ?? l.p.totalSupply)
+    const pool = swaps.at(-1)?.p ?? b.p
+    const live = await liveMcap(deps, pool, l.p, swaps.at(-1)?.p.supply ?? l.p.totalSupply)
     if (live !== null) {
       rows.push(["bonded", ago], ["mcap", valueText(live, q, prices)])
     } else {

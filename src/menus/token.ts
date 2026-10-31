@@ -27,11 +27,16 @@ function bondedAgo(seconds: number): string {
 export type TokenCard = { html: string; imageUrl: string | null }
 
 /** Current market cap from the token's v4 pool in raw quote units, or null when it can't be read. Never throws. */
-async function liveMcap(deps: BotDeps, b: BondEvent, l: LaunchEvent): Promise<bigint | null> {
+async function liveMcap(
+  deps: BotDeps,
+  b: BondEvent,
+  l: LaunchEvent,
+  supply: string,
+): Promise<bigint | null> {
   const id = String(b.poolId ?? "").toLowerCase()
   if (!deps.readSqrtPrice || !isPoolId(id)) return null
   try {
-    return poolMcap(await deps.readSqrtPrice(id), l.token, l.quoteAsset, l.totalSupply)
+    return poolMcap(await deps.readSqrtPrice(id), l.token, l.quoteAsset, supply)
   } catch (err) {
     // rpcSqrtPrice throws fixed messages (or the node's own error text), never the RPC URL, which can hold a key.
     deps.log("warn", "pool price read failed", {
@@ -61,7 +66,10 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
     // A bonded token's volume and trades are its curve totals plus every pool swap since.
     const w = windowStats([...trades, ...swaps], 0, swaps.at(-1)?.id ?? b.id)
     const ago = `${bondedAgo(now - b.p.blockTimestamp)} ago`
-    const live = await liveMcap(deps, b.p, l.p)
+    // A launchpad that burns at graduation leaves less than the launch supply; the pool's swaps carry the current one.
+    // shortcut: before a bonded token's first pool swap, market cap uses the launch supply, which is slightly high
+    // for launchpads that burn at graduation. Carry the supply on launchpad.bond in the next events schema version.
+    const live = await liveMcap(deps, b.p, l.p, swaps.at(-1)?.p.supply ?? l.p.totalSupply)
     if (live !== null) {
       rows.push(["bonded", ago], ["mcap", valueText(live, q, prices)])
     } else {

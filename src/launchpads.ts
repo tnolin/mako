@@ -1,8 +1,9 @@
 export type Launchpad = {
   name: string
   tradeUrl: (ca: string) => string
-  refParam: string
-  refEnv: string
+  /** Query parameter and env var of the launchpad's referral code; null for a launchpad without a referral program. */
+  refParam: string | null
+  refEnv: string | null
   /** The page that tags a visitor with a referral code, or the launchpad home without one. */
   referralUrl: (code?: string) => string
 }
@@ -18,6 +19,13 @@ export const LAUNCHPADS = {
       code
         ? `https://inkypump.com/ink/join/${encodeURIComponent(code)}`
         : "https://inkypump.com/ink",
+  },
+  inkfun: {
+    name: "ink.fun",
+    tradeUrl: (ca: string) => `https://ink.fun/token/57073/${ca}`,
+    refParam: null,
+    refEnv: null,
+    referralUrl: () => "https://ink.fun",
   },
 } satisfies Record<string, Launchpad>
 
@@ -42,8 +50,8 @@ export class TokenLaunchpads {
   }
 }
 
-// shortcut: an unknown key falls back to the first launchpad, which is only right while there is one.
-// Upgrade path: once a second launchpad exists, treat an unknown key as an error.
+// shortcut: a launchpad whose events arrive before its entry exists is labelled InkyPump, the first entry.
+// Upgrade path: add the entry before the launchpad's events are indexed, or treat an unknown key as an error.
 export function launchpadOf(key: string, list: Record<string, Launchpad> = LAUNCHPADS): Launchpad {
   return list[key] ?? Object.values(list)[0]!
 }
@@ -56,8 +64,8 @@ export function tradeLink(
 ): string {
   const lp = launchpadOf(key, list)
   const url = new URL(lp.tradeUrl(ca))
-  const code = env[lp.refEnv]
-  if (code) url.searchParams.set(lp.refParam, code)
+  const code = lp.refEnv ? env[lp.refEnv] : undefined
+  if (code && lp.refParam) url.searchParams.set(lp.refParam, code)
   return url.href
 }
 
@@ -79,7 +87,7 @@ export function referralLink(
   list: Record<string, Launchpad> = LAUNCHPADS,
 ): string {
   const lp = launchpadOf(key, list)
-  return lp.referralUrl(env[lp.refEnv] || undefined)
+  return lp.referralUrl((lp.refEnv && env[lp.refEnv]) || undefined)
 }
 
 /** "A", "A or B", "A, B or C". */

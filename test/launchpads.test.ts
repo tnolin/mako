@@ -6,6 +6,7 @@ import {
   referralLink,
   TokenLaunchpads,
   tradeLink,
+  tradeTarget,
 } from "../src/launchpads"
 
 const CA = "0x5ab27c4e9d1f03b8a6e2c5d7f940b1a8c3d6e3c8"
@@ -26,6 +27,28 @@ it("builds the referral join link, or the launchpad home without a code", () => 
 
 it("falls back to the first launchpad for an unknown key", () => {
   expect(tradeLink("nope", CA, {})).toBe(`https://inkypump.com/ink/trade/${CA}`)
+})
+
+it("ink.fun trade link is the plain token page", () => {
+  expect(tradeLink("inkfun", CA, {})).toBe(`https://ink.fun/token/57073/${CA}`)
+  expect(tradeLink("inkfun", CA, { INKYPUMP_REF_CODE: "MAKO" })).toBe(
+    `https://ink.fun/token/57073/${CA}`,
+  )
+})
+
+it("ink.fun links to its home page for the launchpad link", () => {
+  expect(referralLink("inkfun", {})).toBe("https://ink.fun")
+})
+
+it("tradeTarget routes an ink.fun token to ink.fun", () => {
+  const lps = new TokenLaunchpads([[CA, "inkfun"]])
+  expect(tradeTarget(lps, { INKYPUMP_REF_CODE: "MAKO" })(CA)).toBe(
+    `https://ink.fun/token/57073/${CA}`,
+  )
+})
+
+it("names ink.fun and InkyPump from config", () => {
+  expect(launchpadNames()).toBe("InkyPump or ink.fun")
 })
 
 const two: Record<string, Launchpad> = {
@@ -58,5 +81,5 @@ it("unknown token falls back to InkyPump", () => {
 })
 
 it("names launchpads from config only", () => {
-  expect(launchpadNames(two)).toBe("InkyPump or Otherpad")
+  expect(launchpadNames(two)).toBe("InkyPump, ink.fun or Otherpad")
 })

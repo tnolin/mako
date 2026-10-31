@@ -183,7 +183,7 @@ The bot owns the `bot` schema in the same Postgres as the indexer. It reads `ind
 
 ## Links and referrals
 
-Outbound trade and marketplace links carry referral codes where the platform offers one (InkyPump).
+Outbound trade and marketplace links carry referral codes where the platform offers one (InkyPump). ink.fun links are plain.
 
 - Trade buttons open `go.makobot.xyz/t/<address>`, which redirects to the token on its launchpad with `?ref=<code>`. InkyPump tags a visitor who arrives with `?ref=`.
 - The Tokens screen links the launchpad through `go.makobot.xyz/inkypump`, which redirects to the launchpad's referral join page.

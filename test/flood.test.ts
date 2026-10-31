@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { FLOOD_LAUNCHES, FLOOD_WINDOW_S, floodStarts, type LaunchMark } from "../src/delivery/flood"
+import {
+  FLOOD_LAUNCHES,
+  FLOOD_WINDOW_S,
+  floodRows,
+  floodStarts,
+  type LaunchMark,
+} from "../src/delivery/flood"
+import { addr, launch } from "./helpers/events"
 
 const seq = (
   n: number,
@@ -49,5 +56,30 @@ describe("floodStarts", () => {
     const m = floodStarts(seq(12, { gap: 0 }))
     expect(m.has("10")).toBe(false)
     expect(m.get("11")).toBe("11")
+  })
+})
+
+describe("floodRows", () => {
+  it("names ink.fun in the flood notice and the minute card", () => {
+    const flooded = Array.from({ length: 2 }, (_, i) => ({
+      id: String(i + 1),
+      writtenTs: 1_000,
+      p: launch({ launchpad: "inkfun", token: addr(0x100 + i), blockTimestamp: 1_000 + i }),
+    }))
+    const rows = floodRows(
+      flooded,
+      new Map([
+        ["1", "1"],
+        ["2", "1"],
+      ]),
+      [{ chatId: "501", chatType: "private", threadId: null }],
+    )
+    expect(rows.map((r) => r.payload)).toEqual([
+      expect.objectContaining({
+        type: "text",
+        html: expect.stringContaining("launching on ink.fun at once"),
+      }),
+      expect.objectContaining({ type: "newtokens", launchpad: "ink.fun" }),
+    ])
   })
 })

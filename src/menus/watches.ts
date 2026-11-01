@@ -282,7 +282,7 @@ async function watchWithTarget(
   const market = await lastMarketOf(deps.sql, ca)
   const price = market ? deps.prices.usd(market.quote) : null
   if (!market || price === null) return void (await replyHere(ctx, TARGET_NO_PRICE(name), false))
-  const nowUsd = quoteUnits(market.marketCap) * price
+  const nowUsd = quoteUnits(market.marketCap, market.quote) * price
   if (ctx.chat?.type === "private") {
     const found = fresh
       ? await ensureUser(deps.sql, ctx.from!.id)

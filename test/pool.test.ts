@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
-import { isPoolId, poolMcap, rpcSqrtPrice, STATE_VIEW } from "../src/pool"
+import { isPoolId, poolMcap, rpcSqrtPrice, STATE_VIEW, UNISWAP_V4_POOL_MANAGER } from "../src/pool"
+import { loadTsunami } from "./helpers/fixtures"
 
 const NATIVE = "0x0000000000000000000000000000000000000000"
 const KRAK = "0x7466ddd16d27b2a4070a827468f8f930aab2201a"
@@ -7,6 +8,10 @@ const POOL = "0xabb3f59f9af7a230844bfbbbc67134420925c05d18f1a2a58336a19e74e39cfc
 // Live reading of KRAK's pool on 2026-10-14: 5.3289 ETH market cap at 1B supply.
 const KRAK_SQRT = 1085330431310623941983443206493297n
 const Q96 = 1n << 96n
+const CALAMARI_POOL_MANAGER = "0x6e4723a612831afb9f5b2a5ae22723c37aab9560"
+const CALAMARI_STATE_VIEW = "0x9bf3f07e41e05d658248467760c745e278ef6211"
+const USDC = "0x2d270e6886d130d724215a266106e6832161eaed"
+const UNI = UNISWAP_V4_POOL_MANAGER
 
 const word = (n: bigint) => n.toString(16).padStart(64, "0")
 const slot0Result = (sqrt: bigint) => `0x${word(sqrt)}${word(190510n)}${word(0n)}${word(10000n)}`
@@ -31,6 +36,25 @@ describe("poolMcap", () => {
   })
 })
 
+describe("poolMcap against recorded Calamari pools", () => {
+  const supply = String(10n ** 27n)
+
+  it("values the USDC graduate's pool in USDC base units, as the indexer did", () => {
+    // USDC (6 decimals) is currency0 and the token currency1; the recorded swap left 2,490,887 base units.
+    const { launch, swap, slot0SqrtPriceX96 } = loadTsunami().usdc
+    expect(poolMcap(BigInt(slot0SqrtPriceX96), launch.token, USDC, supply)).toBe(
+      BigInt(swap.marketCap),
+    )
+  })
+
+  it("values an ETH-quoted Calamari pool as the indexer did", () => {
+    const { launch, swap, slot0SqrtPriceX96 } = loadTsunami().gm
+    expect(poolMcap(BigInt(slot0SqrtPriceX96), launch.token, NATIVE, supply)).toBe(
+      BigInt(swap.marketCap),
+    )
+  })
+})
+
 describe("isPoolId", () => {
   it.each([POOL, POOL.toUpperCase().replace("0X", "0x")])("accepts %s", (id) =>
     expect(isPoolId(id.toLowerCase())).toBe(true),
@@ -44,7 +68,7 @@ describe("isPoolId", () => {
 describe("rpcSqrtPrice", () => {
   it("calls StateView.getSlot0(poolId) at latest and returns sqrtPriceX96", async () => {
     const f = rpc({ jsonrpc: "2.0", id: 1, result: slot0Result(KRAK_SQRT) })
-    expect(await rpcSqrtPrice("https://rpc.test", f)(POOL)).toBe(KRAK_SQRT)
+    expect(await rpcSqrtPrice("https://rpc.test", f)(UNI, POOL)).toBe(KRAK_SQRT)
     const [url, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!
     expect(url).toBe("https://rpc.test")
     const body = JSON.parse((init as RequestInit).body as string)
@@ -52,14 +76,41 @@ describe("rpcSqrtPrice", () => {
     expect(body.params).toEqual([{ to: STATE_VIEW, data: `0xc815641c${POOL.slice(2)}` }, "latest"])
   })
 
+  it("reads a Calamari pool through Calamari's StateView", async () => {
+    const f = rpc({ jsonrpc: "2.0", id: 1, result: slot0Result(KRAK_SQRT) })
+    await rpcSqrtPrice("https://rpc.test", f)(CALAMARI_POOL_MANAGER, POOL)
+    const [, init] = (f as unknown as ReturnType<typeof vi.fn>).mock.calls[0]!
+    expect(JSON.parse((init as RequestInit).body as string).params[0].to).toBe(CALAMARI_STATE_VIEW)
+  })
+
+  it("rejects an unknown pool manager without a call", async () => {
+    const f = rpc({ jsonrpc: "2.0", id: 1, result: slot0Result(KRAK_SQRT) })
+    await expect(
+      rpcSqrtPrice("https://rpc.test", f)("0x0000000000000000000000000000000000000001", POOL),
+    ).rejects.toThrow("unknown pool manager")
+    expect((f as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(0)
+  })
+
+  it("caches per pool manager as well as per pool id", async () => {
+    const f = rpc({ jsonrpc: "2.0", id: 1, result: slot0Result(KRAK_SQRT) })
+    const read = rpcSqrtPrice("https://rpc.test", f, () => 1_000_000)
+    await read(UNI, POOL)
+    await read(CALAMARI_POOL_MANAGER, POOL)
+    expect((f as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2)
+  })
+
   it("throws on an RPC error", async () => {
     const f = rpc({ jsonrpc: "2.0", id: 1, error: { message: "execution reverted" } })
-    await expect(rpcSqrtPrice("https://rpc.test", f)(POOL)).rejects.toThrow("execution reverted")
+    await expect(rpcSqrtPrice("https://rpc.test", f)(UNI, POOL)).rejects.toThrow(
+      "execution reverted",
+    )
   })
 
   it("throws on a short result", async () => {
     const f = rpc({ jsonrpc: "2.0", id: 1, result: "0x" })
-    await expect(rpcSqrtPrice("https://rpc.test", f)(POOL)).rejects.toThrow(/short eth_call result/)
+    await expect(rpcSqrtPrice("https://rpc.test", f)(UNI, POOL)).rejects.toThrow(
+      /short eth_call result/,
+    )
   })
 
   it("serves a pool from cache for 15 s, shares a concurrent call, then reads again", async () => {
@@ -67,21 +118,21 @@ describe("rpcSqrtPrice", () => {
     const f = rpc({ jsonrpc: "2.0", id: 1, result: slot0Result(KRAK_SQRT) })
     const read = rpcSqrtPrice("https://rpc.test", f, () => t)
     const calls = () => (f as unknown as ReturnType<typeof vi.fn>).mock.calls.length
-    await Promise.all([read(POOL), read(POOL)])
+    await Promise.all([read(UNI, POOL), read(UNI, POOL)])
     expect(calls()).toBe(1)
     t += 14_999
-    expect(await read(POOL)).toBe(KRAK_SQRT)
+    expect(await read(UNI, POOL)).toBe(KRAK_SQRT)
     expect(calls()).toBe(1)
     t += 1 // 15 s after the first read
-    await read(POOL)
+    await read(UNI, POOL)
     expect(calls()).toBe(2)
   })
 
   it("caches per pool id", async () => {
     const f = rpc({ jsonrpc: "2.0", id: 1, result: slot0Result(KRAK_SQRT) })
     const read = rpcSqrtPrice("https://rpc.test", f, () => 1_000_000)
-    await read(POOL)
-    await read(`0x${"cd".repeat(32)}`)
+    await read(UNI, POOL)
+    await read(UNI, `0x${"cd".repeat(32)}`)
     expect((f as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2)
   })
 
@@ -89,11 +140,11 @@ describe("rpcSqrtPrice", () => {
     let t = 1_000_000
     const f = rpc({ jsonrpc: "2.0", id: 1, error: { message: "rate limited" } })
     const read = rpcSqrtPrice("https://rpc.test", f, () => t)
-    await expect(read(POOL)).rejects.toThrow("rate limited")
-    await expect(read(POOL)).rejects.toThrow("rate limited")
+    await expect(read(UNI, POOL)).rejects.toThrow("rate limited")
+    await expect(read(UNI, POOL)).rejects.toThrow("rate limited")
     expect((f as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(1)
     t += 15_000
-    await expect(read(POOL)).rejects.toThrow("rate limited")
+    await expect(read(UNI, POOL)).rejects.toThrow("rate limited")
     expect((f as unknown as ReturnType<typeof vi.fn>).mock.calls.length).toBe(2)
   })
 
@@ -101,7 +152,7 @@ describe("rpcSqrtPrice", () => {
     const urlError = vi.fn(async () => {
       throw new TypeError("Failed to parse URL from https://rpc.test/KEY123")
     }) as unknown as typeof fetch
-    const err = await rpcSqrtPrice("https://rpc.test/KEY123", urlError)(POOL).catch((e) => e)
+    const err = await rpcSqrtPrice("https://rpc.test/KEY123", urlError)(UNI, POOL).catch((e) => e)
     expect(err.message).toBe("fetch failed")
     expect(String(err)).not.toContain("KEY123")
   })
@@ -110,21 +161,21 @@ describe("rpcSqrtPrice", () => {
     const slow = vi.fn(async () => {
       throw new DOMException("The operation was aborted due to timeout", "TimeoutError")
     }) as unknown as typeof fetch
-    await expect(rpcSqrtPrice("https://rpc.test", slow)(POOL)).rejects.toThrow(/^timeout$/)
+    await expect(rpcSqrtPrice("https://rpc.test", slow)(UNI, POOL)).rejects.toThrow(/^timeout$/)
   })
 
   it("reports a non-JSON body as a bad response", async () => {
     const html = vi.fn(
       async () => new Response("<html>502</html>", { status: 502 }),
     ) as unknown as typeof fetch
-    await expect(rpcSqrtPrice("https://rpc.test", html)(POOL)).rejects.toThrow(
+    await expect(rpcSqrtPrice("https://rpc.test", html)(UNI, POOL)).rejects.toThrow(
       /^bad response \(HTTP 502\)$/,
     )
   })
 
   it("refuses a malformed pool id without calling the node", async () => {
     const f = rpc({})
-    await expect(rpcSqrtPrice("https://rpc.test", f)("0x1234")).rejects.toThrow("bad pool id")
+    await expect(rpcSqrtPrice("https://rpc.test", f)(UNI, "0x1234")).rejects.toThrow("bad pool id")
     expect(f).not.toHaveBeenCalled()
   })
 })

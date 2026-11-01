@@ -3,6 +3,8 @@
 Date: 2026-10-14
 Status: Accepted
 
+Amended by ADR 0023: the StateView is chosen by the pool's PoolManager (Uniswap's or Calamari's), the pool is the one of the token's latest swap, falling back to the bond event's, and the market cap is in the quote's own base units, so quotes with 6 or 8 decimals are covered.
+
 ## Context
 
 The indexer does not record trades after a token bonds. A bonded token's card could only show its market cap at the moment it bonded.

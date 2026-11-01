@@ -5,6 +5,14 @@ import { createPrices, NATIVE, parseKraken, parseXstocks } from "../src/prices"
 const fixture = (f: string) =>
   JSON.parse(readFileSync(new URL(`./fixtures/prices/${f}`, import.meta.url), "utf8"))
 const NVDAX = "0xa8ddb5cd96b5222afe198316e9a57caa642850d5"
+const WAMZNX = "0x910cabde3eba7fc1ce64fd14bd680b9f60fa0f90"
+const USDG = "0xe343167631d89b6ffc58b88d6b7fb0228795491d"
+const USDC = "0x2d270e6886d130d724215a266106e6832161eaed"
+const USDT0 = "0x0200c29006150606b650577bbe7b6248f58470c1"
+const WETH = "0x4200000000000000000000000000000000000006"
+const KBTC = "0x73e0c0d45e048d25fc26fa3159b0aa04bfa4db98"
+const UNIBTC = "0xd3c8da379d71a33bfee8875f87ac2748beb1d58d"
+const SOLVBTC = "0xae4efbc7736f963982aacb17efa37fcbab924cb3"
 
 describe("parsers", () => {
   it("reads the ETH/USD last trade from Kraken", () => {
@@ -63,7 +71,54 @@ describe("createPrices", () => {
     expect(prices.usd(NVDAX)).toBeNull()
     expect(prices.symbol(NATIVE)).toBe("ETH")
     expect(prices.symbol(NVDAX)).toBe("NVDAx")
-    expect(prices.symbol("0x0000000000000000000000000000000000000abc")).toBe("xStock")
+    expect(prices.symbol(KBTC)).toBe("kBTC")
+  })
+
+  it("an unknown quote shows its short address", () => {
+    const { prices } = setup({})
+    expect(prices.symbol(`0x${"12".repeat(20)}`)).toBe("0x1212…1212")
+  })
+
+  it("InkyPump's wrapper symbol still wins for w…x wrappers", async () => {
+    const { prices } = setup({
+      kraken: { error: [], result: { XETHZUSD: { c: ["2500", "1"] } } },
+      inky: {
+        assets: [
+          { wrapperAddress: NVDAX, symbol: "NVDAx", valuation: null },
+          { wrapperAddress: WAMZNX, symbol: "AMZNx", valuation: null },
+        ],
+      },
+    })
+    expect(prices.symbol(WAMZNX)).toBe("wAMZNx")
+    await prices.refresh()
+    expect(prices.symbol(NVDAX)).toBe("NVDAx")
+    expect(prices.symbol(WAMZNX)).toBe("AMZNx")
+  })
+
+  it("prices USDG, USDC and USD₮0 at $1 without any fetch", () => {
+    const { prices } = setup({})
+    for (const q of [USDG, USDC, USDT0]) expect(prices.usd(q)).toBe(1)
+  })
+
+  it("prices WETH like ETH, and drops it when ETH goes stale", async () => {
+    const { prices, advance } = setup({
+      kraken: { error: [], result: { XETHZUSD: { c: ["2500.5", "1"] } } },
+      inky: { assets: [{ wrapperAddress: NVDAX, symbol: "NVDAx", valuation: null }] },
+    })
+    expect(prices.usd(WETH)).toBeNull()
+    await prices.refresh()
+    expect(prices.usd(WETH)).toBe(2500.5)
+    advance(11 * 60_000)
+    expect(prices.usd(WETH)).toBeNull()
+  })
+
+  it("has no USD price for kBTC, uniBTC or SolvBTC", async () => {
+    const { prices } = setup({
+      kraken: { error: [], result: { XETHZUSD: { c: ["2500.5", "1"] } } },
+      inky: { assets: [{ wrapperAddress: NVDAX, symbol: "NVDAx", valuation: null }] },
+    })
+    await prices.refresh()
+    for (const q of [KBTC, UNIBTC, SOLVBTC]) expect(prices.usd(q)).toBeNull()
   })
 
   it("serves null, not NaN or 0, when a price is null or a feed returns nothing usable", async () => {

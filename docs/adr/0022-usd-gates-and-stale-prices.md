@@ -3,6 +3,8 @@
 Date: 2026-10-30
 Status: Accepted
 
+Amended by ADR 0023: quote amounts are converted with each quote currency's own decimals.
+
 ## Context
 
 Events carry amounts in their quote asset: ETH or an xStock. Three decisions now depend on a USD value: the PUMPING feed minimum, a minimum size for pool BIG BUY/SELL, and MCAP TARGET. The USD prices come from outside the indexer and can go stale (`src/prices.ts`: ETH/USD fresh for 10 minutes, xStocks for 30).

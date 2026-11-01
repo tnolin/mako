@@ -1,4 +1,5 @@
 import type { Logger } from "./log"
+import { QUOTE_ASSETS, shortAddress } from "./quotes"
 
 export const NATIVE = "0x0000000000000000000000000000000000000000"
 const KRAKEN = "https://api.kraken.com/0/public/Ticker?pair=XETHZUSD"
@@ -7,8 +8,17 @@ const ETH_FRESH_MS = 10 * 60_000
 const XSTOCK_FRESH_MS = 30 * 60_000
 const OUTAGE_MS = 30 * 60_000
 
+const WETH = "0x4200000000000000000000000000000000000006"
+/** Stablecoins priced at exactly $1: USDG, USDC and USD₮0. */
+const DOLLAR_QUOTES = new Set([
+  "0xe343167631d89b6ffc58b88d6b7fb0228795491d",
+  "0x2d270e6886d130d724215a266106e6832161eaed",
+  "0x0200c29006150606b650577bbe7b6248f58470c1",
+])
+
 // shortcut: symbols of the 11 xStocks wrappers on 2026-10-12, used until InkyPump's list loads.
-// The bot can't read indexer.hooks and makes no RPC call for symbols. Unknown wrappers show "xStock".
+// The bot can't read indexer.hooks and makes no RPC call for symbols. Wrappers not listed here show the
+// symbol from `QUOTE_ASSETS`, or a short address.
 // Upgrade path: read wrapper symbols from the indexer or over RPC if the xStock set grows.
 const SEED_SYMBOLS: Record<string, string> = {
   "0x943bf64d566c32a2bcd41ac92fb63c111cc9de8f": "AAPLx",
@@ -51,7 +61,7 @@ export function parseXstocks(json: unknown): Map<string, { usd: number | null; s
 export type Prices = {
   /** USD per whole quote token, or null when no fresh price exists. */
   usd(quote: string): number | null
-  /** "ETH", the xStock symbol, or "xStock". */
+  /** "ETH", the quote's symbol, or its short address. */
   symbol(quote: string): string
 }
 
@@ -111,14 +121,15 @@ export function createPrices(deps: {
   return {
     usd(quote) {
       const q = quote.toLowerCase()
-      if (q === NATIVE) return eth && now() - eth.at < ETH_FRESH_MS ? eth.usd : null
+      if (q === NATIVE || q === WETH) return eth && now() - eth.at < ETH_FRESH_MS ? eth.usd : null
+      if (DOLLAR_QUOTES.has(q)) return 1
       if (!xs || now() - xs.at >= XSTOCK_FRESH_MS) return null
       return xs.map.get(q)?.usd ?? null
     },
     symbol(quote) {
       const q = quote.toLowerCase()
       if (q === NATIVE) return "ETH"
-      return xs?.map.get(q)?.symbol ?? SEED_SYMBOLS[q] ?? "xStock"
+      return xs?.map.get(q)?.symbol ?? SEED_SYMBOLS[q] ?? QUOTE_ASSETS[q]?.symbol ?? shortAddress(q)
     },
     async refresh() {
       await Promise.all([refreshEth(), refreshXstocks()])

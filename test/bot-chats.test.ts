@@ -207,11 +207,11 @@ describe("groups", () => {
       "MINTED",
       "SOLD OUT",
       "NEW COLLECTION",
-      "BIG SALE",
       "UNDER FLOOR",
       "RARE LISTING",
       "FLOOR MOVE",
       "SWEEP",
+      "BIG SALE",
       "SOLD",
     ])
     await h.tap("rt:mintstart", { chat: G, thread: 9 })

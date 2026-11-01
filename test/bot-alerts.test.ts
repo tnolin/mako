@@ -77,13 +77,13 @@ const ALL_BODY = [
   "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints).",
   "SOLD OUT - When a collection completely mints out.",
   "NEW COLLECTION - A new Chimera collection is detected.",
-  "BIG SALE - When an NFT sells for 0.1 ETH or more.",
 ]
 const WATCHED_BODY = [
   "UNDER FLOOR - an item lists 20%+ under floor.",
   "RARE LISTING - a top 10% item lists near floor.",
   "FLOOR MOVE - the floor moves 20%+ in 24h.",
   "SWEEP - one wallet buys 5+ items in 10 min.",
+  "BIG SALE - When an NFT sells for 0.1 ETH or more.",
   "SOLD - an item sells for 0.05 ETH or more.",
   "REMINDERS - a message 15 min before each mint stage.",
 ]
@@ -233,14 +233,13 @@ describe("NFT alerts", () => {
       ["MINTED", "Show Image"],
       ["SOLD OUT", "Show Image"],
       ["NEW COLLECTION", "Show Image"],
-      ["BIG SALE", "Show Image"],
-      ["MINTED 50%", "BIG SALE: 0.1 ETH"],
+      ["MINTED 50%"],
       ["Watched Alerts"],
       ["Reset to default", "Back"],
     ])
     expect(
       rows(screen())
-        .slice(0, 6)
+        .slice(0, 5)
         .flat()
         .every((b) => b.style === "success"),
     ).toBe(true)
@@ -248,7 +247,7 @@ describe("NFT alerts", () => {
     expect(find(screen(), "Back").callback_data).toBe("al:u")
   })
 
-  it("Watched only text is exact; REMINDERS has no image button; SOLD is off at 0.05 ETH", async () => {
+  it("Watched only text is exact; BIG SALE is on at 0.1 ETH; REMINDERS has no image button; SOLD is off at 0.05 ETH", async () => {
     await addUser(sql, 100)
     await h.tap("al:u:nw")
     expect(screen().text).toBe(
@@ -265,16 +264,18 @@ describe("NFT alerts", () => {
       ["RARE LISTING", "Show Image"],
       ["FLOOR MOVE", "Show Image"],
       ["SWEEP", "Show Image"],
+      ["BIG SALE", "Show Image"],
       ["SOLD", "Show Image"],
       ["REMINDERS"],
       ["UNDER FLOOR: 20%", "RARE: top 10%"],
       ["FLOOR MOVE: 20%", "SWEEP: 5 items"],
-      ["SOLD at: 0.05 ETH"],
+      ["BIG SALE: 0.1 ETH", "SOLD at: 0.05 ETH"],
       ["Reset to default"],
       ["All collections", "Back"],
     ])
-    expect(rows(screen())[4]!.map((b) => b.style)).toEqual([undefined, "success"])
-    expect(rows(screen())[5]![0]!.style).toBe("success")
+    expect(rows(screen())[4]!.map((b) => b.style)).toEqual(["success", "success"])
+    expect(rows(screen())[5]!.map((b) => b.style)).toEqual([undefined, "success"])
+    expect(rows(screen())[6]![0]!.style).toBe("success")
     expect(find(screen(), "All collections").callback_data).toBe("al:u:na")
   })
 
@@ -301,8 +302,9 @@ describe("NFT alerts", () => {
     await h.tap("al:u:p:floor:2")
     await h.tap("al:u:p:sweep:1")
     await h.tap("al:u:na")
-    expect(labels(screen())).toContainEqual(["MINTED 50%, 75%", "BIG SALE: 0.5 ETH"])
+    expect(labels(screen())).toContainEqual(["MINTED 50%, 75%"])
     await h.tap("al:u:nw")
+    expect(labels(screen())).toContainEqual(["BIG SALE: 0.5 ETH", "SOLD at: 0.05 ETH"])
     expect(labels(screen())).toContainEqual(["UNDER FLOOR: 10%", "RARE: top 1%"])
     expect(labels(screen())).toContainEqual(["FLOOR MOVE: 30%", "SWEEP: 10 items"])
     expect(screen().text).toContain("UNDER FLOOR - an item lists 10%+ under floor.")
@@ -315,6 +317,7 @@ describe("NFT alerts", () => {
     expect(labels(screen())).toEqual([["25%", "50%", "75%"], ["Back"]])
     expect(find(screen(), "Back").callback_data).toBe("al:u:na")
     await h.tap("al:u:p:bigsale")
+    expect(find(screen(), "Back").callback_data).toBe("al:u:nw")
     expect(labels(screen())).toEqual([["0.05 ETH", "0.1 ETH", "0.25 ETH"], ["0.5 ETH"], ["Back"]])
     expect(find(screen(), "0.1 ETH").style).toBe("success")
   })
@@ -326,7 +329,7 @@ describe("picker screens", () => {
     const text: Record<string, string> = {
       big: "BIG BUY/SELL - Sends when a single trade is worth the designated % of the token's bond target, or of its pool's liquidity after bonding.",
       minted: "MINTED - Sends when a collection's mint progress crosses the following %:",
-      bigsale: "BIG SALE - Sends when an NFT sells for at least:",
+      bigsale: "BIG SALE - Sends when an item on your watchlist sells for at least:",
       under:
         "UNDER FLOOR - Sends when an NFT is listed at least this % under the current floor price:",
       rare: "RARE LISTING - Sends when an NFT is listed near floor price with a rarity in the designated % range:",
@@ -356,14 +359,17 @@ describe("Reset to default", () => {
     await addUser(sql, 100)
     await h.tap("al:u:new:on")
     await h.tap("al:u:upcoming:on")
+    await h.tap("al:u:bigsale:on")
     await h.tap("al:u:p:under:0")
     await h.tap("al:u:reset:na")
     const s = await userSettings()
     expect(s.alerts.upcoming.on).toBe(true)
     expect(s.alerts.new.on).toBe(false)
     expect(s.alerts.under.pctBps).toBe(1000)
+    expect(s.alerts.bigsale.on).toBe(false)
     await h.tap("al:u:reset:nw")
     expect((await userSettings()).alerts.under.pctBps).toBe(2000)
+    expect((await userSettings()).alerts.bigsale.on).toBe(true)
     await h.tap("al:u:reset:tk")
     expect((await userSettings()).alerts.new.on).toBe(true)
     expect(await userSettings()).toEqual(basicPreset("private"))
@@ -447,9 +453,9 @@ describe("a group's settings in the DM", () => {
     // The alert switch (first button of each row) is off; Show Image keeps its own default.
     expect(
       rows(screen())
-        .slice(0, 7)
+        .slice(0, 5)
         .map((r) => r[0]!.style),
-    ).toEqual(Array(7).fill(undefined))
+    ).toEqual(Array(5).fill(undefined))
     nonAdmin()
     for (const data of [
       `al:${G.id}:na`,
@@ -462,6 +468,13 @@ describe("a group's settings in the DM", () => {
       expect(h.last("answerCallbackQuery")).toMatchObject({ text: NOT_ADMIN, show_alert: true })
     }
     expect((await chatSettings(G.id)).alerts.upcoming.on).toBe(false)
+  })
+
+  it("BIG SALE is on by default on a group's Watched Alerts screen", async () => {
+    await addChat(sql, G.id, "supergroup")
+    await h.tap(`al:${G.id}:nw`)
+    const bigsale = rows(screen()).find((r) => r[0]!.text === "BIG SALE")!
+    expect(bigsale[0]!.style).toBe("success")
   })
 })
 

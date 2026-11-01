@@ -72,7 +72,6 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 | MINTED | A watched collection's mint passes a mark (25%, 50% or 75%) |
 | SOLD OUT | A collection mints out |
 | NEW COLLECTION | A new Chimera collection has a name and an image |
-| BIG SALE | A sale at or above 0.05, 0.1, 0.25 or 0.5 ETH |
 
 **NFT alerts, Watched only**
 
@@ -82,6 +81,7 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 | RARE LISTING | A top 1%, 5% or 10% item lists at most 10% over floor |
 | FLOOR MOVE | The floor moves 10%, 20% or 30% or more in 24 hours |
 | SWEEP | One wallet buys 5 or 10 items within 10 minutes |
+| BIG SALE | A sale at or above 0.05, 0.1, 0.25 or 0.5 ETH (0.1 by default) |
 | SOLD | A sale at or above a minimum (any, 0.01, 0.05, 0.1, 0.5 or 1 ETH) |
 | MINT REMINDER | 15 minutes before each stage that isn't a Team stage, from the REMINDERS switch or a Remind me tap |
 

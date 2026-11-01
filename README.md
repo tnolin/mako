@@ -46,7 +46,6 @@ When turned on: Every collection that passes MAKO's quality checks. When turned 
 | MINTED | When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints). |
 | SOLD OUT | When a collection completely mints out. |
 | NEW COLLECTION | A new Chimera collection is detected. |
-| BIG SALE | When an NFT sells for 0.1 ETH or more. |
 
 #### Watched only
 
@@ -58,6 +57,7 @@ These alerts are only for NFTs you added to your watchlist.
 | RARE LISTING | a top 10% item lists near floor. |
 | FLOOR MOVE | the floor moves 20%+ in 24h. |
 | SWEEP | one wallet buys 5+ items in 10 min. |
+| BIG SALE | When an NFT sells for 0.1 ETH or more. |
 | SOLD | an item sells for 0.05 ETH or more. |
 | REMINDERS | a message 15 min before each mint stage. |
 

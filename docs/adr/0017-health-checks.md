@@ -3,6 +3,8 @@
 Date: 2026-10-25
 Status: Accepted
 
+Amended 2026-11-02: the quiet-day note no longer lists the biggest sale. BIG SALE reaches only watched collections, so a big sale in a real collection says nothing about whether an alert was due.
+
 ## Context
 
 The `ink-pipeline` cron monitor catches a dead bot or host and an indexer cursor that stops. It doesn't catch an indexer that writes no events, a cursor that falls behind the chain, a bot that falls behind the events table, deliveries that keep failing, or a day with no alerts that might be an outage. Sentry's free plan includes one cron monitor, which `ink-pipeline` already uses, so these checks can't be more monitors.
@@ -14,7 +16,7 @@ The `ink-pipeline` cron monitor catches a dead bot or host and an indexer cursor
   - Error: the indexer cursor is more than 100 blocks behind the chain head (`eth_blockNumber` on `INK_RPC_URL`). When the head can't be read, the check skips that run.
   - Error: the bot's `events_cursor` is more than 500 events behind the newest event for 10 minutes.
   - Error: 10 or more failed deliveries in the last hour.
-  - Info, at most once a day: no alert sent in 24 hours. The note lists the day's events by type, the biggest sale in a real collection against the BIG SALE minimum, and mints from real, filtered and other collections.
+  - Info, at most once a day: no alert sent in 24 hours. The note lists the day's events by type, and mints from real, filtered and other collections.
 - Each error fires once per incident. The incident's start time is kept in `bot.state` (`health:<check>`), so a restart doesn't fire it again. When the check clears, the bot sends an info note, `Health recovered: … (lasted …)`, and deletes the row.
 - Each incident has its own fingerprint (`health`, the check, the start time), so it opens a new Sentry issue and the project's new-issue email rule sends it. The recovered note has its own fingerprint too.
 - The checks read only the newest event by id and the last 86,400 blocks, through existing indexes.

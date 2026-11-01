@@ -1,7 +1,6 @@
 import type { Sql } from "./db"
 import { cursorBlock } from "./history"
 import type { Logger } from "./log"
-import { DEFAULT_BIGSALE_WEI, ethTrim } from "./nft/policy"
 
 export type HealthEvent = {
   level: "error" | "info"
@@ -167,21 +166,16 @@ export function createHealth(deps: HealthDeps) {
     const types = await sql<{ type: string; n: number }[]>`
       select type, count(*)::int as n from indexer.events where block >= ${from}
       group by type order by n desc, type`
-    const rows = await sql<{ type: string; contract: string; price: string | null }[]>`
-      select type, payload->>'contract' as contract, payload->>'priceWei' as price
-      from indexer.events where block >= ${from} and type in ('nft.sale', 'nft.mint')`
-    let best: bigint | null = null
+    const rows = await sql<{ contract: string }[]>`
+      select payload->>'contract' as contract
+      from indexer.events where block >= ${from} and type = 'nft.mint'`
     const mints = { real: 0, filtered: 0, other: 0 }
     for (const r of rows) {
       const v = deps.verdictOf(r.contract)
-      if (r.type === "nft.mint")
-        mints[v === "real" ? "real" : v === "filtered" ? "filtered" : "other"]++
-      else if (v === "real" && r.price !== null && (best === null || BigInt(r.price) > best))
-        best = BigInt(r.price)
+      mints[v === "real" ? "real" : v === "filtered" ? "filtered" : "other"]++
     }
     return [
       `Events: ${types.map((x) => `${x.type} ${x.n}`).join(", ") || "none"}`,
-      `Biggest sale in a real collection: ${best === null ? "none" : `${ethTrim(String(best))} ETH`} (BIG SALE minimum ${ethTrim(DEFAULT_BIGSALE_WEI)} ETH)`,
       `Mints: ${mints.real} from real collections, ${mints.filtered} from filtered, ${mints.other} other`,
     ]
   }

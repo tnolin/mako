@@ -5,6 +5,7 @@
 ### Changed
 
 - BIG SALE now fires only for collections you watch, or that a group's admins watch with `/watch`, instead of for every collection that passes the quality checks. It is on by default in DMs, groups and channels, keeps its 0.1 ETH default minimum (0.05, 0.25 or 0.5 ETH can be chosen), and its settings are on the Watched Alerts screen. Saved settings have BIG SALE switched on, so watched collections keep their BIG SALE alerts; switch it off on Watched Alerts to stop them.
+- Help's Watched & Muted page now says which alerts a watch sends while they are turned off, and that the Watched NFT alerts need their switch on.
 - The quiet-day health note no longer lists the biggest sale of the day.
 
 ## [0.5.0] - 2026-11-01

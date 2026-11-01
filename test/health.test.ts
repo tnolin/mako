@@ -155,7 +155,8 @@ it("sends a quiet-day note with a summary at most once a day", async () => {
   expect(titles()).toEqual(["info: Health: no alert sent in 24 hours"])
   const body = events[0]!.message
   expect(body).toContain("Events: nft.mint 3, nft.sale 3")
-  expect(body).toContain("Biggest sale in a real collection: 0.08 ETH (BIG SALE minimum 0.1 ETH)")
+  expect(body).not.toContain("Biggest sale")
+  expect(body).not.toContain("BIG SALE")
   expect(body).toContain("Mints: 1 from real collections, 2 from filtered, 0 other")
   const later = async (s: number) => {
     now += s

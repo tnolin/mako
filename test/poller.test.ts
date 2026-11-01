@@ -685,6 +685,40 @@ it("poller end to end: nft.drop then nft.mint rows land with the right keys and 
   ])
 })
 
+const prtscn = (o: { blockTimestamp: number }) =>
+  nftSale({
+    itemName: "PRTSCN #1755",
+    priceWei: String(72n * 10n ** 16n),
+    floorWei: String(562n * 10n ** 15n),
+    rank: 796,
+    maxRank: 877,
+    ...o,
+  })
+
+it("a big sale in a collection nobody watches sends nothing", async () => {
+  await addUser(sql, 101)
+  await addChat(sql, -1001, "supergroup")
+  await insertEvents(sql, [nftCollection(), prtscn({ blockTimestamp: T0 + 60 })])
+  await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: 0 }))
+  expect(await nftRows()).toEqual([])
+})
+
+it("a big sale in a watched collection sends BIG SALE to the DM watcher and to the watching group", async () => {
+  await addUser(sql, 101)
+  const watcher = await addUser(sql, 102)
+  await sql`insert into bot.nft_watches (user_id, contract) values (${watcher}, ${NFT})`
+  await addChat(sql, -1001, "supergroup")
+  await addChat(sql, -1002, "supergroup")
+  await sql`insert into bot.nft_watches (chat_id, contract) values (-1002, ${NFT})`
+  await insertEvents(sql, [nftCollection(), prtscn({ blockTimestamp: T0 + 60 })])
+  await pollOnce(deps({ now: () => T0 + 120, nftAlertsSince: 0 }))
+  const rows = await nftRows()
+  expect(rows.map((r) => r.chat_id).sort()).toEqual(["-1002", "102"])
+  for (const r of rows)
+    expect(r).toMatchObject({ alert: "bigsale", priority: 3, token: NFT, type: "nftalert" })
+  for (const r of rows) expect(r.dedupe_key).toMatch(/^bigsale:/)
+})
+
 it("keeps the NFT state across passes, so a collection turning real is caught up once", async () => {
   await addUser(sql, 101)
   const shared = {}

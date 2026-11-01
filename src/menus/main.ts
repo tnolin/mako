@@ -125,7 +125,7 @@ export const HELP = {
   ].join("\n"),
   watched: [
     b("Watched & Muted"),
-    `${b("Watching")}: I'll send you every alert type for tokens or NFTs that you add to your watchlist, even for the alerts turned off. This also includes mint reminders 15 minutes before each mint stage.`,
+    `${b("Watching")}: For tokens and NFTs on your watchlist, I'll send token alerts and the NFT alerts under All collections even when they are turned off. The Watched NFT alerts (UNDER FLOOR, RARE LISTING, FLOOR MOVE, SWEEP, BIG SALE, SOLD and REMINDERS) send for a watched collection only while they are turned on.`,
     "",
     `${b("Muted")}: I won't send you any alerts on tokens or NFTs that you mute. If it is on your watchlist, it is removed automatically.`,
     "",

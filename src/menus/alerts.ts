@@ -152,7 +152,7 @@ const PICKER_SCREEN: Record<string, Screen> = {
   pumpPct: "tk",
   pumpFloor: "tk",
   minted: "na",
-  bigsale: "na",
+  bigsale: "nw",
   under: "nw",
   rare: "nw",
   floor: "nw",
@@ -300,7 +300,7 @@ const PICKER_TEXT: Record<string, string> = {
     "How much a bonded token's market cap has to rise within 10 min before you get a PUMPING alert.",
   pumpFloor: "Bonded tokens below this market cap don't send PUMPING. Tokens you watch always do.",
   minted: "MINTED - Sends when a collection's mint progress crosses the following %:",
-  bigsale: "BIG SALE - Sends when an NFT sells for at least:",
+  bigsale: "BIG SALE - Sends when an item on your watchlist sells for at least:",
   under: "UNDER FLOOR - Sends when an NFT is listed at least this % under the current floor price:",
   rare: "RARE LISTING - Sends when an NFT is listed near floor price with a rarity in the designated % range:",
   floor: "FLOOR MOVE - Sends when the floor price moves this much in 24h:",
@@ -375,9 +375,13 @@ async function renderScreen(ctx: Context, sc: Scope, screen: Screen): Promise<vo
   if (screen === "tk") {
     kb.push([open("bonding")], [open("big")], [open("pumpPct")], [open("pumpFloor")])
   } else if (screen === "na") {
-    kb.push([open("minted"), open("bigsale")])
+    kb.push([open("minted")])
   } else {
-    kb.push([open("under"), open("rare")], [open("floor"), open("sweep")], [open("sale")])
+    kb.push(
+      [open("under"), open("rare")],
+      [open("floor"), open("sweep")],
+      [open("bigsale"), open("sale")],
+    )
   }
   const reset = btn("Reset to default", `al:${id}:reset:${screen}`)
   if (screen === "tk") kb.push([reset], [btn("Back", backTo(sc))])
@@ -414,7 +418,7 @@ async function renderHub(ctx: Context, deps: BotDeps, sc: Scope): Promise<void> 
         "<b>My alerts</b>",
         "Choose which alerts you want me to send you.",
         "",
-        "Tokens and NFTs you watch always send alerts, even if that alert type is turned off here.",
+        "Tokens and NFTs you watch send token alerts and All collections NFT alerts even if they are turned off here. Watched NFT alerts send only while they are turned on.",
         "Muted tokens and NFTs never send alerts.",
       ].join("\n"),
       [

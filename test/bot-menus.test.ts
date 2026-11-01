@@ -287,13 +287,13 @@ const DEFAULTS = {
     "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints).",
     "SOLD OUT - When a collection completely mints out.",
     "NEW COLLECTION - A new Chimera collection is detected.",
-    "BIG SALE - When an NFT sells for 0.1 ETH or more.",
   ],
   watched: [
     "UNDER FLOOR - an item lists 20%+ under floor.",
     "RARE LISTING - a top 10% item lists near floor.",
     "FLOOR MOVE - the floor moves 20%+ in 24h.",
     "SWEEP - one wallet buys 5+ items in 10 min.",
+    "BIG SALE - an item sells for 0.1 ETH or more.",
     "SOLD - an item sells for 0.05 ETH or more.",
     "REMINDERS - a message 15 min before each mint stage.",
   ],
@@ -347,7 +347,7 @@ describe("Help", () => {
       [
         "<b>Watched &amp; Muted</b>",
         "",
-        "<b>Watching</b>: I'll send you every alert type for tokens or NFTs that you add to your watchlist, even for the alerts turned off. This also includes mint reminders 15 minutes before each mint stage.",
+        "<b>Watching</b>: For tokens and NFTs on your watchlist, I'll send token alerts and the NFT alerts under All collections even when they are turned off. The Watched NFT alerts (UNDER FLOOR, RARE LISTING, FLOOR MOVE, SWEEP, BIG SALE, SOLD and REMINDERS) send for a watched collection only while they are turned on.",
         "",
         "<b>Muted</b>: I won't send you any alerts on tokens or NFTs that you mute. If it is on your watchlist, it is removed automatically.",
         "",

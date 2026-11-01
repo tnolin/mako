@@ -248,7 +248,7 @@ async function sale(
   return out
 }
 
-/** Candidates for a listing, sale or stats event. UNDER FLOOR, RARE, FLOOR, SWEEP and SOLD reach watchers only (routing). */
+/** Candidates for a listing, sale or stats event. UNDER FLOOR, RARE, FLOOR, SWEEP, BIG SALE and SOLD reach watchers only (routing). */
 export async function marketRules(
   ev: Row<NftListingEvent | NftSaleEvent | NftStatsEvent>,
   ctx: RuleCtx,

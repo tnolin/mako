@@ -92,6 +92,7 @@ describe("NFT routing", () => {
       ["floor", { floorBps: 2500, floorDir: "down" as const }],
       ["sweep", { sweepItems: 7 }],
       ["sale", { salePriceWei: wei(1) }],
+      ["bigsale", { salePriceWei: wei(0.72) }],
     ] as const) {
       expect(route([cand(kind, { ...extra, feedEligible: true })], aud), kind).toEqual([])
     }
@@ -123,16 +124,41 @@ describe("NFT routing", () => {
     expect(route([cand("sale", { salePriceWei: 1n })], aud)).toHaveLength(1)
   })
 
-  it("BIG SALE follows the chat's own minimum, for the feed and for watchers", () => {
-    const low = dm("1", (s) => {
-      s.alerts.bigsale.minWei = String(wei(0.05))
+  it("BIG SALE reaches a DM watcher and a watching group at their own minimum, and nobody else", () => {
+    const watcher = dm("1")
+    const aud = audience({
+      users: [watcher, dm("2")],
+      chats: [grp("-5"), grp("-6")],
+      watches: watching(["1"], ["-5"]),
     })
-    const aud = audience({ users: [low, dm("2")], watches: watching(["2"]) })
-    expect(who(route([cand("bigsale", { salePriceWei: wei(0.06) })], aud))).toEqual(["101:bigsale"])
-    expect(who(route([cand("bigsale", { salePriceWei: wei(0.1) })], aud))).toEqual([
+    expect(who(route([cand("bigsale", { salePriceWei: wei(0.72) })], aud))).toEqual([
+      "-5:bigsale",
       "101:bigsale",
-      "102:bigsale",
     ])
+    expect(route([cand("bigsale", { salePriceWei: wei(0.06) })], aud)).toEqual([])
+    watcher.settings.alerts.bigsale.minWei = String(wei(0.05))
+    expect(who(route([cand("bigsale", { salePriceWei: wei(0.06) })], aud))).toEqual(["101:bigsale"])
+  })
+
+  it("a watcher with BIG SALE off gets SOLD for a big sale, and nothing when SOLD is off too", () => {
+    const u = dm("1", (s) => {
+      s.alerts.bigsale.on = false
+      s.alerts.sale.on = true
+    })
+    const aud = audience({ users: [u], watches: watching(["1"]) })
+    const events = () => [
+      cand("sale", { eventId: "9", salePriceWei: wei(0.72), priority: 5 }),
+      cand("bigsale", { eventId: "9", salePriceWei: wei(0.72), priority: 3 }),
+    ]
+    expect(who(route(events(), aud))).toEqual(["101:sale"])
+    u.settings.alerts.sale.on = false
+    expect(route(events(), aud)).toEqual([])
+  })
+
+  it("a watcher gets BIG SALE for a collection that fails the checks", () => {
+    const aud = audience({ users: [dm("1")], watches: watching(["1"]) })
+    const c = cand("bigsale", { salePriceWei: wei(0.72), feedEligible: false })
+    expect(who(route([c], aud))).toEqual(["101:bigsale"])
   })
 
   it("BIG SALE beats SOLD for a watcher that qualifies for both", () => {

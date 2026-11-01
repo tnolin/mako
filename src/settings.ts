@@ -18,16 +18,17 @@ import {
 
 export const TOKEN_ALERTS = ["new", "bonding", "pumping", "bonded", "devsell", "big"] as const
 /** Shown on the "All collections" screen: they reach every collection that passes the checks. */
-export const NFT_ALL_ALERTS = [
-  "upcoming",
-  "mintstart",
-  "minted",
-  "soldout",
-  "launch",
-  "bigsale",
-] as const
+export const NFT_ALL_ALERTS = ["upcoming", "mintstart", "minted", "soldout", "launch"] as const
 /** Shown on the "Watched only" screen: they never fire for a collection the chat doesn't watch. */
-export const NFT_WATCHED_ALERTS = ["under", "rare", "floor", "sweep", "sale", "reminder"] as const
+export const NFT_WATCHED_ALERTS = [
+  "under",
+  "rare",
+  "floor",
+  "sweep",
+  "bigsale",
+  "sale",
+  "reminder",
+] as const
 /**
  * MCAP TARGET has no switch: it reaches only whoever set the target on a watched token. It is an alert kind so a
  * group can route it to a topic.
@@ -212,7 +213,7 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
     case "launch":
       return "NEW COLLECTION - A new Chimera collection is detected."
     case "bigsale":
-      return `BIG SALE - When an NFT sells for ${ethTrim(a.bigsale.minWei)} ETH or more.`
+      return `BIG SALE - an item sells for ${ethTrim(a.bigsale.minWei)} ETH or more.`
     case "under":
       return `UNDER FLOOR - an item lists ${pct(a.under.pctBps)}%+ under floor.`
     case "rare":
@@ -230,7 +231,7 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
   }
 }
 
-/** The defaults for a chat type. The seven All collections kinds are on in DMs and off elsewhere. */
+/** The defaults for a chat type. The All collections kinds are on in DMs and off elsewhere. */
 export function basicPreset(chatType: ChatType): Settings {
   const t = (): Toggle => ({ on: true, image: true })
   const feed = (): Toggle => ({ on: chatType === "private", image: true })
@@ -248,7 +249,7 @@ export function basicPreset(chatType: ChatType): Settings {
       minted: { ...feed(), marks: [5000] },
       soldout: feed(),
       launch: feed(),
-      bigsale: { ...feed(), minWei: DEFAULT_BIGSALE_WEI },
+      bigsale: { ...t(), minWei: DEFAULT_BIGSALE_WEI },
       under: { ...t(), pctBps: 2000 },
       rare: { ...t(), topBps: 1000 },
       floor: { ...t(), pctBps: 2000 },

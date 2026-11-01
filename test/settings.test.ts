@@ -113,14 +113,29 @@ it("gives the 3-minute NFT kinds no long window and the others 30 minutes", () =
     expect(LONG_WINDOW).toContain(k)
 })
 
-it("DM defaults have the seven All collections kinds on, minted at 50% and big sale at 0.1 ETH", () => {
+it("DM defaults have the All collections kinds on and minted at 50%", () => {
   const s = basicPreset("private")
   for (const k of NFT_ALL_ALERTS) expect(s.alerts[k]).toMatchObject({ on: true, image: true })
   expect(s.alerts.minted.marks).toEqual([5000])
-  expect(s.alerts.bigsale.minWei).toBe("100000000000000000")
 })
 
-it("group and channel defaults have the seven All collections kinds off", () => {
+it("BIG SALE is a Watched only alert, on by default in every chat type at 0.1 ETH", () => {
+  expect(NFT_WATCHED_ALERTS).toContain("bigsale")
+  expect(NFT_ALL_ALERTS).not.toContain("bigsale")
+  for (const t of ["private", "group", "supergroup", "channel"] as const)
+    expect(basicPreset(t).alerts.bigsale).toEqual({
+      on: true,
+      image: true,
+      minWei: "100000000000000000",
+    })
+})
+
+it("stored group settings without BIG SALE read it on", () => {
+  const s = readSettings({ alerts: { new: { on: true, image: true } } }, "supergroup")
+  expect(s.alerts.bigsale.on).toBe(true)
+})
+
+it("group and channel defaults have the All collections kinds off", () => {
   for (const t of ["group", "supergroup", "channel"] as const) {
     const s = basicPreset(t)
     for (const k of NFT_ALL_ALERTS) expect(s.alerts[k].on).toBe(false)
@@ -223,14 +238,14 @@ it("resetScreen restores one screen and keeps routes", () => {
   s.alerts.bigsale.on = false
   s.alerts.bigsale.minWei = "500000000000000000"
   s.alerts.under.pctBps = 3000
-  const nft = resetScreen(s, "nft_all", "private")
+  const nft = resetScreen(s, "nft_watched", "private")
   expect(nft.alerts.bigsale).toEqual(basicPreset("private").alerts.bigsale)
+  expect(resetScreen(s, "nft_all", "private").alerts.bigsale.on).toBe(false)
   expect(nft.alerts.new.on).toBe(false)
-  expect(nft.alerts.under.pctBps).toBe(3000)
   expect(nft.thread).toBe(4)
   expect(nft.routes).toEqual({ new: 9 })
   expect(nft.pausedRoutes).toEqual(["new"])
-  expect(resetScreen(s, "nft_watched", "private").alerts.under.pctBps).toBe(2000)
+  expect(nft.alerts.under.pctBps).toBe(2000)
   expect(resetScreen(s, "token", "private").alerts.new.on).toBe(true)
   // The input is not changed.
   expect(s.alerts.bigsale.on).toBe(false)

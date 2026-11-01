@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import type postgres from "postgres"
 import { afterAll, beforeAll, expect, inject, it } from "vitest"
 import { migrate, type Sql } from "../src/db"
 import { insertEvents, resetDb } from "./helpers/db"
@@ -90,4 +92,25 @@ it("inserts indexer events in order through the harness", async () => {
   const rows = await sql`select type, entity, confirmed from indexer.events order by id`
   expect(rows.map((r) => r.type)).toEqual(["launchpad.launch", "launchpad.trade"])
   expect(rows.every((r) => r.confirmed)).toBe(true)
+})
+
+it("0009 switches BIG SALE on in stored settings and keeps its minimum and image", async () => {
+  const stored = (bigsale?: postgres.JSONValue) => ({
+    alerts: { new: { on: true, image: true }, ...(bigsale && { bigsale }) },
+  })
+  const off = { on: false, image: false, minWei: "250000000000000000" }
+  const [a, b] = await sql<{ id: string }[]>`
+    insert into bot.users (platform_user_id, settings)
+    values (801, ${sql.json(stored(off))}), (802, ${sql.json(stored())}) returning id::text`
+  await sql`
+    insert into bot.chats (chat_id, kind, settings)
+    values (-801, 'supergroup', ${sql.json(stored(off))})`
+  await sql.unsafe(readFileSync("src/migrations/0009_bigsale_watched.sql", "utf8"))
+  const user = (id: string) => sql`select settings from bot.users where id = ${id}`
+  expect((await user(a!.id))[0]!.settings.alerts.bigsale).toEqual({ ...off, on: true })
+  expect((await user(b!.id))[0]!.settings).toEqual(stored())
+  const [chat] = await sql`select settings from bot.chats where chat_id = -801`
+  expect(chat!.settings.alerts.bigsale).toEqual({ ...off, on: true })
+  await sql`delete from bot.users where platform_user_id in (801, 802)`
+  await sql`delete from bot.chats where chat_id = -801`
 })

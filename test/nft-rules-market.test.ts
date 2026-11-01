@@ -347,12 +347,6 @@ describe("SOLD and BIG SALE", () => {
     expect(by(await run(sold({ priceWei: milli(0.049) })), "bigsale")).toBeUndefined()
   })
 
-  it("marks a BIG SALE of a collection that does not pass the checks as not feed-eligible", async () => {
-    state.apply({ id: String(++n), p: nftCollection({ verdict: "filtered" }) })
-    const c = by(await run(sold({ priceWei: milli(0.2) })), "bigsale")
-    expect(c!.feedEligible).toBe(false)
-  })
-
   it("uses the item image and falls back to the collection image", async () => {
     expect(
       card(by(await run(sold({ imageUrl: "https://i.example/item.png" })), "sale")).imageUrl,

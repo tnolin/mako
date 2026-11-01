@@ -103,7 +103,7 @@ describe("My alerts", () => {
         "",
         "Choose which alerts you want me to send you.",
         "",
-        "Tokens and NFTs you watch always send alerts, even if that alert type is turned off here.",
+        "Tokens and NFTs you watch send token alerts and All collections NFT alerts even if they are turned off here. Watched NFT alerts send only while they are turned on.",
         "Muted tokens and NFTs never send alerts.",
       ].join("\n"),
     )

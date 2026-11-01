@@ -267,9 +267,9 @@ it("ALERT_DESC follows the chosen thresholds", () => {
   expect(ALERT_DESC("pumping", s)).toBe(
     "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 30%+ in 10 min after bonding.",
   )
-  expect(ALERT_DESC("bigsale", s)).toBe("BIG SALE - When an NFT sells for 0.1 ETH or more.")
+  expect(ALERT_DESC("bigsale", s)).toBe("BIG SALE - an item sells for 0.1 ETH or more.")
   s.alerts.bigsale.minWei = "250000000000000000"
-  expect(ALERT_DESC("bigsale", s)).toBe("BIG SALE - When an NFT sells for 0.25 ETH or more.")
+  expect(ALERT_DESC("bigsale", s)).toBe("BIG SALE - an item sells for 0.25 ETH or more.")
   expect(ALERT_DESC("under", s)).toBe("UNDER FLOOR - an item lists 20%+ under floor.")
   s.alerts.under.pctBps = 3000
   expect(ALERT_DESC("under", s)).toBe("UNDER FLOOR - an item lists 30%+ under floor.")

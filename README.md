@@ -57,7 +57,7 @@ These alerts are only for NFTs you added to your watchlist.
 | RARE LISTING | a top 10% item lists near floor. |
 | FLOOR MOVE | the floor moves 20%+ in 24h. |
 | SWEEP | one wallet buys 5+ items in 10 min. |
-| BIG SALE | When an NFT sells for 0.1 ETH or more. |
+| BIG SALE | an item sells for 0.1 ETH or more. |
 | SOLD | an item sells for 0.05 ETH or more. |
 | REMINDERS | a message 15 min before each mint stage. |
 
@@ -65,7 +65,7 @@ Each alert can be turned off, and its image hidden, in My alerts. MCAP TARGET ha
 
 ## Watched & Muted
 
-Watching: I'll send you every alert type for tokens or NFTs that you add to your watchlist, even for the alerts turned off. This also includes mint reminders 15 minutes before each mint stage.
+Watching: For tokens and NFTs on your watchlist, I'll send token alerts and the NFT alerts under All collections even when they are turned off. The Watched NFT alerts (UNDER FLOOR, RARE LISTING, FLOOR MOVE, SWEEP, BIG SALE, SOLD and REMINDERS) send for a watched collection only while they are turned on.
 
 Market cap target: `/watch $GOBLO 500k` watches the token and sends MCAP TARGET when its market cap reaches $500K. An amount below the current market cap alerts when it drops to it. Amounts read like `500k`, `1.5m`, `$500k` or `500000`. A new amount replaces the old one, and the Watched tokens list shows it. A token can be named by address, `$TICKER` or name.
 

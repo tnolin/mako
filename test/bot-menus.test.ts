@@ -293,7 +293,7 @@ const DEFAULTS = {
     "RARE LISTING - a top 10% item lists near floor.",
     "FLOOR MOVE - the floor moves 20%+ in 24h.",
     "SWEEP - one wallet buys 5+ items in 10 min.",
-    "BIG SALE - When an NFT sells for 0.1 ETH or more.",
+    "BIG SALE - an item sells for 0.1 ETH or more.",
     "SOLD - an item sells for 0.05 ETH or more.",
     "REMINDERS - a message 15 min before each mint stage.",
   ],

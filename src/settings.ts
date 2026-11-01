@@ -213,7 +213,7 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
     case "launch":
       return "NEW COLLECTION - A new Chimera collection is detected."
     case "bigsale":
-      return `BIG SALE - When an NFT sells for ${ethTrim(a.bigsale.minWei)} ETH or more.`
+      return `BIG SALE - an item sells for ${ethTrim(a.bigsale.minWei)} ETH or more.`
     case "under":
       return `UNDER FLOOR - an item lists ${pct(a.under.pctBps)}%+ under floor.`
     case "rare":

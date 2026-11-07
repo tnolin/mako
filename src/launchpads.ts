@@ -34,6 +34,13 @@ export const LAUNCHPADS = {
     refEnv: null,
     referralUrl: () => "https://tsunami.trade",
   },
+  hookit: {
+    name: "Hookit",
+    tradeUrl: (ca: string) => `https://www.hookit.fun/token/${ca}`,
+    refParam: null,
+    refEnv: null,
+    referralUrl: () => "https://www.hookit.fun",
+  },
 } satisfies Record<string, Launchpad>
 
 export type LaunchpadKey = keyof typeof LAUNCHPADS

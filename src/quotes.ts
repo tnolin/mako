@@ -1,7 +1,8 @@
 /**
- * Quote currencies other than native ETH: symbol and decimals, keyed by lowercase address. These are the
- * currencies Tsunami's factory lets a token launch against (its CurrencyAdded and CurrencyRemoved logs), read
- * from each token contract with symbol() and decimals(), plus the three removed currencies that launched tokens.
+ * Quote currencies other than native ETH: symbol and decimals, keyed by lowercase address. The table covers
+ * Tsunami's and Hookit's quotes. Tsunami's are the currencies its factory lets a token launch against (its
+ * CurrencyAdded and CurrencyRemoved logs), plus the three removed currencies that launched tokens; Hookit adds
+ * wNFLXx, kHYPE and hNVDAx3L. Each is read from its token contract with symbol() and decimals().
  */
 export const QUOTE_ASSETS: Record<string, { symbol: string; decimals: number }> = {
   "0x4200000000000000000000000000000000000006": { symbol: "WETH", decimals: 18 },
@@ -33,6 +34,9 @@ export const QUOTE_ASSETS: Record<string, { symbol: string; decimals: number }> 
   "0x9d275685dc284c8eb1c79f6aba7a63dc75ec890a": { symbol: "AAPLx", decimals: 18 },
   "0xe92f673ca36c5e2efd2de7628f815f84807e803f": { symbol: "GOOGLx", decimals: 18 },
   "0x8ad3c73f833d3f9a523ab01476625f269aeb7cf0": { symbol: "TSLAx", decimals: 18 },
+  "0x7d87fd6a379714194a797c0bbb8b40c30d250856": { symbol: "wNFLXx", decimals: 18 },
+  "0xad09cd20e513e4d8cb78036f77ab9afde8555929": { symbol: "kHYPE", decimals: 18 },
+  "0xc0af15b3eb4a13a47a13cc9d455ddaa353fa8271": { symbol: "hNVDAx3L", decimals: 18 },
 }
 
 // shortcut: a quote currency Tsunami enables after this table was written shows 18 decimals and its address.

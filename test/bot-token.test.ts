@@ -295,6 +295,16 @@ describe("token card layout", () => {
     expect(lines(caption).slice(0, 2)).toEqual(["<b>$SHITCOIN</b>", "Shitcoin · Tsunami"])
   })
 
+  it('a Hookit card reads "Name · Hookit"', async () => {
+    const token = addr(0xa7)
+    await insertEvents(sql, [
+      launch({ token, launchpad: "hookit", name: "Hookling", ticker: "HKL", blockNumber: "1002" }),
+    ])
+    await h.text(`/t ${token}`)
+    const caption = h.last("sendPhoto")!.caption
+    expect(lines(caption).slice(0, 2)).toEqual(["<b>$HKL</b>", "Hookling · Hookit"])
+  })
+
   it("leaves out the description and its blank line when there is none", async () => {
     await sql`update indexer.events set payload = jsonb_set(payload, '{description}', 'null') where type = 'launchpad.launch'`
     await h.text(`/t ${A}`)

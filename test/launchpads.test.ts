@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { expect, it } from "vitest"
 import {
   LAUNCHPADS,
@@ -48,7 +49,7 @@ it("tradeTarget routes an ink.fun token to ink.fun", () => {
 })
 
 it("names every launchpad from config", () => {
-  expect(launchpadNames()).toBe("InkyPump, ink.fun or Tsunami")
+  expect(launchpadNames()).toBe("InkyPump, ink.fun, Tsunami or Hookit")
 })
 
 it("Tsunami trade link is the plain token page", () => {
@@ -65,6 +66,31 @@ it("Tsunami links to its home page for the launchpad link", () => {
 it("tradeTarget routes a Tsunami token to Tsunami", () => {
   const lps = new TokenLaunchpads([[CA, "tsunami"]])
   expect(tradeTarget(lps, { INKYPUMP_REF_CODE: "MAKO" })(CA)).toBe(`https://tsunami.trade/t/${CA}`)
+})
+
+it("Hookit trade link is the plain token page", () => {
+  expect(tradeLink("hookit", CA, {})).toBe(`https://www.hookit.fun/token/${CA}`)
+  expect(tradeLink("hookit", CA, { INKYPUMP_REF_CODE: "MAKO" })).toBe(
+    `https://www.hookit.fun/token/${CA}`,
+  )
+})
+
+it("Hookit links to its home page for the launchpad link", () => {
+  expect(referralLink("hookit", { INKYPUMP_REF_CODE: "MAKO" })).toBe("https://www.hookit.fun")
+})
+
+it("tradeTarget routes a Hookit token to Hookit", () => {
+  const lps = new TokenLaunchpads([[CA, "hookit"]])
+  expect(tradeTarget(lps, { INKYPUMP_REF_CODE: "MAKO" })(CA)).toBe(
+    `https://www.hookit.fun/token/${CA}`,
+  )
+})
+
+it("the README lists Hookit", () => {
+  const readme = readFileSync(new URL("../README.md", import.meta.url), "utf8")
+  expect(readme.split("\n")).toContain(
+    "- **Hookit:** tokens launched on Hookit.fun, the Uniswap v4 launchpad with programmable hook combinations.",
+  )
 })
 
 const two: Record<string, Launchpad> = {
@@ -97,5 +123,5 @@ it("unknown token falls back to InkyPump", () => {
 })
 
 it("names launchpads from config only", () => {
-  expect(launchpadNames(two)).toBe("InkyPump, ink.fun, Tsunami or Otherpad")
+  expect(launchpadNames(two)).toBe("InkyPump, ink.fun, Tsunami, Hookit or Otherpad")
 })

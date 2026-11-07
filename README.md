@@ -16,6 +16,7 @@ MAKO currently works with:
 - **InkyPump:** memecoin launches, bonding progress, and trading in each token's Uniswap pool after it bonds.
 - **ink.fun:** memecoin launches, bonding progress, and trading in each token's Uniswap pool after it graduates.
 - **Tsunami:** memecoin launches, bonding progress, and trading in each token's Calamari pool after it graduates.
+- **Hookit:** tokens launched on Hookit.fun, the Uniswap v4 launchpad with programmable hook combinations.
 - **OpenSea:** NFT collection details, floors, listings, rarity ranks and mint schedules. View and Buy buttons open OpenSea.
 - **Chimera:** new Chimera-404 collections.
 

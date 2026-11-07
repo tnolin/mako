@@ -79,6 +79,24 @@ describe("custom-hook tokens in feeds", () => {
     ])
   })
 
+  it("a custom-hook token's bonded PUMPING skips the feed but reaches watchers that its gain passes (synthetic)", () => {
+    const pumpAt = (gainBps: number) =>
+      cand("pumping", {
+        customHook: true,
+        pump: { token: TOKEN, gainBps },
+        mcapUsd: 1_000_000,
+      })
+    const aud = audience({
+      users: [dm("1"), dm("2")],
+      chats: [grp("-200"), grp("-201")],
+      watch: new Map([[TOKEN, new Set(["1"])]]),
+      chatWatch: new Map([[TOKEN, new Set(["-200"])]]),
+    })
+    expect(who(route([pumpAt(5000)], aud))).toEqual(["-200:pumping", "101:pumping"])
+    // Below the watchers' threshold nobody hears it.
+    expect(route([pumpAt(100)], aud)).toEqual([])
+  })
+
   it("an approved Hookit token reaches the feed", () => {
     const aud = audience({ users: [dm("1")], chats: [grp("-200")] })
     expect(who(route(set(false), aud))).toEqual([

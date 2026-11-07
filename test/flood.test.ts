@@ -82,4 +82,51 @@ describe("floodRows", () => {
       expect.objectContaining({ type: "newtokens", launchpad: "ink.fun" }),
     ])
   })
+
+  it("leaves a custom-hook launch out of the minute card but still counts it in the flood (synthetic)", () => {
+    const mk = (i: number, customHook: boolean) => ({
+      id: String(i + 1),
+      writtenTs: 1_000,
+      p: launch({
+        launchpad: "hookit",
+        token: addr(0x200 + i),
+        ticker: `T${i}`,
+        customHook,
+        blockTimestamp: 1_000 + i,
+      }),
+    })
+    const flooded = [mk(0, false), mk(1, true), mk(2, false)]
+    const starts = new Map(flooded.map((l) => [l.id, "1"]))
+    const rows = floodRows(flooded, starts, [
+      { chatId: "501", chatType: "private", threadId: null },
+    ])
+    const card = rows.find((r) => r.payload.type === "newtokens")!.payload as {
+      entries: { ticker: string }[]
+    }
+    expect(card.entries.map((e) => e.ticker)).toEqual(["T0", "T2"])
+    // One notice for the flood, however many of its launches are listed.
+    expect(rows.filter((r) => r.payload.type === "text")).toHaveLength(1)
+  })
+
+  it("sends no minute card when every flooded launch has a custom hook (synthetic)", () => {
+    const flooded = [0, 1].map((i) => ({
+      id: String(i + 1),
+      writtenTs: 1_000,
+      p: launch({
+        launchpad: "hookit",
+        token: addr(0x300 + i),
+        customHook: true,
+        blockTimestamp: 1_000 + i,
+      }),
+    }))
+    const rows = floodRows(
+      flooded,
+      new Map([
+        ["1", "1"],
+        ["2", "1"],
+      ]),
+      [{ chatId: "501", chatType: "private", threadId: null }],
+    )
+    expect(rows.map((r) => r.payload.type)).toEqual(["text"])
+  })
 })

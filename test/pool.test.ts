@@ -252,7 +252,7 @@ describe("deepestPool", () => {
     expect(deepestPool(pools, prices)?.id).toBe("1")
   })
 
-  it("takes the pool of the latest swap when no pool has a price", () => {
+  it("takes the pool of the latest swap when no pool has a price (synthetic)", () => {
     const pools = [
       row("7", HMU_SPLIT_WAMZNX),
       row("9", { ...HMU_SPLIT_WAMZNX, poolId: `0x${"1".repeat(64)}` }),

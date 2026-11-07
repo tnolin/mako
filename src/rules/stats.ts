@@ -88,6 +88,14 @@ export function fills(trades: Row<TradeEvent>[], swaps: Row<SwapEvent>[]): Fill[
   return [...trades, ...swaps].sort((a, b) => (lt(a.id, b.id) ? -1 : lt(b.id, a.id) ? 1 : 0))
 }
 
+/**
+ * Whether the creator's fills are in more than one quote asset, as on a multi-pair token. Their amounts cannot be
+ * added into one PnL then.
+ */
+export function devSpansQuotes(trades: Fill[], creator: string, uptoId: string): boolean {
+  return new Set(devTrades(trades, creator, uptoId).map((t) => t.p.quoteAsset)).size > 1
+}
+
 export function devCounts(trades: Fill[], creator: string, uptoId: string) {
   const d = devTrades(trades, creator, uptoId)
   return {

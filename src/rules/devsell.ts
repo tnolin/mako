@@ -5,7 +5,7 @@ import type { DevHolds } from "../rpc"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
 import { withHooks } from "./hooks-row"
-import { devCounts, devPnl, fills } from "./stats"
+import { devCounts, devPnl, devSpansQuotes, fills } from "./stats"
 import type { Candidate, SwapCtx, TradeCtx } from "./types"
 
 export function devSell(t: TradeCtx): Candidate[] {
@@ -43,7 +43,10 @@ export function devSell(t: TradeCtx): Candidate[] {
   ]
 }
 
-/** DEV SELL on a pool sell by the creator. PnL and counts cover the creator's curve trades and pool swaps. */
+/**
+ * DEV SELL on a pool sell by the creator. PnL and counts cover the creator's curve trades and pool swaps; the PnL is
+ * left out when those fills are in more than one quote. The market cap is the token's deepest pool's.
+ */
 export function devSellSwap(s: SwapCtx): Candidate[] {
   const p = s.ev.p
   const l = s.launch.p
@@ -55,9 +58,13 @@ export function devSellSwap(s: SwapCtx): Candidate[] {
   const card = makeCard("devsell", "DEV SELL", l, [])
   card.rows = [
     ["sold", `${compact(units(p.tokenAmount))} (${pct1(share)})`],
-    ["dev pnl", pnlText(pnl.realized, pnl.basis, p.quoteAsset, s.prices)],
+    ...(devSpansQuotes(history, l.creator, s.ev.id)
+      ? []
+      : [
+          ["dev pnl", pnlText(pnl.realized, pnl.basis, p.quoteAsset, s.prices)] as [string, string],
+        ]),
     ["dev", buysSells(dev.buys, dev.sells)],
-    ["mcap", valueText(p.marketCap, p.quoteAsset, s.prices)],
+    ["mcap", valueText(s.market.p.marketCap, s.market.p.quoteAsset, s.prices)],
   ]
   card.rows = withHooks(card.rows, l)
   return [

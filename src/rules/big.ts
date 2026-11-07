@@ -79,7 +79,7 @@ export function bigSwap(s: SwapCtx): Candidate[] {
         withHooks(
           [
             [buy ? "bought" : "sold", quoteText(quote, p.quoteAsset, s.prices)],
-            ["mcap", valueText(p.marketCap, p.quoteAsset, s.prices)],
+            ["mcap", valueText(s.market.p.marketCap, s.market.p.quoteAsset, s.prices)],
             ["liquidity", valueText(swapLiquidity(p), p.quoteAsset, s.prices)],
           ],
           l,

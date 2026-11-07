@@ -813,7 +813,7 @@ describe("Hookit token card", () => {
     expect(text).not.toContain("<code>bonded")
   })
 
-  it("/t reads a multi-pair token's figures in the quote of its latest swap's pool", async () => {
+  it("/t reads a multi-pair token's figures in the quote of its deepest pool", async () => {
     // INKY's market 0 is USDG (6 decimals); the latest swap is in its wMSTRx pool (18 decimals).
     const wmstrx = "0x30987adf0b11dc698438a99ba04ec3a1ab2c7eab"
     await insertEvents(sql, [
@@ -873,6 +873,18 @@ describe("Hookit token card", () => {
     readSqrtPrice.mockResolvedValue(2n ** 96n)
     await h.text(`/t ${HMU.token}`)
     expect(readSqrtPrice).toHaveBeenCalledWith(UNISWAP_V4_POOL_MANAGER, HMU_SPLIT_WNVDAX.poolId)
+  })
+
+  it("an unpriced pool never takes a priced pool's place, even an empty one (synthetic)", async () => {
+    usdOf = (q) => stockUsd[q] ?? null
+    // The wNVDAx pool holds nothing at its latest swap; the newer wAMZNx pool has no price.
+    const empty = { ...HMU_SPLIT_WNVDAX, quoteLiquidity: "0", tokenLiquidity: undefined }
+    await insertEvents(sql, [HMU, empty, HMU_SPLIT_WAMZNX])
+    await setCursorBlock(sql, 56521440)
+    expect((await rowsOf(HMU.token)).slice(0, 2)).toEqual([
+      "<code>mcap      $5.9K</code>",
+      "<code>liquidity $0</code>",
+    ])
   })
 
   it("INKY's liquidity row adds the token side", async () => {

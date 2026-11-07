@@ -11,7 +11,7 @@ import type { Prices } from "../src/prices"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, ETH, launch, swap, trade } from "./helpers/events"
 import { loadTsunami } from "./helpers/fixtures"
-import { HKT, HOOC, HOOC_FIRST_BUY } from "./helpers/hookit"
+import { HKT, HOOC, HOOC_FIRST_BUY, INKY } from "./helpers/hookit"
 import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -795,6 +795,37 @@ describe("Hookit token card", () => {
     ])
     expect(text).not.toContain("<code>curve")
     expect(text).not.toContain("<code>bonded")
+  })
+
+  it("/t reads a multi-pair token's figures in the quote of its latest swap's pool", async () => {
+    // INKY's market 0 is USDG (6 decimals); the latest swap is in its wMSTRx pool (18 decimals).
+    const wmstrx = "0x30987adf0b11dc698438a99ba04ec3a1ab2c7eab"
+    await insertEvents(sql, [
+      INKY,
+      swap({
+        launchpad: "hookit",
+        token: INKY.token,
+        launchId: INKY.launchId,
+        quoteAsset: wmstrx,
+        poolId: POOL,
+        marketCap: eth(50),
+        quoteLiquidity: eth(8),
+        quoteAmount: eth(0.1),
+        blockNumber: "56801130",
+      }),
+    ])
+    await setCursorBlock(sql, 56801140)
+    // A price giving about 100 wMSTRx of market cap, with the token as currency1.
+    readSqrtPrice.mockResolvedValue((3_162_277_660n * 2n ** 96n) / 1_000_000n)
+    await h.text(`/t ${INKY.token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    const l = lines((m.caption ?? m.text) as string)
+    expect(l.slice(3, 7)).toEqual([
+      "<code>mcap      $250K</code>",
+      "<code>liquidity $40.0K</code>",
+      "<code>volume    $250 (24h)</code>",
+      "<code>trades    1 buy | 0 sells (24h)</code>",
+    ])
   })
 
   it("/t for a token that starts in a pool has no curve row before its first swap", async () => {

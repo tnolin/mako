@@ -75,17 +75,28 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
     // bonded token shows `bonded`.
     // shortcut: liquidity is twice the quote side, which reads low for a young concentrated pool; add the token
     // side from SwapEvent.tokenLiquidity.
+    // The figures are in the quote of the pool the latest swap was in, which for a multi-pair token need not be
+    // market 0's.
+    const poolQuote = lastSwap?.p.quoteAsset ?? q
     const pool = lastSwap?.p ?? { poolId: l.p.poolId, poolManager: l.p.poolManager }
-    const live = await liveMcap(deps, pool, l.p, lastSwap?.p.supply ?? l.p.totalSupply)
+    const live = await liveMcap(
+      deps,
+      pool,
+      { ...l.p, quoteAsset: poolQuote },
+      lastSwap?.p.supply ?? l.p.totalSupply,
+    )
     const mcap = live ?? (lastSwap ? BigInt(lastSwap.p.marketCap) : null)
     const from = cursor === null ? null : BigInt(cursor) - BigInt(DAY_BLOCKS)
     const day = swaps.filter((s) => from === null || BigInt(s.p.blockNumber) >= from)
+    // shortcut: volume and trades add raw quote amounts across the token's pools, which mixes quote units for a
+    // multi-pair token; sum them in USD per swap.
     const w = windowStats(day, 0, lastSwap?.id ?? l.id)
-    if (mcap !== null) rows.push(["mcap", valueText(mcap, q, prices)])
-    if (lastSwap)
-      rows.push(["liquidity", valueText(2n * BigInt(lastSwap.p.quoteLiquidity), q, prices)])
+    if (mcap !== null) rows.push(["mcap", valueText(mcap, poolQuote, prices)])
+    if (lastSwap) {
+      rows.push(["liquidity", valueText(2n * BigInt(lastSwap.p.quoteLiquidity), poolQuote, prices)])
+    }
     rows.push(
-      ["volume", `${valueText(w.volume, q, prices)} (24h)`],
+      ["volume", `${valueText(w.volume, poolQuote, prices)} (24h)`],
       ["trades", `${buysSells(w.buys, w.sells)} (24h)`],
     )
   } else if (b) {

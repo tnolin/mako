@@ -11,9 +11,14 @@ const MAX_VALUE = 31
  */
 export function hooksRow(l: LaunchEvent): [string, string] | null {
   if (l.launchpad !== "hookit") return null
-  if (l.customHook) return ["hooks", `custom ${shortAddress(l.hook)}`]
+  if (l.customHook && typeof l.hook === "string") {
+    return ["hooks", `custom ${shortAddress(l.hook)}`]
+  }
   if (!l.startsInPool) return ["hooks", "Classic"]
-  const modules = l.hookModules ?? []
+  // Stored rows are untrusted: a malformed list shows as no modules, and a name too long for the row is dropped.
+  const modules = Array.isArray(l.hookModules)
+    ? l.hookModules.filter((m) => typeof m === "string" && m.length <= MAX_VALUE)
+    : []
   if (modules.length === 0) return ["hooks", "Master"]
   let value = ""
   for (let shown = modules.length; shown >= 1; shown--) {

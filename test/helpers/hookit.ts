@@ -130,7 +130,7 @@ export const QCARD = master({
   hookModules: ["Hook → Creator", "Fixed Fees"],
 })
 
-/** Factory A's launch 1 style token whose bitmask turns no module on. */
+/** A Master token whose bitmask turns no module on; built for the test, no recorded launch has this shape. */
 export const NO_MODULES = master({
   token: addr(0xa101),
   creator: addr(0xa102),

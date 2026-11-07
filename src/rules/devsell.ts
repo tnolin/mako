@@ -80,8 +80,8 @@ export function devSellSwap(s: SwapCtx): Candidate[] {
 }
 
 /**
- * Inserts `dev holds` next to the first anchor row found, or at the end (before a hooks row) when the card has none. Leaves the card as it
- * is when the read failed.
+ * Inserts `dev holds` next to the first anchor row found, or at the end when the card has none, though before a
+ * hooks row, which stays last. Leaves the card as it is when the read failed.
  */
 export function withDevHolds(
   card: Card,

@@ -28,7 +28,8 @@ export function newToken(
     rows.push(["bonds at", quoteText(l.targetRaise, l.quoteAsset, prices)])
   const devBuys = [
     ...launchTxTrades(trades, l.txHash),
-    ...swaps.filter((s) => s.p.txHash === l.txHash),
+    // Only market 0's pool: a launch transaction can also swap in the token's other markets.
+    ...swaps.filter((s) => s.p.txHash === l.txHash && s.p.quoteAsset === l.quoteAsset),
   ].filter((t) => t.p.side === "buy" && t.p.trader === l.creator)
   if (devBuys.length > 0) {
     const quote = devBuys.reduce((s, t) => s + BigInt(t.p.quoteAmount), 0n)

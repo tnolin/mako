@@ -935,12 +935,12 @@ describe("Hookit hooks row", () => {
     })
 
     it.each([
-      ["$HKT", HKT, "Anti-Snipe, Anti-MEV +3"],
-      ["QUILL", QUILL, "Anti-Snipe, Anti-MEV +1"],
-      ["INKY", INKY, "Anti-Snipe, Auto-Burn +4"],
-      ["HMU", HMU, "Creator → Hook, Hook → Creator"],
-      ["QCARD", QCARD, "Hook → Creator, Fixed Fees"],
-    ])("%s reads %s", (_name, l, value) => {
+      { name: "$HKT", l: HKT, value: "Anti-Snipe, Anti-MEV +3" },
+      { name: "QUILL", l: QUILL, value: "Anti-Snipe, Anti-MEV +1" },
+      { name: "INKY", l: INKY, value: "Anti-Snipe, Auto-Burn +4" },
+      { name: "HMU", l: HMU, value: "Creator → Hook, Hook → Creator" },
+      { name: "QCARD", l: QCARD, value: "Hook → Creator, Fixed Fees" },
+    ])("$name reads $value", ({ l, value }) => {
       expect(hooksRow(l)).toEqual(["hooks", value])
     })
 
@@ -979,9 +979,24 @@ describe("Hookit hooks row", () => {
       for (const v of values) expect(v.length).toBeLessThanOrEqual(31)
     })
 
-    it("a Master token with no modules shows hooks Master", () => {
+    it("a Master token with no modules shows hooks Master (synthetic launch)", () => {
       expect(hooksRow(NO_MODULES)).toEqual(["hooks", "Master"])
       expect(hooksRow({ ...NO_MODULES, hookModules: null })).toEqual(["hooks", "Master"])
+    })
+
+    it("a malformed module list shows as Master and a module name over 31 characters is dropped", () => {
+      const bad = (hookModules: unknown) => hooksRow({ ...HKT, hookModules } as LaunchEvent)
+      expect(bad("Anti-Snipe")).toEqual(["hooks", "Master"])
+      expect(bad({ 0: "Anti-Snipe" })).toEqual(["hooks", "Master"])
+      expect(bad([42, null, "x".repeat(32)])).toEqual(["hooks", "Master"])
+      expect(bad(["Anti-Snipe", "x".repeat(40), 7])).toEqual(["hooks", "Anti-Snipe"])
+    })
+
+    it("a custom-hook launch without a usable hook address does not throw (synthetic launch)", () => {
+      for (const hook of [null, undefined, 7]) {
+        const l = { ...SYNTHETIC_CUSTOM, hook } as unknown as LaunchEvent
+        expect(hooksRow(l)).toEqual(["hooks", "Anti-Snipe"])
+      }
     })
 
     it("a custom-hook token's row reads custom 0x… (synthetic launch)", () => {
@@ -1022,7 +1037,7 @@ describe("Hookit hooks row", () => {
       ])
     })
 
-    it("a Master token with no modules shows hooks Master", async () => {
+    it("a Master token with no modules shows hooks Master (synthetic launch)", async () => {
       const [c] = await runHookit([NO_MODULES])
       expect(c!.card.rows.at(-1)).toEqual(["hooks", "Master"])
     })
@@ -1030,6 +1045,30 @@ describe("Hookit hooks row", () => {
     it("a custom-hook token's row reads custom 0x… (synthetic launch)", async () => {
       const [c] = await runHookit([SYNTHETIC_CUSTOM])
       expect(c!.card.rows.at(-1)).toEqual(["hooks", "custom 0x1234…abcd"])
+    })
+
+    it("a dev buy counts only swaps in market 0's pool (multi-market launch transaction)", async () => {
+      const other = HMU.markets![1]!
+      const swapIn = (quoteAsset: `0x${string}`, poolId: `0x${string}`, quoteAmount: string) =>
+        poolSwap(HMU, {
+          txHash: HMU.txHash,
+          blockNumber: HMU.blockNumber,
+          blockTimestamp: HMU.blockTimestamp,
+          trader: HMU.creator,
+          quoteAsset,
+          poolId,
+          quoteAmount,
+          tokenAmount: String(10n ** 24n),
+        })
+      const [c] = await runHookit(
+        [
+          HMU,
+          swapIn(HMU.quoteAsset, HMU.poolId as `0x${string}`, eth(0.5)),
+          swapIn(other.quoteAsset, other.poolId, eth(9)),
+        ],
+        0,
+      )
+      expect(c!.card.rows.find(([k]) => k === "dev buy")).toEqual(["dev buy", "0.50 wAAPLx (0.1%)"])
     })
 
     it("a Classic token's NEW TOKEN keeps bonds at and the dev buy, and ends with hooks Classic", async () => {
@@ -1103,6 +1142,25 @@ describe("Hookit hooks row", () => {
         values (${u!.id}, 'watch', ${HKT.token}, 500000, true, 210000, to_timestamp(${ts - 100}))`
       const cs = await runHookit([HKT, poolSwap(HKT, { marketCap: eth(300), blockTimestamp: ts })])
       expect(pick(cs, "mcap")!.card.rows.at(-1)).toEqual(hooks)
+    })
+
+    it("dev holds goes before hooks when the card has no anchor row", () => {
+      const card = {
+        rows: [
+          ["mcap", "$1"],
+          ["hooks", "Master"],
+        ],
+      } as unknown as Card
+      const rows = withDevHolds(card, { pct: 4.2, now: false }, { before: "bonded" }).rows
+      expect(rows).toEqual([
+        ["mcap", "$1"],
+        ["dev holds", "4.2%"],
+        ["hooks", "Master"],
+      ])
+      const plain = { rows: [["mcap", "$1"]] } as unknown as Card
+      expect(
+        withDevHolds(plain, { pct: 4.2, now: false }, { before: "bonded" }).rows.at(-1),
+      ).toEqual(["dev holds", "4.2%"])
     })
 
     it("the DEV HOLDS row lands before age and leaves hooks last", async () => {

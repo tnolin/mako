@@ -57,10 +57,10 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 | --- | --- |
 | NEW TOKEN | A token is created |
 | BONDING | A token's curve passes 80% or 90% (50% is optional) |
-| PUMPING | A token's curve rises 15 points within 10 minutes; after bonding, its market cap rises a chat's threshold (+15%, +20%, +30% or +50%) over the 10-minute low (ADR 0021) |
+| PUMPING | A token's curve rises 15 points within 10 minutes; in a pool (after bonding, or from launch for a Hookit token), its market cap rises a chat's threshold (+15%, +20%, +30% or +50%) over the 10-minute low (ADR 0021, ADR 0024) |
 | BONDED | A token bonds and its liquidity moves to a pool |
 | DEV SELL | The launch's creator wallet sells its token |
-| BIG BUY / BIG SELL | One trade of 5% (2.5% or 10%) or more of the bond target, or after bonding of the pool's quote side before the trade, worth at least $1,000 |
+| BIG BUY / BIG SELL | One trade of 5% (2.5% or 10%) or more of the bond target, or in a pool (after bonding, or from launch for a Hookit token) of the pool's quote side before the trade, worth at least $1,000 |
 | MCAP TARGET | A watched token's market cap reaches the user's or chat's target (ADR 0020) |
 
 **NFT alerts, All collections**

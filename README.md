@@ -28,10 +28,10 @@ MAKO currently works with:
 | --- | --- |
 | NEW TOKEN | A token launches. When more than 10 launch on one launchpad within 5 minutes, they are grouped into one message per minute until it slows down. |
 | BONDING | A token's bonding curve passes 80% or 90%. A 50% mark can be turned on in My alerts. |
-| PUMPING | On the curve: the curve rises 15 points or more within 10 minutes, at most once an hour per token in each chat. After bonding: the market cap rises 20% or more over its lowest point in the last 10 minutes (15%, 30% or 50% can be chosen), once until the rise falls back under 5%. Feeds get it from a $50K market cap (adjustable); watched tokens always do. |
+| PUMPING | On the curve: the curve rises 15 points or more within 10 minutes, at most once an hour per token in each chat. In a pool (after bonding, or from launch for Hookit tokens): the market cap rises 20% or more over its lowest point in the last 10 minutes (15%, 30% or 50% can be chosen), once until the rise falls back under 5%. Feeds get it from a $50K market cap (adjustable); watched tokens always do. |
 | BONDED | A token fills its curve and its liquidity moves to a Uniswap pool. |
 | DEV SELL | The wallet that created a token sells some of it, on the curve or in its pool. |
-| BIG BUY / BIG SELL | One trade of 5% or more of the token's bond target, or, after bonding, of its pool's liquidity and worth at least $1,000. 2.5% or 10% can be chosen in My alerts. |
+| BIG BUY / BIG SELL | One trade of 5% or more of the token's bond target, or, in a pool (after bonding, or from launch for Hookit tokens), of its pool's liquidity and worth at least $1,000. 2.5% or 10% can be chosen in My alerts. |
 | MCAP TARGET | A watched token's market cap reaches the target set with `/watch <token> <amount>`. Sent once, then the target is cleared. |
 
 ### NFT alerts

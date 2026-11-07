@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- Hookit tokens in every token alert and in `/t`, with Trade links to the token's Hookit page and a `hooks` row listing its hook modules (see [ADR 0024](docs/adr/0024-hookit-tokens.md)).
+- Tokens that trade in a pool from launch: NEW TOKEN has no `bonds at` row, `/t` shows the token's age, and PUMPING, BIG BUY/SELL and MCAP TARGET work from launch.
+- Tokens with several pools: NEW TOKEN shows the first pair and the number of other pairs, and market cap, PUMPING and MCAP TARGET follow the pool with the most liquidity.
+- wNFLXx, kHYPE and hNVDAx3L quote symbols.
+
+### Changed
+
+- The `liquidity` row counts both sides of the pool, so pools with a narrow price range show their full liquidity.
+
+### Fixed
+
+- Volume across pools in different currencies is summed in USD instead of adding raw amounts.
+
 ## [0.5.1] - 2026-11-02
 
 ### Changed

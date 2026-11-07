@@ -7,10 +7,10 @@ import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
 import { btn, findAddress, type Kb, link, show, stateBtn, threadOf } from "../platforms/telegram/ui"
-import { isPoolId, poolMcap, STATE_VIEWS } from "../pool"
+import { deepestPool, isPoolId, latestPerPool, poolMcap, STATE_VIEWS, swapLiquidity } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
 import { hooksRow } from "../rules/hooks-row"
-import { devCounts, fills, windowStats } from "../rules/stats"
+import { acrossQuotes, devCounts, fills, windowStats, windowVolumeText } from "../rules/stats"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
@@ -73,30 +73,25 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   if (l.p.startsInPool) {
     // A token that starts in a pool has no curve: its figures come from the pool, and `age` stands where a
     // bonded token shows `bonded`.
-    // shortcut: liquidity is twice the quote side, which reads low for a young concentrated pool; add the token
-    // side from SwapEvent.tokenLiquidity.
-    // The figures are in the quote of the pool the latest swap was in, which for a multi-pair token need not be
-    // market 0's.
-    const poolQuote = lastSwap?.p.quoteAsset ?? q
-    const pool = lastSwap?.p ?? { poolId: l.p.poolId, poolManager: l.p.poolManager }
+    // The figures are in the quote of the token's deepest pool: for a multi-pair token, the pool with the most
+    // USD liquidity at its latest swap, which need not be market 0's nor the pool of the latest swap.
+    const deep = deepestPool(latestPerPool(swaps), prices) ?? lastSwap
+    const poolQuote = deep?.p.quoteAsset ?? q
+    const pool = deep?.p ?? { poolId: l.p.poolId, poolManager: l.p.poolManager }
     const live = await liveMcap(
       deps,
       pool,
       { ...l.p, quoteAsset: poolQuote },
-      lastSwap?.p.supply ?? l.p.totalSupply,
+      deep?.p.supply ?? l.p.totalSupply,
     )
-    const mcap = live ?? (lastSwap ? BigInt(lastSwap.p.marketCap) : null)
+    const mcap = live ?? (deep ? BigInt(deep.p.marketCap) : null)
     const from = cursor === null ? null : BigInt(cursor) - BigInt(DAY_BLOCKS)
     const day = swaps.filter((s) => from === null || BigInt(s.p.blockNumber) >= from)
-    // shortcut: volume and trades add raw quote amounts across the token's pools, which mixes quote units for a
-    // multi-pair token; sum them in USD per swap.
-    const w = windowStats(day, 0, lastSwap?.id ?? l.id)
+    const w = windowStats(day, 0, lastSwap?.id ?? l.id, acrossQuotes(l.p, poolQuote, prices))
     if (mcap !== null) rows.push(["mcap", valueText(mcap, poolQuote, prices)])
-    if (lastSwap) {
-      rows.push(["liquidity", valueText(2n * BigInt(lastSwap.p.quoteLiquidity), poolQuote, prices)])
-    }
+    if (deep) rows.push(["liquidity", valueText(swapLiquidity(deep.p), poolQuote, prices)])
     rows.push(
-      ["volume", `${valueText(w.volume, poolQuote, prices)} (24h)`],
+      ["volume", `${windowVolumeText(w, poolQuote, prices)} (24h)`],
       ["trades", `${buysSells(w.buys, w.sells)} (24h)`],
     )
   } else if (b) {

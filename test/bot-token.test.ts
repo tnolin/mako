@@ -11,11 +11,26 @@ import type { Prices } from "../src/prices"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, ETH, launch, swap, trade } from "./helpers/events"
 import { loadTsunami } from "./helpers/fixtures"
-import { HKT, HOOC, HOOC_FIRST_BUY, INKY } from "./helpers/hookit"
+import {
+  HKT,
+  HMU,
+  HMU_SPLIT_WAMZNX,
+  HMU_SPLIT_WNVDAX,
+  HOOC,
+  HOOC_FIRST_BUY,
+  INKY,
+  INKY_USDG_SELL,
+  INKY_WMSTRX_BUY,
+  USDG,
+  WMSTRX,
+  WNVDAX,
+} from "./helpers/hookit"
 import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
-const prices: Prices = { usd: () => 2500, symbol: () => "ETH" }
+// Every quote is $2,500 unless a test replaces the price of some.
+let usdOf: (quote: string) => number | null = () => 2500
+const prices: Prices = { usd: (q) => usdOf(q), symbol: () => "ETH" }
 const report = vi.fn()
 const A = addr(0xa1)
 const CHECKSUMMED = "0x00000000000000000000000000000000000000A1"
@@ -32,6 +47,7 @@ let readSqrtPrice: ReturnType<
 >
 
 beforeEach(async () => {
+  usdOf = () => 2500
   img = testImages()
   await sql?.end()
   sql = await resetDb(inject("databaseUrl"))
@@ -825,6 +841,51 @@ describe("Hookit token card", () => {
       "<code>liquidity $40.0K</code>",
       "<code>volume    $250 (24h)</code>",
       "<code>trades    1 buy | 0 sells (24h)</code>",
+    ])
+  })
+
+  const rowsOf = async (token: string) => {
+    await h.text(`/t ${token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    return lines((m.caption ?? m.text) as string).slice(3, 7)
+  }
+  const stockUsd: Record<string, number> = { [WNVDAX]: 206.98, [WMSTRX]: 133.94, [USDG]: 1 }
+
+  it("HMU's market cap comes from its deepest priced pool", async () => {
+    // The latest swap is in the wAMZNx pool, which has no USD price.
+    usdOf = (q) => stockUsd[q] ?? null
+    await insertEvents(sql, [HMU, HMU_SPLIT_WNVDAX, HMU_SPLIT_WAMZNX])
+    await setCursorBlock(sql, 56521440)
+    expect(await rowsOf(HMU.token)).toEqual([
+      // 28.49 wNVDAx at $206.98.
+      "<code>mcap      $5.9K</code>",
+      "<code>liquidity $1.2K</code>",
+      // The wAMZNx leg is left out of the dollar total.
+      "<code>volume    $124 (24h)</code>",
+      "<code>trades    2 buys | 0 sells (24h)</code>",
+    ])
+  })
+
+  it("/t reads the deepest pool's StateView slot", async () => {
+    usdOf = (q) => stockUsd[q] ?? null
+    await insertEvents(sql, [HMU, HMU_SPLIT_WNVDAX, HMU_SPLIT_WAMZNX])
+    await setCursorBlock(sql, 56521440)
+    readSqrtPrice.mockResolvedValue(2n ** 96n)
+    await h.text(`/t ${HMU.token}`)
+    expect(readSqrtPrice).toHaveBeenCalledWith(UNISWAP_V4_POOL_MANAGER, HMU_SPLIT_WNVDAX.poolId)
+  })
+
+  it("INKY's liquidity row adds the token side", async () => {
+    usdOf = (q) => stockUsd[q] ?? null
+    await insertEvents(sql, [INKY, INKY_WMSTRX_BUY, INKY_USDG_SELL])
+    await setCursorBlock(sql, 60124780)
+    expect(await rowsOf(INKY.token)).toEqual([
+      "<code>mcap      $5.0K</code>",
+      // 1.38 USDG of quote and $2,515 of tokens, where twice the quote side would read $3.
+      "<code>liquidity $2.5K</code>",
+      // The USDG sell ($3) and the wMSTRx buy (0.0219 wMSTRx at $133.94) in one dollar total.
+      "<code>volume    $6 (24h)</code>",
+      "<code>trades    1 buy | 1 sell (24h)</code>",
     ])
   })
 

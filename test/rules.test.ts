@@ -8,22 +8,28 @@ import { createPrices, type Prices } from "../src/prices"
 import { hooksRow } from "../src/rules/hooks-row"
 import { type Candidate, rulesFor, swapCtx, withDevHolds } from "../src/rules/index"
 import { insertEvents, resetDb } from "./helpers/db"
-import { addr, bond, hash, launch, NATIVE, swap, T0, trade } from "./helpers/events"
+import { addr, bond, ETH, hash, launch, NATIVE, swap, T0, trade } from "./helpers/events"
 import { loadFixture, loadTsunami } from "./helpers/fixtures"
 import {
   BLOOP,
   BLOOP_DEV_BUY,
   HKT,
   HMU,
+  HMU_SPLIT_WAMZNX,
+  HMU_SPLIT_WNVDAX,
   HOOC,
   HOOC_FIRST_BUY,
   INKY,
+  INKY_USDG_SELL,
+  INKY_WMSTRX_BUY,
   NO_MODULES,
   QCARD,
   QUILL,
   SYNTHETIC_CUSTOM,
   USDG,
   WAAPLX,
+  WMSTRX,
+  WNVDAX,
 } from "./helpers/hookit"
 
 const prices: Prices = {
@@ -1237,5 +1243,108 @@ describe("Hookit hooks row", () => {
       for (const c of cs.filter((x) => x.alert === "bonding"))
         expect(labels(c)).not.toContain("hooks")
     })
+  })
+})
+
+describe("multi-pair tokens", () => {
+  const quoteUsd: Record<string, number> = {
+    [NATIVE]: 2500,
+    [WNVDAX]: 206.98,
+    [WMSTRX]: 133.94,
+    [USDG]: 1,
+  }
+  const mp: Prices = { usd: (q) => quoteUsd[q] ?? null, symbol: (q) => q.slice(0, 6) }
+  const rulesAt = async (index: number, now: number) => {
+    const all = await eventsAfter(sql, "0")
+    return rulesFor(all[index]!, { ...ctx(sql), prices: mp, now: () => now })
+  }
+  const HMU_TS = HMU_SPLIT_WNVDAX.blockTimestamp
+  const INKY_TS = INKY_USDG_SELL.blockTimestamp
+
+  it("HMU's 10-minute volume is in USD and leaves out the unpriced wAMZNx leg", async () => {
+    // An earlier wNVDAx swap at half the market cap (synthetic) gives the window its low.
+    const low = {
+      ...HMU_SPLIT_WNVDAX,
+      txHash: hash(0x501),
+      logIndex: 1,
+      blockNumber: "56521400",
+      blockTimestamp: HMU_TS - 240,
+      trader: addr(0xe1),
+      quoteAmount: String(25n * 10n ** 16n),
+      marketCap: "14000000000000000000",
+      athMarketCap: "14000000000000000000",
+    }
+    await insertEvents(sql, [HMU, low, HMU_SPLIT_WAMZNX, HMU_SPLIT_WNVDAX])
+    const c = pick(await rulesAt(3, HMU_TS + 30), "pumping")!
+    expect(c.card.rows.map(([k, v]) => `${k} ${v}`).slice(0, 6)).toEqual([
+      "pumped +103% (4m)",
+      "mcap $5.9K",
+      "ath $5.9K (0%)",
+      // 0.597 wNVDAx of quote plus 5.02 wNVDAx of tokens, at $206.98.
+      "liquidity $1.2K",
+      // 0.25 + 0.597 wNVDAx at $206.98; the 0.512 wAMZNx has no price.
+      "volume $175 (4m)",
+      "trades 3 buys | 0 sells (4m)",
+    ])
+  })
+
+  it("MCAP TARGET on a multi-pair token fires from the deepest pool only", async () => {
+    const [u] = await sql<{ id: string }[]>`
+      insert into bot.users (platform_user_id, settings) values (503, '{}') returning id::text`
+    await sql`
+      insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+      values (${u!.id}, 'watch', ${INKY.token}, 5000, true, 4000, to_timestamp(${INKY_TS - 100}))`
+    // A wMSTRx swap at 40 wMSTRx ($5.4K, synthetic) is over the target, but that pool is the shallower one.
+    const over = {
+      ...INKY_WMSTRX_BUY,
+      txHash: hash(0x502),
+      logIndex: 70,
+      blockTimestamp: INKY_TS + 30,
+      marketCap: "40000000000000000000",
+      athMarketCap: "40000000000000000000",
+    }
+    await insertEvents(sql, [INKY, INKY_USDG_SELL, over])
+    const deep = pick(await rulesAt(1, INKY_TS + 60), "mcap")!
+    expect(deep.card.rows[0]).toEqual(["mcap", "$5.0K"])
+    expect(pick(await rulesAt(2, INKY_TS + 60), "mcap")).toBeUndefined()
+  })
+
+  it("a swap in a shallower pool leaves PUMPING to the deepest pool's swaps", async () => {
+    const low = {
+      ...INKY_WMSTRX_BUY,
+      txHash: hash(0x503),
+      logIndex: 1,
+      blockNumber: "60124700",
+      blockTimestamp: INKY_TS - 60,
+      marketCap: "20000000000000000000",
+      athMarketCap: "20000000000000000000",
+    }
+    await insertEvents(sql, [INKY, INKY_USDG_SELL, low, INKY_WMSTRX_BUY])
+    expect((await rulesAt(3, INKY_TS + 30)).filter((c) => c.alert === "pumping")).toEqual([])
+  })
+
+  it("BIG BUY on a shallower pool is measured against that pool, with the token side in its liquidity row", async () => {
+    // 10 wMSTRx against 100 wMSTRx of quote (synthetic), after a swap in the deeper USDG pool.
+    const buy = {
+      ...INKY_WMSTRX_BUY,
+      txHash: hash(0x504),
+      logIndex: 71,
+      quoteAmount: String(10n * ETH),
+      quoteLiquidity: String(100n * ETH),
+    }
+    await insertEvents(sql, [INKY, INKY_USDG_SELL, buy])
+    const c = pick(await rulesAt(2, INKY_TS + 30), "big")!
+    expect(c.sizeBps).toBe(1111)
+    // 100 wMSTRx plus 8.82 wMSTRx of tokens, at $133.94; twice the quote side would read $26.8K.
+    expect(c.card.rows.at(-2)).toEqual(["liquidity", "$14.6K"])
+  })
+
+  it("a Tsunami swap without tokenLiquidity shows 2 × quote side", async () => {
+    const { launch: l, closingBuy, bond: b, swap: recorded } = loadTsunami().gm
+    // The recorded swap is 0.495 ETH; 5 ETH (synthetic) crosses the BIG threshold. Its pool holds 24.63 ETH of quote.
+    const big = { ...recorded, quoteAmount: String(5n * ETH) }
+    await insertEvents(sql, [l, closingBuy, b, big])
+    const c = pick(await rulesAt(3, big.blockTimestamp + 30), "big")!
+    expect(c.card.rows.at(-1)).toEqual(["liquidity", "$123K"])
   })
 })

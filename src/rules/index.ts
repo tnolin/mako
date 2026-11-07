@@ -11,6 +11,7 @@ import {
   bondOf,
   creatorStats,
   devTradesOf,
+  latestSwapPerPool,
   launchOf,
   type Row,
   swapsInTx,
@@ -19,6 +20,7 @@ import {
 } from "../history"
 import { marketRules } from "../nft/rules/market"
 import { mintRules } from "../nft/rules/mint"
+import { deepestPool } from "../pool"
 import { big, bigSwap } from "./big"
 import { bonded } from "./bonded"
 import { bonding } from "./bonding"
@@ -45,12 +47,15 @@ export async function swapCtx(ev: Row<SwapEvent>, ctx: RuleCtx): Promise<SwapCtx
     missingLaunch(ev, p.token, ctx)
     return null
   }
-  const [bond, swaps, dev] = await Promise.all([
+  const multi = (launch.p.markets?.length ?? 0) > 1
+  const [bond, swaps, dev, latest] = await Promise.all([
     bondOf(ctx.sql, p.token),
     swapsOf(ctx.sql, p.token, ev.id, p.blockTimestamp - SWAP_WINDOW_S),
     p.trader === launch.p.creator ? devTradesOf(ctx.sql, p.token, p.trader, ev.id) : null,
+    multi ? latestSwapPerPool(ctx.sql, p.token, ev.id) : [],
   ])
-  return { ev, launch, bond, swaps, dev, prices: ctx.prices }
+  const market = (multi ? deepestPool(latest, ctx.prices) : null) ?? ev
+  return { ev, launch, bond, swaps, market, dev, prices: ctx.prices }
 }
 
 /**
@@ -91,7 +96,8 @@ export async function rulesFor(
       ...devSellSwap(s),
       ...pumpingBonded(s),
       ...bigSwap(s),
-      ...(await mcapTargets(ctx, s.ev, s.launch, [])),
+      // A multi-pair token's market cap is its deepest pool's, so a swap in another pool never reaches a target.
+      ...(s.market.id === s.ev.id ? await mcapTargets(ctx, s.ev, s.launch, []) : []),
     ]
   }
   // A newer indexer can write event types this version doesn't know; they carry no alerts here.

@@ -11,6 +11,9 @@ const ETH = 10n ** 18n
 
 export const WAAPLX: Address = "0x943bf64d566c32a2bcd41ac92fb63c111cc9de8f"
 export const USDG: Address = "0xe343167631d89b6ffc58b88d6b7fb0228795491d"
+export const WAMZNX: Address = "0x910cabde3eba7fc1ce64fd14bd680b9f60fa0f90"
+export const WNVDAX: Address = "0xa8ddb5cd96b5222afe198316e9a57caa642850d5"
+export const WMSTRX: Address = "0x30987adf0b11dc698438a99ba04ec3a1ab2c7eab"
 
 function master(o: Partial<LaunchEvent> & Pick<LaunchEvent, "token" | "creator">): LaunchEvent {
   return launch({
@@ -112,6 +115,20 @@ export const INKY = master({
     "Holder Airdrop",
     "Hook → Creator",
     "Fixed Fees",
+  ],
+  markets: [
+    {
+      quoteAsset: USDG,
+      poolId: "0xff4c17ed1e3bd016ef3e8c2d336792feb780fa8937a934f51cc800a2af8d3aa3",
+    },
+    {
+      quoteAsset: WMSTRX,
+      poolId: "0x7c73a6e86bd5207d6790ec66458282d1d4cafe7a9bf7c37942c360e8368bdd79",
+    },
+    {
+      quoteAsset: "0xc3fdbe3a68ee5de461d30415a8165cf9aefe1171",
+      poolId: "0x8167edf2e2d756326c2ee9daef58d36ebeb5806abe95951da9b8a0e593cb8168",
+    },
   ],
 })
 
@@ -225,6 +242,97 @@ export const HOOC_FIRST_BUY: TradeEvent = trade({
   soldBps: 1,
   marketCap: "1313731334464390199",
   athMarketCap: "1313731334464390199",
+})
+
+/**
+ * The two swaps of the aggregator buy in HMU's wAMZNx and wNVDAx markets (`0x2144…ccb2`), as the indexer wrote them
+ * from the recorded logs. Both are buys by one trader; the block time is the transaction's.
+ */
+const hmuSplit = (o: Partial<SwapEvent>): SwapEvent =>
+  swap({
+    launchpad: "hookit",
+    token: HMU.token,
+    launchId: HMU.launchId,
+    txHash: "0x21447642535ebc3d9f2f4fa5282a4c2758b0cc1c74049169ab84cfd68d07ccb2",
+    blockNumber: "56521432",
+    blockTimestamp: 1790019843,
+    side: "buy",
+    trader: "0x745c48ec0b9145dd0d045a01656f600333b6655d",
+    router: "0xa5f1254d2abf4e3f8d486feadef2ad64f2b58b36",
+    supply: String(10n ** 27n),
+    ...o,
+  })
+
+export const HMU_SPLIT_WAMZNX = hmuSplit({
+  logIndex: 42,
+  poolId: "0x02e4d60afc77aff00b82f242d95fd9629d6b0af58a61faaeca98e823b78d159b",
+  quoteAsset: WAMZNX,
+  tokenAmount: "23856045127992365799988183",
+  quoteAmount: "512452696783647720",
+  price: "24390325030",
+  marketCap: "24390325030182034695",
+  athMarketCap: "24390325030182034695",
+  quoteLiquidity: "512452696783647719",
+  tokenLiquidity: "176143954872007634200006979",
+})
+
+export const HMU_SPLIT_WNVDAX = hmuSplit({
+  logIndex: 59,
+  poolId: "0x40d849dade148389448e54829a8277e4ae5934f4e7d0daa252726d1b2be06c50",
+  quoteAsset: WNVDAX,
+  tokenAmount: "23790245334685239698968712",
+  quoteAmount: "597088359450012637",
+  price: "28486541985",
+  marketCap: "28486541985113319369",
+  athMarketCap: "28486541985113319369",
+  quoteLiquidity: "597088359450012636",
+  tokenLiquidity: "176209754665314760301031238",
+})
+
+/**
+ * The two INKY legs of one transaction (`0xa5ff…a1f8`): a wMSTRx-pool buy and a USDG-pool sell, as the indexer wrote
+ * them. The USDG leg is in 6-decimal units.
+ */
+const inkyLeg = (o: Partial<SwapEvent>): SwapEvent =>
+  swap({
+    launchpad: "hookit",
+    token: INKY.token,
+    launchId: INKY.launchId,
+    txHash: "0xa5ffdf0e67a1fdfa8b2850ebebca7359c70578b809ae2dc786540c1ac64ba1f8",
+    blockNumber: "60124774",
+    blockTimestamp: 1793623185,
+    trader: "0x2b903fdaea648bb3382d58b033420475de99026e",
+    router: "0x8ffe51cd9883f09c96f4248e64c6f7e119937fb1",
+    tokenAmount: "615304963013777292708083",
+    ...o,
+  })
+
+export const INKY_WMSTRX_BUY = inkyLeg({
+  logIndex: 26,
+  poolId: "0x7c73a6e86bd5207d6790ec66458282d1d4cafe7a9bf7c37942c360e8368bdd79",
+  side: "buy",
+  quoteAsset: WMSTRX,
+  quoteAmount: "21884749568558284",
+  price: "35655816945",
+  marketCap: "35655816945415344137",
+  athMarketCap: "35655816945415344137",
+  quoteLiquidity: "95537626700177345",
+  tokenLiquidity: "247298616468201110892380995",
+  supply: String(10n ** 27n),
+})
+
+export const INKY_USDG_SELL = inkyLeg({
+  logIndex: 54,
+  poolId: "0xff4c17ed1e3bd016ef3e8c2d336792feb780fa8937a934f51cc800a2af8d3aa3",
+  side: "sell",
+  quoteAsset: USDG,
+  quoteAmount: "3099425",
+  price: "5",
+  marketCap: "5031002945",
+  athMarketCap: "5031002945",
+  quoteLiquidity: "1381632",
+  tokenLiquidity: "499841859449784487107333296",
+  supply: "999996975259242405480282615",
 })
 
 export { hash, NATIVE }

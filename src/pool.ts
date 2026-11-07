@@ -1,3 +1,7 @@
+import type { SwapEvent } from "@ink-indexer/events"
+import { quoteUnits } from "./cards/money"
+import type { Row } from "./history"
+import type { Prices } from "./prices"
 import { DEFAULT_RPC } from "./rpc"
 
 /** Uniswap v4 PoolManager on Ink, where every pool bonded before events schema version 2 lives. */
@@ -95,4 +99,47 @@ export function poolMcap(
   const p2 = sqrtPriceX96 * sqrtPriceX96
   const supply = BigInt(totalSupply)
   return BigInt(token) < BigInt(quote) ? (supply * p2) / Q192 : (supply * Q192) / p2
+}
+
+/**
+ * A pool's liquidity at a swap, in the quote's own base units: the quote side plus the token side valued at the
+ * swap's price. A swap recorded without a token side counts the quote side twice, which is what a full-range pool
+ * holds.
+ */
+export function swapLiquidity(p: SwapEvent): bigint {
+  const quote = BigInt(p.quoteLiquidity)
+  const supply = BigInt(p.supply)
+  if (p.tokenLiquidity == null || supply <= 0n) return 2n * quote
+  // The market cap is supply × price, so this keeps the price's precision even for a 6-decimal quote, where the
+  // stored price is only a few units.
+  return quote + (BigInt(p.tokenLiquidity) * BigInt(p.marketCap)) / supply
+}
+
+/** The newest swap of each pool, from swaps in id order. */
+export function latestPerPool(swaps: Row<SwapEvent>[]): Row<SwapEvent>[] {
+  const latest = new Map<string, Row<SwapEvent>>()
+  for (const s of swaps) latest.set(s.p.poolId, s)
+  return [...latest.values()]
+}
+
+/**
+ * The pool of a multi-pair token that holds the most, in USD, at its latest swap. `latest` has each pool's newest
+ * swap. A pool whose quote has no current price is left out of the comparison; when none has one, the pool of the
+ * newest swap stands.
+ */
+export function deepestPool(latest: Row<SwapEvent>[], prices: Prices): Row<SwapEvent> | null {
+  let best: Row<SwapEvent> | null = null
+  let bestUsd = 0
+  let newest: Row<SwapEvent> | null = null
+  for (const r of latest) {
+    if (newest === null || BigInt(r.id) > BigInt(newest.id)) newest = r
+    const price = prices.usd(r.p.quoteAsset)
+    if (price === null) continue
+    const value = quoteUnits(swapLiquidity(r.p), r.p.quoteAsset) * price
+    if (best === null || value > bestUsd || (value === bestUsd && BigInt(r.id) > BigInt(best.id))) {
+      best = r
+      bestUsd = value
+    }
+  }
+  return best ?? newest
 }

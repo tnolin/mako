@@ -110,6 +110,25 @@ export async function swapsOf(
   )
 }
 
+/**
+ * The newest pool swap of each of a token's pools, up to and including `uptoId` when given.
+ * shortcut: reads every swap the token has to find each pool's newest, and is only called for tokens with more
+ * than one market; keep a per-pool latest-swap row in the indexer past ~100K swaps on such a token.
+ */
+export async function latestSwapPerPool(
+  sql: Sql,
+  token: string,
+  uptoId?: string,
+): Promise<Row<SwapEvent>[]> {
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select distinct on (payload->>'poolId') id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.swap'
+        ${uptoId === undefined ? sql`` : sql`and id <= ${uptoId}`}
+      order by payload->>'poolId', events.id desc`,
+  )
+}
+
 /** The market cap, quote asset, ath and time of a token's newest curve trade or pool swap. */
 export async function lastMarketOf(
   sql: Sql,

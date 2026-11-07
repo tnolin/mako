@@ -89,6 +89,11 @@ export type SwapCtx = {
   bond: Row<BondEvent> | null
   /** The token's swaps in the 600 s up to and including `ev`, in id order. */
   swaps: Row<SwapEvent>[]
+  /**
+   * The token's deepest pool by USD liquidity, as its newest swap up to `ev`. It is `ev` for a token with one market;
+   * a swap in another pool of a multi-pair token carries a `market` that is not `ev`.
+   */
+  market: Row<SwapEvent>
   /** The creator's curve trades and pool swaps up to `ev`; loaded only when the creator made this swap. */
   dev: { trades: Row<TradeEvent>[]; swaps: Row<SwapEvent>[] } | null
   prices: Prices

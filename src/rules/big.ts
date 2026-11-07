@@ -1,5 +1,6 @@
 import { quoteText, quoteUnits, valueText } from "../cards/money"
 import { bar, bpsChange } from "../format"
+import { swapLiquidity } from "../pool"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
 import { withHooks } from "./hooks-row"
@@ -79,7 +80,7 @@ export function bigSwap(s: SwapCtx): Candidate[] {
           [
             [buy ? "bought" : "sold", quoteText(quote, p.quoteAsset, s.prices)],
             ["mcap", valueText(p.marketCap, p.quoteAsset, s.prices)],
-            ["liquidity", valueText(2n * liquidity, p.quoteAsset, s.prices)],
+            ["liquidity", valueText(swapLiquidity(p), p.quoteAsset, s.prices)],
           ],
           l,
         ),

@@ -334,7 +334,7 @@ it("ALERT_HELP describes BIG BUY/SELL for the curve and the pool", () => {
   expect(ALERT_HELP.big).toBe("one trade worth 5%+ of the bond target or pool")
 })
 
-it("the Token alerts screen and Alerts Explained show the new PUMPING and BIG BUY/SELL lines", () => {
+it("the Token alerts screen and Alerts Explained list PUMPING and BIG BUY/SELL for curves and pools", () => {
   const s = basicPreset("private")
   expect(ALERT_DESC("pumping", s)).toBe(
     "PUMPING - When a token jumps 15%+ on its curve, or 20%+ in its pool, in 10 min.",

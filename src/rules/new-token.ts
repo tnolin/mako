@@ -29,7 +29,7 @@ export function newToken(
   const devBuys = [
     ...launchTxTrades(trades, l.txHash),
     // Only market 0's pool: a launch transaction can also swap in the token's other markets.
-    ...swaps.filter((s) => s.p.txHash === l.txHash && s.p.quoteAsset === l.quoteAsset),
+    ...swaps.filter((s) => s.p.txHash === l.txHash && s.p.poolId === l.poolId),
   ].filter((t) => t.p.side === "buy" && t.p.trader === l.creator)
   if (devBuys.length > 0) {
     const quote = devBuys.reduce((s, t) => s + BigInt(t.p.quoteAmount), 0n)

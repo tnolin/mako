@@ -1001,8 +1001,14 @@ describe("Hookit hooks row", () => {
     it("a custom-hook launch without a usable hook address does not throw (synthetic launch)", () => {
       for (const hook of [null, undefined, 7]) {
         const l = { ...SYNTHETIC_CUSTOM, hook } as unknown as LaunchEvent
-        expect(hooksRow(l)).toEqual(["hooks", "Anti-Snipe"])
+        expect(hooksRow(l)).toEqual(["hooks", "custom"])
       }
+    })
+
+    it("a value that cannot fit 31 characters with its +N falls back to Master (synthetic modules)", () => {
+      const long = "x".repeat(30)
+      expect(hooksRow({ ...HKT, hookModules: [long, "y"] })).toEqual(["hooks", "Master"])
+      expect(hooksRow({ ...HKT, hookModules: [long] })).toEqual(["hooks", long])
     })
 
     it("a custom-hook token's row reads custom 0x… (synthetic launch)", () => {
@@ -1033,7 +1039,7 @@ describe("Hookit hooks row", () => {
       ])
     })
 
-    it("C21's NEW TOKEN shows its dev buy", async () => {
+    it("BLOOP's NEW TOKEN shows its dev buy", async () => {
       const [c] = await runHookit([BLOOP, BLOOP_DEV_BUY], 0)
       expect(c!.card.rows).toEqual([
         ["pair", "BLOOP/ETH"],
@@ -1041,6 +1047,27 @@ describe("Hookit hooks row", () => {
         ["dev", "1 launch | 0 bonded"],
         ["hooks", "Backed Floor, Auto-Burn +1"],
       ])
+    })
+
+    it("NEW TOKEN's dev buy counts market 0's pool only, even when two markets share a quote (synthetic)", async () => {
+      const other = `0x${"7".repeat(64)}` as `0x${string}`
+      const twoEth = {
+        ...HKT,
+        markets: [
+          { quoteAsset: NATIVE, poolId: HKT.poolId as `0x${string}` },
+          { quoteAsset: NATIVE, poolId: other },
+        ],
+      }
+      const buy = poolSwap(twoEth, {
+        txHash: twoEth.txHash,
+        blockNumber: twoEth.blockNumber,
+        blockTimestamp: twoEth.blockTimestamp,
+        trader: twoEth.creator,
+        poolId: other,
+        quoteAmount: eth(0.5),
+      })
+      const [c] = await runHookit([twoEth, buy], 0)
+      expect(labels(c!)).not.toContain("dev buy")
     })
 
     it("a Master token with no modules shows hooks Master (synthetic launch)", async () => {
@@ -1399,6 +1426,30 @@ describe("multi-pair tokens", () => {
     expect(c.card.rows.map(([k]) => k)).toEqual(["sold", "dev", "mcap", "hooks"])
     // The USDG pool's $5.0K, not the wMSTRx pool's 35.66 wMSTRx ($4.8K).
     expect(c.card.rows[2]).toEqual(["mcap", "$5.0K"])
+  })
+
+  it("DEV SELL keeps dev pnl on a single-market token even with fills in two quotes (synthetic)", async () => {
+    const buy = {
+      ...INKY_USDG_SELL,
+      side: "buy" as const,
+      token: HKT.token,
+      launchId: HKT.launchId,
+      trader: HKT.creator,
+      txHash: hash(0x607),
+      blockTimestamp: INKY_TS - 300,
+      blockNumber: "60124700",
+    }
+    const sell = {
+      ...INKY_WMSTRX_BUY,
+      side: "sell" as const,
+      token: HKT.token,
+      launchId: HKT.launchId,
+      trader: HKT.creator,
+      txHash: hash(0x608),
+    }
+    await insertEvents(sql, [HKT, buy, sell])
+    const c = pick(await rulesAt(2, INKY_TS + 30), "devsell")!
+    expect(c.card.rows.map(([k]) => k)).toContain("dev pnl")
   })
 
   it("DEV SELL keeps dev pnl when every fill is in one quote (synthetic fills from INKY's legs)", async () => {

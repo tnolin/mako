@@ -18,6 +18,17 @@ import { addChat, addUser, subscribe } from "./helpers/bot"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, ETH, launch, swap, T0, trade } from "./helpers/events"
 import { loadTsunami } from "./helpers/fixtures"
+import {
+  HMU,
+  HMU_SPLIT_WAMZNX,
+  HMU_SPLIT_WNVDAX,
+  INKY,
+  INKY_USDG_SELL,
+  INKY_WMSTRX_BUY,
+  USDG,
+  WMSTRX,
+  WNVDAX,
+} from "./helpers/hookit"
 import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -477,6 +488,43 @@ describe("/watch with a market cap target", () => {
     expect(usdcBot.last("sendMessage")!.text).toBe(
       "Watching usdcl. I'll alert you when its market cap reaches $100 (now $2).",
     )
+  })
+
+  describe("on a multi-pair token", () => {
+    const quoteUsd: Record<string, number> = { [WNVDAX]: 206.98, [WMSTRX]: 133.94, [USDG]: 1 }
+    const pairBot = () =>
+      harness(
+        createBot({
+          token: "1:test",
+          botInfo: BOT_INFO,
+          sql,
+          prices: { usd: (q) => quoteUsd[q] ?? null, symbol: () => "Q" },
+          log: () => {},
+          report: vi.fn(),
+          linksBase: "https://go.makobot.xyz",
+          images: testImages().images,
+          nft: () => nft,
+        }),
+      )
+
+    it("takes the target from the deepest pool when the newest swap is in an unpriced quote (HMU)", async () => {
+      await insertEvents(sql, [HMU, HMU_SPLIT_WNVDAX, HMU_SPLIT_WAMZNX])
+      const b = pairBot()
+      await b.text(`/watch ${HMU.token} 10k`)
+      expect(b.last("sendMessage")!.text).toBe(
+        "Watching Hook Me Up. I'll alert you when its market cap reaches $10.0K (now $5.9K).",
+      )
+    })
+
+    it("reads the deepest pool's market cap, not the newest swap's (INKY, synthetic order)", async () => {
+      await insertEvents(sql, [INKY, INKY_USDG_SELL, INKY_WMSTRX_BUY])
+      const b = pairBot()
+      await b.text(`/watch ${INKY.token} 10k`)
+      // The USDG pool's $5.0K, not the wMSTRx pool's 35.66 wMSTRx ($4.8K).
+      expect(b.last("sendMessage")!.text).toBe(
+        "Watching Inky. I'll alert you when its market cap reaches $10.0K (now $5.0K).",
+      )
+    })
   })
 
   it("a target below the current cap is downward", async () => {

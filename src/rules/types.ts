@@ -29,6 +29,8 @@ export type Candidate = {
   holds?: HoldsReq
   /** BONDED: marks that chat's pending BONDING rows for the token superseded. */
   supersedesBonding?: boolean
+  /** The token's launch uses a custom hook, so no feed carries it; watchers still do. */
+  customHook?: boolean
   /** NFT: the collection passes the quality checks, so the All collections feed may carry it. */
   feedEligible?: boolean
   /** MINT UPDATED: sent under the REMINDERS switch, to watchers only. */

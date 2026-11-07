@@ -64,6 +64,8 @@ const pumpGainOk = (s: Settings, c: Candidate): boolean =>
   c.pump !== undefined && c.pump.gainBps >= s.alerts.pumping.pctBps
 
 export function feedAccepts(s: Settings, c: Candidate): boolean {
+  // A custom hook can do anything with a trade, so only the people who watch the token hear about it.
+  if (c.customHook) return false
   if (!s.alerts[c.alert].on) return false
   // Without a USD price the floor can't be checked, so the feed doesn't get it.
   if (c.pump)

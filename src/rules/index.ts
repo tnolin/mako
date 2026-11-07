@@ -58,6 +58,10 @@ export async function swapCtx(ev: Row<SwapEvent>, ctx: RuleCtx): Promise<SwapCtx
   return { ev, launch, bond, swaps, market, dev, prices: ctx.prices }
 }
 
+/** Marks each candidate with whether its token's launch uses a custom hook, which keeps it out of feeds. */
+const forLaunch = (l: LaunchEvent, cs: Candidate[]): Candidate[] =>
+  cs.map((c) => ({ ...c, customHook: l.customHook === true }))
+
 /**
  * Candidate alerts for one confirmed event. Reads indexer.events, and for MCAP TARGET the market cap targets on
  * bot.subscriptions and bot.chat_token_watches. For an nft.collection or nft.drop event, `prev` is the snapshot it
@@ -87,18 +91,18 @@ export async function rulesFor(
       // A token that starts in a pool makes its dev buy as a swap in the launch transaction.
       p.startsInPool ? swapsInTx(ctx.sql, p.token, p.txHash, p.blockNumber) : [],
     ])
-    return [newToken(ev as Row<LaunchEvent>, trades, swaps, stats, ctx.prices)]
+    return forLaunch(p, [newToken(ev as Row<LaunchEvent>, trades, swaps, stats, ctx.prices)])
   }
   if (p.type === "launchpad.swap") {
     const s = await swapCtx(ev as Row<SwapEvent>, ctx)
     if (!s) return []
-    return [
+    return forLaunch(s.launch.p, [
       ...devSellSwap(s),
       ...pumpingBonded(s),
       ...bigSwap(s),
       // A multi-pair token's market cap is its deepest pool's, so a swap in another pool never reaches a target.
       ...(s.market.id === s.ev.id ? await mcapTargets(ctx, s.ev, s.launch, []) : []),
-    ]
+    ])
   }
   // A newer indexer can write event types this version doesn't know; they carry no alerts here.
   if (p.type !== "launchpad.trade" && p.type !== "launchpad.bond") return []
@@ -108,13 +112,14 @@ export async function rulesFor(
     return []
   }
   const trades = await tradesOf(ctx.sql, p.token, ev.id)
-  if (p.type === "launchpad.bond") return [bonded(ev as Row<BondEvent>, launch, trades, ctx.prices)]
+  if (p.type === "launchpad.bond")
+    return forLaunch(launch.p, [bonded(ev as Row<BondEvent>, launch, trades, ctx.prices)])
   const t = { ev: ev as Row<TradeEvent>, launch, trades, prices: ctx.prices }
-  return [
+  return forLaunch(launch.p, [
     ...devSell(t),
     ...bonding(t),
     ...pumping(t),
     ...big(t),
     ...(await mcapTargets(ctx, t.ev, launch, trades)),
-  ]
+  ])
 }

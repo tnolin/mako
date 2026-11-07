@@ -1048,6 +1048,23 @@ describe("Hookit hooks row", () => {
       expect(c!.card.rows.at(-1)).toEqual(["hooks", "Master"])
     })
 
+    it("a custom-hook launch's NEW TOKEN and pool swap candidates carry customHook (synthetic launch)", async () => {
+      const buy = poolSwap(SYNTHETIC_CUSTOM, { side: "buy", trader: addr(0xb1) })
+      await insertEvents(sql, [SYNTHETIC_CUSTOM, buy])
+      const [launchRow, swapRow] = await eventsAfter(sql, "0")
+      const at = (n: number) => ({ ...ctx(sql), prices: hp, now: () => n })
+      const fromLaunch = await rulesFor(launchRow!, at(SYNTHETIC_CUSTOM.blockTimestamp + 60))
+      const fromSwap = await rulesFor(swapRow!, at(buy.blockTimestamp + 60))
+      expect(fromLaunch.length).toBeGreaterThan(0)
+      expect(fromSwap.length).toBeGreaterThan(0)
+      expect([...fromLaunch, ...fromSwap].every((c) => c.customHook === true)).toBe(true)
+    })
+
+    it("an approved Hookit launch's candidates do not carry customHook", async () => {
+      const [c] = await runHookit([HKT])
+      expect(c!.customHook).toBe(false)
+    })
+
     it("a custom-hook token's row reads custom 0x… (synthetic launch)", async () => {
       const [c] = await runHookit([SYNTHETIC_CUSTOM])
       expect(c!.card.rows.at(-1)).toEqual(["hooks", "custom 0x1234…abcd"])

@@ -1,13 +1,30 @@
+import type { LaunchEvent, SwapEvent, TradeEvent } from "@ink-indexer/events"
 import { afterAll, beforeEach, describe, expect, inject, it } from "vitest"
 import type { Card } from "../src/cards/card"
 import type { Sql } from "../src/db"
 import { eventsAfter } from "../src/history"
 import { createNftState } from "../src/nft/state"
 import { createPrices, type Prices } from "../src/prices"
+import { hooksRow } from "../src/rules/hooks-row"
 import { type Candidate, rulesFor, swapCtx, withDevHolds } from "../src/rules/index"
 import { insertEvents, resetDb } from "./helpers/db"
 import { addr, bond, hash, launch, NATIVE, swap, T0, trade } from "./helpers/events"
 import { loadFixture, loadTsunami } from "./helpers/fixtures"
+import {
+  BLOOP,
+  BLOOP_DEV_BUY,
+  HKT,
+  HMU,
+  HOOC,
+  HOOC_FIRST_BUY,
+  INKY,
+  NO_MODULES,
+  QCARD,
+  QUILL,
+  SYNTHETIC_CUSTOM,
+  USDG,
+  WAAPLX,
+} from "./helpers/hookit"
 
 const prices: Prices = {
   usd: (q) => (q === NATIVE ? 2500 : null),
@@ -874,6 +891,293 @@ describe("quote currencies", () => {
 
     it("does not fire short of the target", async () => {
       expect(await fireAt(499_000n * 10n ** 6n)).toBeUndefined()
+    })
+  })
+})
+
+describe("Hookit hooks row", () => {
+  const symbols: Record<string, string> = {
+    [NATIVE]: "ETH",
+    [WAAPLX]: "wAAPLx",
+    [USDG]: "USDG",
+  }
+  const hp: Prices = { usd: (q) => (q === NATIVE ? 2500 : null), symbol: (q) => symbols[q] ?? "?" }
+  const at = (n: number) => ({ ...ctx(sql), prices: hp, now: () => n })
+  async function runHookit(events: Parameters<typeof insertEvents>[1], index = -1) {
+    await insertEvents(sql, events)
+    const all = await eventsAfter(sql, "0")
+    const ev = index < 0 ? all.at(-1)! : all[index]!
+    return rulesFor(ev, at(ev.p.blockTimestamp + 60))
+  }
+  const labels = (c: Candidate) => c.card.rows.map(([k]) => k)
+  const poolSwap = (l: LaunchEvent, o: Partial<SwapEvent> = {}) =>
+    swap({
+      launchpad: "hookit",
+      token: l.token,
+      launchId: l.launchId,
+      poolId: l.poolId as `0x${string}`,
+      blockNumber: String(Number(l.blockNumber) + 10),
+      blockTimestamp: l.blockTimestamp + 600,
+      ...o,
+    })
+  const curveTrade = (l: LaunchEvent, o: Partial<TradeEvent> = {}) =>
+    trade({
+      launchpad: "hookit",
+      token: l.token,
+      launchId: l.launchId,
+      blockTimestamp: l.blockTimestamp + 600,
+      ...o,
+    })
+
+  describe("hooksRow", () => {
+    it("is null for a launch on another launchpad", () => {
+      expect(hooksRow(launch({ hookModules: ["Anti-Snipe"], startsInPool: true }))).toBeNull()
+    })
+
+    it.each([
+      ["$HKT", HKT, "Anti-Snipe, Anti-MEV +3"],
+      ["QUILL", QUILL, "Anti-Snipe, Anti-MEV +1"],
+      ["INKY", INKY, "Anti-Snipe, Auto-Burn +4"],
+      ["HMU", HMU, "Creator → Hook, Hook → Creator"],
+      ["QCARD", QCARD, "Hook → Creator, Fixed Fees"],
+    ])("%s reads %s", (_name, l, value) => {
+      expect(hooksRow(l)).toEqual(["hooks", value])
+    })
+
+    it("a hooks value never passes 31 characters, for every recorded module set", () => {
+      const recorded = [
+        [
+          "Anti-Snipe",
+          "Backed Floor",
+          "Max Tx",
+          "Anti-MEV",
+          "Deepen LPs",
+          "Holder Airdrop",
+          "Fixed Fees",
+        ],
+        ["Backed Floor", "Auto-Burn", "Fixed Fees"],
+        ["Anti-Snipe", "Anti-MEV", "Auto-Burn", "Deepen LPs", "Creator → Hook"],
+        ["Creator → Hook", "Hook → Creator"],
+        ["Anti-Snipe", "Auto-Burn", "Deepen LPs", "Holder Airdrop", "Hook → Creator", "Fixed Fees"],
+        ["Holder Airdrop", "Hook → Creator", "Fixed Fees"],
+        ["Hook → Creator", "Fixed Fees"],
+        ["Anti-Snipe", "Anti-MEV", "Holder Airdrop"],
+        ["Anti-Snipe", "Dynamic Fees", "Max Tx", "Hook → Creator"],
+      ]
+      const values = recorded.map((hookModules) => hooksRow({ ...HKT, hookModules })![1])
+      expect(values).toEqual([
+        "Anti-Snipe, Backed Floor +5",
+        "Backed Floor, Auto-Burn +1",
+        "Anti-Snipe, Anti-MEV +3",
+        "Creator → Hook, Hook → Creator",
+        "Anti-Snipe, Auto-Burn +4",
+        "Holder Airdrop +2",
+        "Hook → Creator, Fixed Fees",
+        "Anti-Snipe, Anti-MEV +1",
+        "Anti-Snipe, Dynamic Fees +2",
+      ])
+      for (const v of values) expect(v.length).toBeLessThanOrEqual(31)
+    })
+
+    it("a Master token with no modules shows hooks Master", () => {
+      expect(hooksRow(NO_MODULES)).toEqual(["hooks", "Master"])
+      expect(hooksRow({ ...NO_MODULES, hookModules: null })).toEqual(["hooks", "Master"])
+    })
+
+    it("a custom-hook token's row reads custom 0x… (synthetic launch)", () => {
+      expect(hooksRow(SYNTHETIC_CUSTOM)).toEqual(["hooks", "custom 0x1234…abcd"])
+    })
+
+    it("a Classic token reads Classic", () => {
+      expect(hooksRow(HOOC)).toEqual(["hooks", "Classic"])
+    })
+  })
+
+  describe("NEW TOKEN", () => {
+    it("$HKT's NEW TOKEN has pair HKT/ETH, no bonds at, no mcap row, hooks row Anti-Snipe, Anti-MEV +3", async () => {
+      const [c] = await runHookit([HKT])
+      expect(c!.card.rows).toEqual([
+        ["pair", "HKT/ETH"],
+        ["dev", "1 launch | 0 bonded"],
+        ["hooks", "Anti-Snipe, Anti-MEV +3"],
+      ])
+    })
+
+    it('HMU\'s NEW TOKEN has pair HMU/wAAPLx +4 and hooks "Creator → Hook, Hook → Creator" with no +N', async () => {
+      const [c] = await runHookit([HMU])
+      expect(c!.card.rows).toEqual([
+        ["pair", "HMU/wAAPLx +4"],
+        ["dev", "1 launch | 0 bonded"],
+        ["hooks", "Creator → Hook, Hook → Creator"],
+      ])
+    })
+
+    it("C21's NEW TOKEN shows its dev buy", async () => {
+      const [c] = await runHookit([BLOOP, BLOOP_DEV_BUY], 0)
+      expect(c!.card.rows).toEqual([
+        ["pair", "BLOOP/ETH"],
+        ["dev buy", "0.0010 ETH (0.0%)"],
+        ["dev", "1 launch | 0 bonded"],
+        ["hooks", "Backed Floor, Auto-Burn +1"],
+      ])
+    })
+
+    it("a Master token with no modules shows hooks Master", async () => {
+      const [c] = await runHookit([NO_MODULES])
+      expect(c!.card.rows.at(-1)).toEqual(["hooks", "Master"])
+    })
+
+    it("a custom-hook token's row reads custom 0x… (synthetic launch)", async () => {
+      const [c] = await runHookit([SYNTHETIC_CUSTOM])
+      expect(c!.card.rows.at(-1)).toEqual(["hooks", "custom 0x1234…abcd"])
+    })
+
+    it("a Classic token's NEW TOKEN keeps bonds at and the dev buy, and ends with hooks Classic", async () => {
+      const [c] = await runHookit([HOOC, HOOC_FIRST_BUY], 0)
+      expect(c!.card.rows).toEqual([
+        ["pair", "HOOC/ETH"],
+        ["bonds at", "4.20 ETH ($10.5K)"],
+        ["dev buy", "0.0007 ETH (0.1%)"],
+        ["dev", "1 launch | 0 bonded"],
+        ["hooks", "Classic"],
+      ])
+    })
+  })
+
+  describe("every Hookit alert card ends its rows with hooks", () => {
+    const hooks = ["hooks", "Anti-Snipe, Anti-MEV +3"]
+    const master = [HKT, poolSwap(HKT, { blockTimestamp: HKT.blockTimestamp + 300 })]
+
+    it("pool BIG BUY", async () => {
+      const cs = await runHookit([
+        ...master,
+        poolSwap(HKT, {
+          quoteAmount: String(8n * 10n ** 17n),
+          quoteLiquidity: String(8n * 10n ** 18n),
+        }),
+      ])
+      expect(pick(cs, "big")!.card.rows.at(-1)).toEqual(hooks)
+    })
+
+    it("pool DEV SELL", async () => {
+      const cs = await runHookit([
+        ...master,
+        poolSwap(HKT, {
+          side: "sell",
+          trader: HKT.creator,
+          quoteLiquidity: String(8n * 10n ** 18n),
+        }),
+      ])
+      const rows = pick(cs, "devsell")!.card.rows
+      expect(rows.at(-1)).toEqual(hooks)
+      expect(rows.map(([k]) => k)).toEqual(["sold", "dev pnl", "dev", "mcap", "hooks"])
+    })
+
+    it("pool PUMPING shows age and ends with hooks", async () => {
+      const cs = await runHookit([
+        HKT,
+        poolSwap(HKT, { marketCap: eth(10), blockTimestamp: HKT.blockTimestamp + 100 }),
+        poolSwap(HKT, { marketCap: eth(12.4), blockTimestamp: HKT.blockTimestamp + 300 }),
+      ])
+      const rows = pick(cs, "pumping")!.card.rows
+      expect(rows.map(([k]) => k)).toEqual([
+        "pumped",
+        "mcap",
+        "ath",
+        "liquidity",
+        "volume",
+        "trades",
+        "buyers",
+        "age",
+        "hooks",
+      ])
+      expect(rows.at(-1)).toEqual(hooks)
+    })
+
+    it("MCAP TARGET", async () => {
+      const [u] = await sql<{ id: string }[]>`
+        insert into bot.users (platform_user_id, settings) values (501, '{}') returning id::text`
+      const ts = HKT.blockTimestamp + 300
+      await sql`
+        insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+        values (${u!.id}, 'watch', ${HKT.token}, 500000, true, 210000, to_timestamp(${ts - 100}))`
+      const cs = await runHookit([HKT, poolSwap(HKT, { marketCap: eth(300), blockTimestamp: ts })])
+      expect(pick(cs, "mcap")!.card.rows.at(-1)).toEqual(hooks)
+    })
+
+    it("the DEV HOLDS row lands before age and leaves hooks last", async () => {
+      const cs = await runHookit([
+        HKT,
+        poolSwap(HKT, { marketCap: eth(10), blockTimestamp: HKT.blockTimestamp + 100 }),
+        poolSwap(HKT, { marketCap: eth(12.4), blockTimestamp: HKT.blockTimestamp + 300 }),
+      ])
+      const filled = withDevHolds(
+        pick(cs, "pumping")!.card as Card,
+        { pct: 4.2, now: false },
+        { before: ["bonded", "age"] },
+      )
+      expect(filled.rows.map(([k]) => k).slice(-3)).toEqual(["dev holds", "age", "hooks"])
+    })
+
+    const classic = (extra: Parameters<typeof insertEvents>[1]) => [HOOC, HOOC_FIRST_BUY, ...extra]
+    const classicHooks = ["hooks", "Classic"]
+
+    it("Classic BONDING", async () => {
+      const cs = await runHookit(
+        classic([curveTrade(HOOC, { soldBps: 5100, target: HOOC_FIRST_BUY.target })]),
+      )
+      expect(pick(cs, "bonding")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic BONDED", async () => {
+      const cs = await runHookit(
+        classic([bond({ launchpad: "hookit", token: HOOC.token, launchId: HOOC.launchId })]),
+      )
+      expect(pick(cs, "bonded")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic BIG BUY", async () => {
+      const cs = await runHookit(
+        classic([
+          curveTrade(HOOC, { quoteAmount: String(2n * 10n ** 17n), target: HOOC_FIRST_BUY.target }),
+        ]),
+      )
+      expect(pick(cs, "big")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic DEV SELL", async () => {
+      const cs = await runHookit(
+        classic([
+          curveTrade(HOOC, { side: "sell", trader: HOOC.creator, target: HOOC_FIRST_BUY.target }),
+        ]),
+      )
+      expect(pick(cs, "devsell")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic PUMPING", async () => {
+      const cs = await runHookit(
+        classic([curveTrade(HOOC, { soldBps: 1700, target: HOOC_FIRST_BUY.target })]),
+      )
+      expect(pick(cs, "pumping")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic MCAP TARGET", async () => {
+      const [u] = await sql<{ id: string }[]>`
+        insert into bot.users (platform_user_id, settings) values (502, '{}') returning id::text`
+      const ts = HOOC.blockTimestamp + 600
+      await sql`
+        insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+        values (${u!.id}, 'watch', ${HOOC.token}, 5, true, 2, to_timestamp(${ts - 100}))`
+      const cs = await runHookit(
+        classic([curveTrade(HOOC, { target: HOOC_FIRST_BUY.target, blockTimestamp: ts })]),
+      )
+      expect(pick(cs, "mcap")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("a card of another launchpad has no hooks row", async () => {
+      const cs = await run([L, trade({ soldBps: 4000 }), trade({ soldBps: 9500 })])
+      for (const c of cs.filter((x) => x.alert === "bonding"))
+        expect(labels(c)).not.toContain("hooks")
     })
   })
 })

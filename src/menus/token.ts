@@ -9,7 +9,8 @@ import { renderRows, tradeUrl } from "../platforms/telegram/render"
 import { btn, findAddress, type Kb, link, show, stateBtn, threadOf } from "../platforms/telegram/ui"
 import { isPoolId, poolMcap, STATE_VIEWS } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
-import { devCounts, windowStats } from "../rules/stats"
+import { hooksRow } from "../rules/hooks-row"
+import { devCounts, fills, windowStats } from "../rules/stats"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
@@ -64,9 +65,30 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   const now = Math.floor(Date.now() / 1000)
   const last = trades.at(-1)
   const q = l.p.quoteAsset
-  const dev = devCounts(trades, l.p.creator, last?.id ?? l.id)
+  const lastSwap = swaps.at(-1)
+  const dev = l.p.startsInPool
+    ? devCounts(fills(trades, swaps), l.p.creator, lastSwap?.id ?? l.id)
+    : devCounts(trades, l.p.creator, last?.id ?? l.id)
   const rows: [string, string][] = []
-  if (b) {
+  if (l.p.startsInPool) {
+    // A token that starts in a pool has no curve: its figures come from the pool, and `age` stands where a
+    // bonded token shows `bonded`.
+    // shortcut: liquidity is twice the quote side, which reads low for a young concentrated pool; add the token
+    // side from SwapEvent.tokenLiquidity.
+    const pool = lastSwap?.p ?? { poolId: l.p.poolId, poolManager: l.p.poolManager }
+    const live = await liveMcap(deps, pool, l.p, lastSwap?.p.supply ?? l.p.totalSupply)
+    const mcap = live ?? (lastSwap ? BigInt(lastSwap.p.marketCap) : null)
+    const from = cursor === null ? null : BigInt(cursor) - BigInt(DAY_BLOCKS)
+    const day = swaps.filter((s) => from === null || BigInt(s.p.blockNumber) >= from)
+    const w = windowStats(day, 0, lastSwap?.id ?? l.id)
+    if (mcap !== null) rows.push(["mcap", valueText(mcap, q, prices)])
+    if (lastSwap)
+      rows.push(["liquidity", valueText(2n * BigInt(lastSwap.p.quoteLiquidity), q, prices)])
+    rows.push(
+      ["volume", `${valueText(w.volume, q, prices)} (24h)`],
+      ["trades", `${buysSells(w.buys, w.sells)} (24h)`],
+    )
+  } else if (b) {
     // A bonded token's volume and trades are its curve totals plus every pool swap since.
     const w = windowStats([...trades, ...swaps], 0, swaps.at(-1)?.id ?? b.id)
     const ago = `${bondedAgo(now - b.p.blockTimestamp)} ago`
@@ -95,6 +117,8 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
     )
   }
   rows.push(["age", age(now - l.p.blockTimestamp)], ["dev", buysSells(dev.buys, dev.sells)])
+  const hooks = hooksRow(l.p)
+  if (hooks) rows.push(hooks)
   const card = makeCard("new", "", l.p, rows, creatorLinks(l.p))
   const desc = clean(l.p.description, 200)
   const lines = [

@@ -13,6 +13,7 @@ import {
   devTradesOf,
   launchOf,
   type Row,
+  swapsInTx,
   swapsOf,
   tradesOf,
 } from "../history"
@@ -75,11 +76,13 @@ export async function rulesFor(
       return marketRules(ev as never, ctx)
   }
   if (p.type === "launchpad.launch") {
-    const [trades, stats] = await Promise.all([
+    const [trades, stats, swaps] = await Promise.all([
       tradesOf(ctx.sql, p.token),
       creatorStats(ctx.sql, p.creator, ev.id),
+      // A token that starts in a pool makes its dev buy as a swap in the launch transaction.
+      p.startsInPool ? swapsInTx(ctx.sql, p.token, p.txHash, p.blockNumber) : [],
     ])
-    return [newToken(ev as Row<LaunchEvent>, trades, stats, ctx.prices)]
+    return [newToken(ev as Row<LaunchEvent>, trades, swaps, stats, ctx.prices)]
   }
   if (p.type === "launchpad.swap") {
     const s = await swapCtx(ev as Row<SwapEvent>, ctx)

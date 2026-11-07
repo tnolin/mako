@@ -2,6 +2,7 @@ import { quoteUnits, valueText } from "../cards/money"
 import { age, bar, buysSells } from "../format"
 import { PRIORITY, PUMP_BONDED_STEPS } from "../settings"
 import { makeCard } from "./card"
+import { withHooks } from "./hooks-row"
 import { buyers, pumpWindow, windowStats } from "./stats"
 import type { Candidate, SwapCtx, TradeCtx } from "./types"
 
@@ -26,14 +27,22 @@ export function pumping(t: TradeCtx): Candidate[] {
       dedupeKey: `pump:${p.txHash}:${p.logIndex}`,
       priority: PRIORITY.pumping,
       eventTs: p.blockTimestamp,
-      card: makeCard("pumping", "PUMPING", l, [
-        ["pumped", `+${Math.floor(gain / 100)}% (${mins}m)`],
-        ["curve", bar(p.soldBps)],
-        ["mcap", valueText(p.marketCap, p.quoteAsset, t.prices)],
-        ["volume", `${valueText(win.volume, p.quoteAsset, t.prices)} (${mins}m)`],
-        ["trades", `${buysSells(win.buys, win.sells)} (${mins}m)`],
-        ["age", age(p.blockTimestamp - l.blockTimestamp)],
-      ]),
+      card: makeCard(
+        "pumping",
+        "PUMPING",
+        l,
+        withHooks(
+          [
+            ["pumped", `+${Math.floor(gain / 100)}% (${mins}m)`],
+            ["curve", bar(p.soldBps)],
+            ["mcap", valueText(p.marketCap, p.quoteAsset, t.prices)],
+            ["volume", `${valueText(win.volume, p.quoteAsset, t.prices)} (${mins}m)`],
+            ["trades", `${buysSells(win.buys, win.sells)} (${mins}m)`],
+            ["age", age(p.blockTimestamp - l.blockTimestamp)],
+          ],
+          l,
+        ),
+      ),
     },
   ]
 }
@@ -84,18 +93,26 @@ export function pumpingBonded(s: SwapCtx): Candidate[] {
     {
       ...base,
       pump: { token: p.token, gainBps },
-      card: makeCard("pumping", "PUMPING", l, [
-        ["pumped", `+${Math.floor(gainBps / 100)}% (${mins})`],
-        ["mcap", value(mcap)],
-        ["ath", `${value(ath)} (${down === 0 ? "0" : `−${down}`}%)`],
-        ["liquidity", value(2n * BigInt(p.quoteLiquidity))],
-        ["volume", `${value(win.volume)} (${mins})`],
-        ["trades", `${buysSells(win.buys, win.sells)} (${mins})`],
-        ["buyers", `${buyers(inWindow)} (${mins})`],
-        s.bond
-          ? ["bonded", `${age(p.blockTimestamp - s.bond.p.blockTimestamp)} ago`]
-          : ["age", age(p.blockTimestamp - l.blockTimestamp)],
-      ]),
+      card: makeCard(
+        "pumping",
+        "PUMPING",
+        l,
+        withHooks(
+          [
+            ["pumped", `+${Math.floor(gainBps / 100)}% (${mins})`],
+            ["mcap", value(mcap)],
+            ["ath", `${value(ath)} (${down === 0 ? "0" : `−${down}`}%)`],
+            ["liquidity", value(2n * BigInt(p.quoteLiquidity))],
+            ["volume", `${value(win.volume)} (${mins})`],
+            ["trades", `${buysSells(win.buys, win.sells)} (${mins})`],
+            ["buyers", `${buyers(inWindow)} (${mins})`],
+            s.bond
+              ? ["bonded", `${age(p.blockTimestamp - s.bond.p.blockTimestamp)} ago`]
+              : ["age", age(p.blockTimestamp - l.blockTimestamp)],
+          ],
+          l,
+        ),
+      ),
       holds: {
         token: l.token,
         holder: l.creator,

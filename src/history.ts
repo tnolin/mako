@@ -132,6 +132,22 @@ export async function lastMarketOf(
   return { marketCap: BigInt(p.marketCap), quote: p.quoteAsset, ath, atTs: p.blockTimestamp }
 }
 
+/** The pool swaps in one transaction of a token, in id order. Reads the transaction's block only. */
+export async function swapsInTx(
+  sql: Sql,
+  token: string,
+  txHash: string,
+  block: string,
+): Promise<Row<SwapEvent>[]> {
+  return upgrade(
+    await sql<Row<StoredEvent>[]>`
+      select id::text, payload as p from indexer.events
+      where entity = ${token} and type = 'launchpad.swap' and block = ${block}::bigint
+        and tx_hash = ${txHash}
+      order by events.id`,
+  )
+}
+
 /** The creator's curve trades and pool swaps of a token, in id order, up to and including `uptoId`. */
 export async function devTradesOf(
   sql: Sql,

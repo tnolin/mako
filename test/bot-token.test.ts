@@ -11,6 +11,7 @@ import type { Prices } from "../src/prices"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, ETH, launch, swap, trade } from "./helpers/events"
 import { loadTsunami } from "./helpers/fixtures"
+import { HKT, HOOC, HOOC_FIRST_BUY } from "./helpers/hookit"
 import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -748,5 +749,73 @@ describe("Refresh cooldown on the bot", () => {
     await h.tap(`tr:${A}`, { photo: true, from: 100 })
     await h.tap(`tr:${A}`, { photo: true, from: 200 })
     expect(edits()).toBe(2)
+  })
+})
+
+describe("Hookit token card", () => {
+  const eth = (n: number) => String(BigInt(Math.round(n * 1000)) * 10n ** 15n)
+  const swapOf = (o: Parameters<typeof swap>[0]) =>
+    swap({
+      launchpad: "hookit",
+      token: HKT.token,
+      launchId: HKT.launchId,
+      poolId: HKT.poolId as `0x${string}`,
+      marketCap: eth(100),
+      quoteLiquidity: eth(8),
+      ...o,
+    })
+  const lines = (caption: string) => caption.split("\n")
+
+  it("/t for $HKT shows age and no curve row", async () => {
+    await insertEvents(sql, [
+      HKT,
+      swapOf({ quoteAmount: eth(0.1), blockNumber: "56519930" }),
+      swapOf({ side: "sell", quoteAmount: eth(0.2), blockNumber: "56519931" }),
+      swapOf({ trader: HKT.creator, quoteAmount: eth(0.05), blockNumber: "56519932" }),
+    ])
+    await setCursorBlock(sql, 56519940)
+    await h.text(`/t ${HKT.token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    const text = (m.caption ?? m.text) as string
+    expect(lines(text).slice(0, 3)).toEqual(["<b>$HKT</b>", "HOOKIT · Hookit", ""])
+    expect(lines(text).slice(3, 7)).toEqual([
+      "<code>mcap      $250K</code>",
+      "<code>liquidity $40.0K</code>",
+      "<code>volume    $875 (24h)</code>",
+      "<code>trades    2 buys | 1 sell (24h)</code>",
+    ])
+    expect(lines(text)[7]).toMatch(/^<code>age {7}\d+d \d+h<\/code>$/)
+    expect(lines(text).slice(8)).toEqual([
+      "<code>dev       1 buy | 0 sells</code>",
+      "<code>hooks     Anti-Snipe, Anti-MEV +3</code>",
+      "",
+      "Hold one, get all",
+      "",
+      `CA   <code>${HKT.token}</code>`,
+    ])
+    expect(text).not.toContain("<code>curve")
+    expect(text).not.toContain("<code>bonded")
+  })
+
+  it("/t for a token that starts in a pool has no curve row before its first swap", async () => {
+    await insertEvents(sql, [HKT])
+    await h.text(`/t ${HKT.token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    const text = (m.caption ?? m.text) as string
+    expect(text).not.toContain("<code>curve")
+    expect(text).toContain("<code>hooks    Anti-Snipe, Anti-MEV +3</code>")
+  })
+
+  it("a Classic token's /t ends its rows with hooks Classic", async () => {
+    await insertEvents(sql, [HOOC, HOOC_FIRST_BUY])
+    await setCursorBlock(sql, 56519400)
+    await h.text(`/t ${HOOC.token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    const l = lines((m.caption ?? m.text) as string)
+    const i = l.indexOf("<code>hooks    Classic</code>")
+    expect(i).toBeGreaterThan(0)
+    expect(l[i - 1]).toMatch(/^<code>dev /)
+    expect(l[i + 1]).toBe("")
+    expect(l.some((x) => x.startsWith("<code>curve"))).toBe(true)
   })
 })

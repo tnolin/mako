@@ -193,13 +193,13 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
     case "bonding":
       return "BONDING - When a token passes your set threshold."
     case "pumping":
-      return `PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises ${pct(a.pumping.pctBps)}%+ in 10 min after bonding.`
+      return `PUMPING - When a token jumps 15%+ on its curve, or ${pct(a.pumping.pctBps)}%+ in its pool, in 10 min.`
     case "bonded":
       return "BONDED - A token that has bonded/graduated."
     case "devsell":
       return "DEV SELL - When the creator sells any amount of their own token."
     case "big":
-      return `BIG BUY/SELL - one trade worth ${pct(a.big.pctBps)}%+ of the token's bond target, or of its pool's liquidity after bonding.`
+      return `BIG BUY/SELL - one trade worth ${pct(a.big.pctBps)}%+ of the bond target or the pool's liquidity.`
     case "mcap":
       return "MCAP TARGET - When a watched token's market cap reaches the target you set with /watch."
     case "upcoming":

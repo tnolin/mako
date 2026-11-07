@@ -352,7 +352,7 @@ async function processBatch(
               card: withDevHolds(
                 d.payload.card,
                 holds.get(d.eventId) ?? null,
-                d.alert === "devsell" ? { after: "dev" } : { before: "bonded" },
+                d.alert === "devsell" ? { after: "dev" } : { before: ["bonded", "age"] },
               ),
             },
           }

@@ -15,7 +15,7 @@ Hookit tokens launch with Uniswap v4 hooks that change how their pool behaves. S
 - **Volume across pools.** Trading volume is summed in USD per swap. A swap in a quote with no USD price is left out of a USD total, so amounts in different currencies are never added together.
 - **Big trades stay per pool.** BIG BUY and BIG SELL measure each swap against its own pool.
 - **Liquidity row.** The `liquidity` row adds the quote side and the token side of the pool at the swap's price, using the swap's `tokenLiquidity`. When an event has no `tokenLiquidity`, it uses 2 x the quote side. For a full-range pool both sides are equal, so cards for other launchpads do not change.
-- **Custom hooks.** A custom hook can do anything with a trade, so a token whose launch uses one is kept out of every feed. Chats that watch the token still get its alerts. In a launch flood the token counts toward the flood but is left out of the grouped NEW TOKEN card.
+- **Custom hooks.** A custom hook can do anything with a trade, so a token whose launch uses one is kept out of every feed and out of the Hot now, Near bonding and Recently bonded lists. Chats that watch the token still get its alerts. In a launch flood the token counts toward the flood but is left out of the grouped NEW TOKEN card.
 - **Dev pnl.** The `dev pnl` row is left out when the dev's fills span more than one quote currency, because a total across currencies has no single unit.
 
 ## Consequences

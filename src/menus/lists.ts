@@ -54,8 +54,9 @@ export async function listScreen(deps: BotDeps, kind: Kind): Promise<{ html: str
   )
   const ticker = (t: string) => clean(meta.get(t)?.ticker, 32)
   const name = (t: string) => clean(meta.get(t)?.name, 64)
-  // A token without a name and a ticker has nothing to show, so it is left out.
-  const list = all.filter((e) => ticker(e.token) && name(e.token))
+  // A token without a name and a ticker has nothing to show, so it is left out. Custom-hook
+  // tokens stay out of lists, as they do out of feeds.
+  const list = all.filter((e) => ticker(e.token) && name(e.token) && !meta.get(e.token)?.customHook)
   if (list.length === 0) return { html: `<b>${TITLE[kind]}</b>\n${EMPTY[kind]}`, kb: menu }
   const label = (t: string) => `$${ticker(t)}`
   const lines = list.map(

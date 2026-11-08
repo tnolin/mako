@@ -21,6 +21,7 @@ import {
   INKY,
   INKY_USDG_SELL,
   INKY_WMSTRX_BUY,
+  SYNTHETIC_CUSTOM,
   USDG,
   WMSTRX,
   WNVDAX,
@@ -487,6 +488,20 @@ describe("discovery lists", () => {
     await sql`delete from indexer.events where entity = ${A}`
     await h.tap("l:hot")
     expect(h.last("editMessageText")!.text).toBe(`<b>Hot now</b>\n\n${EMPTY.hot}`)
+  })
+
+  it("leaves custom-hook tokens out of every list", async () => {
+    const t = SYNTHETIC_CUSTOM.token
+    await insertEvents(sql, [
+      SYNTHETIC_CUSTOM,
+      trade({ token: t, blockNumber: "1002" }),
+      trade({ token: t, blockNumber: "1003" }),
+    ])
+    await setCursorBlock(sql, 1003)
+    await h.tap("l:hot")
+    const m = h.last("editMessageText")!
+    expect(m.text).toBe("<b>Hot now (24h)</b>\n\n1. $GOBLO · Goblo · 1 trade (24h)")
+    expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "Back"])
   })
 
   it("falls back to 7 days for hot tokens and says so in the title", async () => {

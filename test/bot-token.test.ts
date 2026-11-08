@@ -21,7 +21,6 @@ import {
   INKY,
   INKY_USDG_SELL,
   INKY_WMSTRX_BUY,
-  SYNTHETIC_CUSTOM,
   USDG,
   WMSTRX,
   WNVDAX,
@@ -490,18 +489,25 @@ describe("discovery lists", () => {
     expect(h.last("editMessageText")!.text).toBe(`<b>Hot now</b>\n\n${EMPTY.hot}`)
   })
 
-  it("leaves custom-hook tokens out of every list", async () => {
-    const t = SYNTHETIC_CUSTOM.token
+  it("leaves bonding-curve tokens with a custom hook out of every list", async () => {
+    const [B, C] = [addr(0xb7), addr(0xc7)]
+    const custom = { launchpad: "hookit", customHook: true, startsInPool: false } as const
     await insertEvents(sql, [
-      SYNTHETIC_CUSTOM,
-      trade({ token: t, blockNumber: "1002" }),
-      trade({ token: t, blockNumber: "1003" }),
+      launch({ token: B, ticker: "BEE", name: "Bee", blockNumber: "1002", ...custom }),
+      trade({ token: B, soldBps: 3000, blockNumber: "1003" }),
+      trade({ token: B, soldBps: 3100, blockNumber: "1004" }),
+      launch({ token: C, ticker: "CEE", name: "Cee", blockNumber: "1005", ...custom }),
+      bond({ token: C, blockNumber: "1006" }),
     ])
-    await setCursorBlock(sql, 1003)
+    await setCursorBlock(sql, 1006)
     await h.tap("l:hot")
-    const m = h.last("editMessageText")!
-    expect(m.text).toBe("<b>Hot now (24h)</b>\n\n1. $GOBLO · Goblo · 1 trade (24h)")
-    expect(kbOf(m).map((r) => r[0]!.text)).toEqual(["$GOBLO", "Back"])
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Hot now (24h)</b>\n\n1. $GOBLO · Goblo · 1 trade (24h)",
+    )
+    await h.tap("l:near")
+    expect(h.last("editMessageText")!.text).toBe(`<b>Near bonding</b>\n\n1. $GOBLO · Goblo · 80%`)
+    await h.tap("l:bonded")
+    expect(h.last("editMessageText")!.text).toBe(`<b>Recently bonded</b>\n\n${EMPTY.bonded}`)
   })
 
   it("falls back to 7 days for hot tokens and says so in the title", async () => {

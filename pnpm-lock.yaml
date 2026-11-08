@@ -192,8 +192,8 @@ importers:
   .:
     dependencies:
       '@ink-indexer/events':
-        specifier: github:tnolin/ink-indexer#events-v3&path:/packages/events
-        version: https://codeload.github.com/tnolin/ink-indexer/tar.gz/ae6ac1f3a90942e03bbbe40f1c5239979a2f1a28#path:/packages/events
+        specifier: github:tnolin/ink-indexer#events-v4&path:/packages/events
+        version: https://codeload.github.com/tnolin/ink-indexer/tar.gz/30c3611388eda33da014257755f3b8d27a01af8d#path:/packages/events
       '@sentry/node':
         specifier: 11.6.0
         version: 11.6.0
@@ -657,8 +657,8 @@ packages:
     cpu: [x64]
     os: [win32]
 
-  '@ink-indexer/events@https://codeload.github.com/tnolin/ink-indexer/tar.gz/ae6ac1f3a90942e03bbbe40f1c5239979a2f1a28#path:/packages/events':
-    resolution: {gitHosted: true, integrity: sha512-unOR8s3uuOCa2vYha4ekNYsAZtUd6NqrYbJhdNxN4fO8LBIGSwPFTXF/sZd+Ubsqo64ZS2iwREPAx6jsseKeJw==, path: /packages/events, tarball: https://codeload.github.com/tnolin/ink-indexer/tar.gz/ae6ac1f3a90942e03bbbe40f1c5239979a2f1a28}
+  '@ink-indexer/events@https://codeload.github.com/tnolin/ink-indexer/tar.gz/30c3611388eda33da014257755f3b8d27a01af8d#path:/packages/events':
+    resolution: {gitHosted: true, integrity: sha512-ShO3TNo8YkQNd0Tm6874bEhxFywD7ZjxVmoJD3AA+mAfwzBjzPLlIZHcLOZCzTTKJIGA3HuqRerixsZgeZQbrg==, path: /packages/events, tarball: https://codeload.github.com/tnolin/ink-indexer/tar.gz/30c3611388eda33da014257755f3b8d27a01af8d}
     version: 0.0.0
 
   '@jridgewell/resolve-uri@3.1.2':
@@ -1783,7 +1783,7 @@ snapshots:
   '@img/sharp-win32-x64@0.35.5':
     optional: true
 
-  '@ink-indexer/events@https://codeload.github.com/tnolin/ink-indexer/tar.gz/ae6ac1f3a90942e03bbbe40f1c5239979a2f1a28#path:/packages/events': {}
+  '@ink-indexer/events@https://codeload.github.com/tnolin/ink-indexer/tar.gz/30c3611388eda33da014257755f3b8d27a01af8d#path:/packages/events': {}
 
   '@jridgewell/resolve-uri@3.1.2': {}
 

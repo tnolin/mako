@@ -254,18 +254,18 @@ it("resetScreen restores one screen and keeps routes", () => {
 it("ALERT_DESC follows the chosen thresholds", () => {
   const s = basicPreset("private")
   expect(ALERT_DESC("big", s)).toBe(
-    "BIG BUY/SELL - one trade worth 5%+ of the token's bond target, or of its pool's liquidity after bonding.",
+    "BIG BUY/SELL - one trade worth 5%+ of the bond target or the pool's liquidity.",
   )
   s.alerts.big.pctBps = 250
   expect(ALERT_DESC("big", s)).toBe(
-    "BIG BUY/SELL - one trade worth 2.5%+ of the token's bond target, or of its pool's liquidity after bonding.",
+    "BIG BUY/SELL - one trade worth 2.5%+ of the bond target or the pool's liquidity.",
   )
   expect(ALERT_DESC("pumping", s)).toBe(
-    "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 20%+ in 10 min after bonding.",
+    "PUMPING - When a token jumps 15%+ on its curve, or 20%+ in its pool, in 10 min.",
   )
   s.alerts.pumping.pctBps = 3000
   expect(ALERT_DESC("pumping", s)).toBe(
-    "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 30%+ in 10 min after bonding.",
+    "PUMPING - When a token jumps 15%+ on its curve, or 30%+ in its pool, in 10 min.",
   )
   expect(ALERT_DESC("bigsale", s)).toBe("BIG SALE - an item sells for 0.1 ETH or more.")
   s.alerts.bigsale.minWei = "250000000000000000"
@@ -332,4 +332,14 @@ it("wantsImage works for mcap", () => {
 
 it("ALERT_HELP describes BIG BUY/SELL for the curve and the pool", () => {
   expect(ALERT_HELP.big).toBe("one trade worth 5%+ of the bond target or pool")
+})
+
+it("the Token alerts screen and Alerts Explained list PUMPING and BIG BUY/SELL for curves and pools", () => {
+  const s = basicPreset("private")
+  expect(ALERT_DESC("pumping", s)).toBe(
+    "PUMPING - When a token jumps 15%+ on its curve, or 20%+ in its pool, in 10 min.",
+  )
+  expect(ALERT_DESC("big", s)).toBe(
+    "BIG BUY/SELL - one trade worth 5%+ of the bond target or the pool's liquidity.",
+  )
 })

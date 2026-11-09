@@ -1,7 +1,9 @@
 import { quoteText, quoteUnits, valueText } from "../cards/money"
 import { bar, bpsChange } from "../format"
+import { swapLiquidity } from "../pool"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
+import { withHooks } from "./hooks-row"
 import { prevSoldBps } from "./stats"
 import type { Candidate, SwapCtx, TradeCtx } from "./types"
 
@@ -27,11 +29,19 @@ export function big(t: TradeCtx): Candidate[] {
       priority: PRIORITY.big,
       eventTs: p.blockTimestamp,
       sizeBps,
-      card: makeCard("big", buy ? "BIG BUY" : "BIG SELL", l, [
-        [buy ? "bought" : "sold", quoteText(p.quoteAmount, p.quoteAsset, t.prices)],
-        ["curve", `${bar(p.soldBps)} ${bpsChange(p.soldBps - prevSoldBps(t.trades, t.ev.id))}`],
-        ["mcap", valueText(p.marketCap, p.quoteAsset, t.prices)],
-      ]),
+      card: makeCard(
+        "big",
+        buy ? "BIG BUY" : "BIG SELL",
+        l,
+        withHooks(
+          [
+            [buy ? "bought" : "sold", quoteText(p.quoteAmount, p.quoteAsset, t.prices)],
+            ["curve", `${bar(p.soldBps)} ${bpsChange(p.soldBps - prevSoldBps(t.trades, t.ev.id))}`],
+            ["mcap", valueText(p.marketCap, p.quoteAsset, t.prices)],
+          ],
+          l,
+        ),
+      ),
     },
   ]
 }
@@ -62,11 +72,19 @@ export function bigSwap(s: SwapCtx): Candidate[] {
       priority: PRIORITY.big,
       eventTs: p.blockTimestamp,
       sizeBps,
-      card: makeCard("big", buy ? "BIG BUY" : "BIG SELL", l, [
-        [buy ? "bought" : "sold", quoteText(quote, p.quoteAsset, s.prices)],
-        ["mcap", valueText(p.marketCap, p.quoteAsset, s.prices)],
-        ["liquidity", valueText(2n * liquidity, p.quoteAsset, s.prices)],
-      ]),
+      card: makeCard(
+        "big",
+        buy ? "BIG BUY" : "BIG SELL",
+        l,
+        withHooks(
+          [
+            [buy ? "bought" : "sold", quoteText(quote, p.quoteAsset, s.prices)],
+            ["mcap", valueText(s.market.p.marketCap, s.market.p.quoteAsset, s.prices)],
+            ["liquidity", valueText(swapLiquidity(p), p.quoteAsset, s.prices)],
+          ],
+          l,
+        ),
+      ),
     },
   ]
 }

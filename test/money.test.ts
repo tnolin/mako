@@ -1,6 +1,7 @@
 import { expect, it } from "vitest"
 import { pnlText, quoteText, quoteUnits, valueText } from "../src/cards/money"
 import type { Prices } from "../src/prices"
+import { QUOTE_ASSETS } from "../src/quotes"
 import { loadTsunami } from "./helpers/fixtures"
 
 const NATIVE = "0x0000000000000000000000000000000000000000"
@@ -60,4 +61,18 @@ it("values a USDC pool's market cap in dollars at 6 decimals", () => {
   const usdc: Prices = { usd: () => 1, symbol: () => "USDC" }
   expect(valueText(swap.marketCap, USDC, usdc)).toBe("$2")
   expect(valueText(swap.marketCap, USDC, { ...usdc, usd: () => null })).toBe("2.49 USDC")
+})
+
+it("hNVDAx3L, kHYPE and wNFLXx show their symbols", () => {
+  // Read from each token contract; wNFLXx is also in the seeded xStocks list, which shows the unwrapped name.
+  const symbolOf = (a: string) => QUOTE_ASSETS[a]?.symbol
+  expect(symbolOf("0xc0af15b3eb4a13a47a13cc9d455ddaa353fa8271")).toBe("hNVDAx3L")
+  expect(symbolOf("0xad09cd20e513e4d8cb78036f77ab9afde8555929")).toBe("kHYPE")
+  expect(symbolOf("0x7d87fd6a379714194a797c0bbb8b40c30d250856")).toBe("wNFLXx")
+  for (const a of [
+    "0xc0af15b3eb4a13a47a13cc9d455ddaa353fa8271",
+    "0xad09cd20e513e4d8cb78036f77ab9afde8555929",
+    "0x7d87fd6a379714194a797c0bbb8b40c30d250856",
+  ])
+    expect(quoteUnits(String(10n ** 18n), a)).toBe(1)
 })

@@ -11,13 +11,16 @@ import {
   bondOf,
   creatorStats,
   devTradesOf,
+  latestSwapPerPool,
   launchOf,
   type Row,
+  swapsInTx,
   swapsOf,
   tradesOf,
 } from "../history"
 import { marketRules } from "../nft/rules/market"
 import { mintRules } from "../nft/rules/mint"
+import { deepestPool } from "../pool"
 import { big, bigSwap } from "./big"
 import { bonded } from "./bonded"
 import { bonding } from "./bonding"
@@ -44,13 +47,20 @@ export async function swapCtx(ev: Row<SwapEvent>, ctx: RuleCtx): Promise<SwapCtx
     missingLaunch(ev, p.token, ctx)
     return null
   }
-  const [bond, swaps, dev] = await Promise.all([
+  const multi = (launch.p.markets?.length ?? 0) > 1
+  const [bond, swaps, dev, latest] = await Promise.all([
     bondOf(ctx.sql, p.token),
     swapsOf(ctx.sql, p.token, ev.id, p.blockTimestamp - SWAP_WINDOW_S),
     p.trader === launch.p.creator ? devTradesOf(ctx.sql, p.token, p.trader, ev.id) : null,
+    multi ? latestSwapPerPool(ctx.sql, p.token, ev.id) : [],
   ])
-  return { ev, launch, bond, swaps, dev, prices: ctx.prices }
+  const market = (multi ? deepestPool(latest, ctx.prices) : null) ?? ev
+  return { ev, launch, bond, swaps, market, dev, prices: ctx.prices }
 }
+
+/** Marks each candidate with whether its token's launch uses a custom hook, which keeps it out of feeds. */
+const forLaunch = (l: LaunchEvent, cs: Candidate[]): Candidate[] =>
+  cs.map((c) => ({ ...c, customHook: l.customHook === true }))
 
 /**
  * Candidate alerts for one confirmed event. Reads indexer.events, and for MCAP TARGET the market cap targets on
@@ -75,21 +85,24 @@ export async function rulesFor(
       return marketRules(ev as never, ctx)
   }
   if (p.type === "launchpad.launch") {
-    const [trades, stats] = await Promise.all([
+    const [trades, stats, swaps] = await Promise.all([
       tradesOf(ctx.sql, p.token),
       creatorStats(ctx.sql, p.creator, ev.id),
+      // A token that starts in a pool makes its dev buy as a swap in the launch transaction.
+      p.startsInPool ? swapsInTx(ctx.sql, p.token, p.txHash, p.blockNumber) : [],
     ])
-    return [newToken(ev as Row<LaunchEvent>, trades, stats, ctx.prices)]
+    return forLaunch(p, [newToken(ev as Row<LaunchEvent>, trades, swaps, stats, ctx.prices)])
   }
   if (p.type === "launchpad.swap") {
     const s = await swapCtx(ev as Row<SwapEvent>, ctx)
     if (!s) return []
-    return [
+    return forLaunch(s.launch.p, [
       ...devSellSwap(s),
       ...pumpingBonded(s),
       ...bigSwap(s),
-      ...(await mcapTargets(ctx, s.ev, s.launch, [])),
-    ]
+      // A multi-pair token's market cap is its deepest pool's, so a swap in another pool never reaches a target.
+      ...(s.market.id === s.ev.id ? await mcapTargets(ctx, s.ev, s.launch, []) : []),
+    ])
   }
   // A newer indexer can write event types this version doesn't know; they carry no alerts here.
   if (p.type !== "launchpad.trade" && p.type !== "launchpad.bond") return []
@@ -99,13 +112,14 @@ export async function rulesFor(
     return []
   }
   const trades = await tradesOf(ctx.sql, p.token, ev.id)
-  if (p.type === "launchpad.bond") return [bonded(ev as Row<BondEvent>, launch, trades, ctx.prices)]
+  if (p.type === "launchpad.bond")
+    return forLaunch(launch.p, [bonded(ev as Row<BondEvent>, launch, trades, ctx.prices)])
   const t = { ev: ev as Row<TradeEvent>, launch, trades, prices: ctx.prices }
-  return [
+  return forLaunch(launch.p, [
     ...devSell(t),
     ...bonding(t),
     ...pumping(t),
     ...big(t),
     ...(await mcapTargets(ctx, t.ev, launch, trades)),
-  ]
+  ])
 }

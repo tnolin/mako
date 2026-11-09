@@ -5,6 +5,7 @@ import type { Row } from "../history"
 import type { Prices } from "../prices"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
+import { withHooks } from "./hooks-row"
 import { devCounts, windowStats } from "./stats"
 import type { Candidate } from "./types"
 
@@ -39,6 +40,6 @@ export function bonded(
     priority: PRIORITY.bonded,
     eventTs: b.blockTimestamp,
     supersedesBonding: true,
-    card: { ...card, rows },
+    card: { ...card, rows: withHooks(rows, l) },
   }
 }

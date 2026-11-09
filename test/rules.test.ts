@@ -1,13 +1,36 @@
+import type { LaunchEvent, SwapEvent, TradeEvent } from "@ink-indexer/events"
 import { afterAll, beforeEach, describe, expect, inject, it } from "vitest"
 import type { Card } from "../src/cards/card"
 import type { Sql } from "../src/db"
 import { eventsAfter } from "../src/history"
 import { createNftState } from "../src/nft/state"
 import { createPrices, type Prices } from "../src/prices"
+import { hooksRow } from "../src/rules/hooks-row"
 import { type Candidate, rulesFor, swapCtx, withDevHolds } from "../src/rules/index"
 import { insertEvents, resetDb } from "./helpers/db"
-import { addr, bond, hash, launch, NATIVE, swap, T0, trade } from "./helpers/events"
+import { addr, bond, ETH, hash, launch, NATIVE, swap, T0, trade } from "./helpers/events"
 import { loadFixture, loadTsunami } from "./helpers/fixtures"
+import {
+  BLOOP,
+  BLOOP_DEV_BUY,
+  HKT,
+  HMU,
+  HMU_SPLIT_WAMZNX,
+  HMU_SPLIT_WNVDAX,
+  HOOC,
+  HOOC_FIRST_BUY,
+  INKY,
+  INKY_USDG_SELL,
+  INKY_WMSTRX_BUY,
+  NO_MODULES,
+  QCARD,
+  QUILL,
+  SYNTHETIC_CUSTOM,
+  USDG,
+  WAAPLX,
+  WMSTRX,
+  WNVDAX,
+} from "./helpers/hookit"
 
 const prices: Prices = {
   usd: (q) => (q === NATIVE ? 2500 : null),
@@ -875,5 +898,598 @@ describe("quote currencies", () => {
     it("does not fire short of the target", async () => {
       expect(await fireAt(499_000n * 10n ** 6n)).toBeUndefined()
     })
+  })
+})
+
+describe("Hookit hooks row", () => {
+  const symbols: Record<string, string> = {
+    [NATIVE]: "ETH",
+    [WAAPLX]: "wAAPLx",
+    [USDG]: "USDG",
+  }
+  const hp: Prices = { usd: (q) => (q === NATIVE ? 2500 : null), symbol: (q) => symbols[q] ?? "?" }
+  const at = (n: number) => ({ ...ctx(sql), prices: hp, now: () => n })
+  async function runHookit(events: Parameters<typeof insertEvents>[1], index = -1) {
+    await insertEvents(sql, events)
+    const all = await eventsAfter(sql, "0")
+    const ev = index < 0 ? all.at(-1)! : all[index]!
+    return rulesFor(ev, at(ev.p.blockTimestamp + 60))
+  }
+  const labels = (c: Candidate) => c.card.rows.map(([k]) => k)
+  const poolSwap = (l: LaunchEvent, o: Partial<SwapEvent> = {}) =>
+    swap({
+      launchpad: "hookit",
+      token: l.token,
+      launchId: l.launchId,
+      poolId: l.poolId as `0x${string}`,
+      blockNumber: String(Number(l.blockNumber) + 10),
+      blockTimestamp: l.blockTimestamp + 600,
+      ...o,
+    })
+  const curveTrade = (l: LaunchEvent, o: Partial<TradeEvent> = {}) =>
+    trade({
+      launchpad: "hookit",
+      token: l.token,
+      launchId: l.launchId,
+      blockTimestamp: l.blockTimestamp + 600,
+      ...o,
+    })
+
+  describe("hooksRow", () => {
+    it("is null for a launch on another launchpad", () => {
+      expect(hooksRow(launch({ hookModules: ["Anti-Snipe"], startsInPool: true }))).toBeNull()
+    })
+
+    it.each([
+      { name: "$HKT", l: HKT, value: "Anti-Snipe, Anti-MEV +3" },
+      { name: "QUILL", l: QUILL, value: "Anti-Snipe, Anti-MEV +1" },
+      { name: "INKY", l: INKY, value: "Anti-Snipe, Auto-Burn +4" },
+      { name: "HMU", l: HMU, value: "Creator → Hook, Hook → Creator" },
+      { name: "QCARD", l: QCARD, value: "Hook → Creator, Fixed Fees" },
+    ])("$name reads $value", ({ l, value }) => {
+      expect(hooksRow(l)).toEqual(["hooks", value])
+    })
+
+    it("a hooks value never passes 31 characters, for every recorded module set", () => {
+      const recorded = [
+        [
+          "Anti-Snipe",
+          "Backed Floor",
+          "Max Tx",
+          "Anti-MEV",
+          "Deepen LPs",
+          "Holder Airdrop",
+          "Fixed Fees",
+        ],
+        ["Backed Floor", "Auto-Burn", "Fixed Fees"],
+        ["Anti-Snipe", "Anti-MEV", "Auto-Burn", "Deepen LPs", "Creator → Hook"],
+        ["Creator → Hook", "Hook → Creator"],
+        ["Anti-Snipe", "Auto-Burn", "Deepen LPs", "Holder Airdrop", "Hook → Creator", "Fixed Fees"],
+        ["Holder Airdrop", "Hook → Creator", "Fixed Fees"],
+        ["Hook → Creator", "Fixed Fees"],
+        ["Anti-Snipe", "Anti-MEV", "Holder Airdrop"],
+        ["Anti-Snipe", "Dynamic Fees", "Max Tx", "Hook → Creator"],
+      ]
+      const values = recorded.map((hookModules) => hooksRow({ ...HKT, hookModules })![1])
+      expect(values).toEqual([
+        "Anti-Snipe, Backed Floor +5",
+        "Backed Floor, Auto-Burn +1",
+        "Anti-Snipe, Anti-MEV +3",
+        "Creator → Hook, Hook → Creator",
+        "Anti-Snipe, Auto-Burn +4",
+        "Holder Airdrop +2",
+        "Hook → Creator, Fixed Fees",
+        "Anti-Snipe, Anti-MEV +1",
+        "Anti-Snipe, Dynamic Fees +2",
+      ])
+      for (const v of values) expect(v.length).toBeLessThanOrEqual(31)
+    })
+
+    it("a Master token with no modules shows hooks Master (synthetic launch)", () => {
+      expect(hooksRow(NO_MODULES)).toEqual(["hooks", "Master"])
+      expect(hooksRow({ ...NO_MODULES, hookModules: null })).toEqual(["hooks", "Master"])
+    })
+
+    it("a malformed module list shows as Master and a module name over 31 characters is dropped", () => {
+      const bad = (hookModules: unknown) => hooksRow({ ...HKT, hookModules } as LaunchEvent)
+      expect(bad("Anti-Snipe")).toEqual(["hooks", "Master"])
+      expect(bad({ 0: "Anti-Snipe" })).toEqual(["hooks", "Master"])
+      expect(bad([42, null, "x".repeat(32)])).toEqual(["hooks", "Master"])
+      expect(bad(["Anti-Snipe", "x".repeat(40), 7])).toEqual(["hooks", "Anti-Snipe"])
+    })
+
+    it("a custom-hook launch without a usable hook address does not throw (synthetic launch)", () => {
+      for (const hook of [null, undefined, 7]) {
+        const l = { ...SYNTHETIC_CUSTOM, hook } as unknown as LaunchEvent
+        expect(hooksRow(l)).toEqual(["hooks", "custom"])
+      }
+    })
+
+    it("a value that cannot fit 31 characters with its +N falls back to Master (synthetic modules)", () => {
+      const long = "x".repeat(30)
+      expect(hooksRow({ ...HKT, hookModules: [long, "y"] })).toEqual(["hooks", "Master"])
+      expect(hooksRow({ ...HKT, hookModules: [long] })).toEqual(["hooks", long])
+    })
+
+    it("a custom-hook token's row reads custom 0x… (synthetic launch)", () => {
+      expect(hooksRow(SYNTHETIC_CUSTOM)).toEqual(["hooks", "custom 0x1234…abcd"])
+    })
+
+    it("a Classic token reads Classic", () => {
+      expect(hooksRow(HOOC)).toEqual(["hooks", "Classic"])
+    })
+  })
+
+  describe("NEW TOKEN", () => {
+    it("$HKT's NEW TOKEN has pair HKT/ETH, no bonds at, no mcap row, hooks row Anti-Snipe, Anti-MEV +3", async () => {
+      const [c] = await runHookit([HKT])
+      expect(c!.card.rows).toEqual([
+        ["pair", "HKT/ETH"],
+        ["dev", "1 launch | 0 bonded"],
+        ["hooks", "Anti-Snipe, Anti-MEV +3"],
+      ])
+    })
+
+    it('HMU\'s NEW TOKEN has pair HMU/wAAPLx +4 and hooks "Creator → Hook, Hook → Creator" with no +N', async () => {
+      const [c] = await runHookit([HMU])
+      expect(c!.card.rows).toEqual([
+        ["pair", "HMU/wAAPLx +4"],
+        ["dev", "1 launch | 0 bonded"],
+        ["hooks", "Creator → Hook, Hook → Creator"],
+      ])
+    })
+
+    it("BLOOP's NEW TOKEN shows its dev buy", async () => {
+      const [c] = await runHookit([BLOOP, BLOOP_DEV_BUY], 0)
+      expect(c!.card.rows).toEqual([
+        ["pair", "BLOOP/ETH"],
+        ["dev buy", "0.0010 ETH (0.0%)"],
+        ["dev", "1 launch | 0 bonded"],
+        ["hooks", "Backed Floor, Auto-Burn +1"],
+      ])
+    })
+
+    it("NEW TOKEN's dev buy counts market 0's pool only, even when two markets share a quote (synthetic)", async () => {
+      const other = `0x${"7".repeat(64)}` as `0x${string}`
+      const twoEth = {
+        ...HKT,
+        markets: [
+          { quoteAsset: NATIVE, poolId: HKT.poolId as `0x${string}` },
+          { quoteAsset: NATIVE, poolId: other },
+        ],
+      }
+      const buy = poolSwap(twoEth, {
+        txHash: twoEth.txHash,
+        blockNumber: twoEth.blockNumber,
+        blockTimestamp: twoEth.blockTimestamp,
+        trader: twoEth.creator,
+        poolId: other,
+        quoteAmount: eth(0.5),
+      })
+      const [c] = await runHookit([twoEth, buy], 0)
+      expect(labels(c!)).not.toContain("dev buy")
+    })
+
+    it("a Master token with no modules shows hooks Master (synthetic launch)", async () => {
+      const [c] = await runHookit([NO_MODULES])
+      expect(c!.card.rows.at(-1)).toEqual(["hooks", "Master"])
+    })
+
+    it("a custom-hook launch's NEW TOKEN and pool swap candidates carry customHook (synthetic launch)", async () => {
+      const buy = poolSwap(SYNTHETIC_CUSTOM, { side: "buy", trader: addr(0xb1) })
+      await insertEvents(sql, [SYNTHETIC_CUSTOM, buy])
+      const [launchRow, swapRow] = await eventsAfter(sql, "0")
+      const at = (n: number) => ({ ...ctx(sql), prices: hp, now: () => n })
+      const fromLaunch = await rulesFor(launchRow!, at(SYNTHETIC_CUSTOM.blockTimestamp + 60))
+      const fromSwap = await rulesFor(swapRow!, at(buy.blockTimestamp + 60))
+      expect(fromLaunch.length).toBeGreaterThan(0)
+      expect(fromSwap.length).toBeGreaterThan(0)
+      expect([...fromLaunch, ...fromSwap].every((c) => c.customHook === true)).toBe(true)
+    })
+
+    it("an approved Hookit launch's candidates do not carry customHook", async () => {
+      const [c] = await runHookit([HKT])
+      expect(c!.customHook).toBe(false)
+    })
+
+    it("a custom-hook token's row reads custom 0x… (synthetic launch)", async () => {
+      const [c] = await runHookit([SYNTHETIC_CUSTOM])
+      expect(c!.card.rows.at(-1)).toEqual(["hooks", "custom 0x1234…abcd"])
+    })
+
+    it("a dev buy counts only swaps in market 0's pool (multi-market launch transaction)", async () => {
+      const other = HMU.markets![1]!
+      const swapIn = (quoteAsset: `0x${string}`, poolId: `0x${string}`, quoteAmount: string) =>
+        poolSwap(HMU, {
+          txHash: HMU.txHash,
+          blockNumber: HMU.blockNumber,
+          blockTimestamp: HMU.blockTimestamp,
+          trader: HMU.creator,
+          quoteAsset,
+          poolId,
+          quoteAmount,
+          tokenAmount: String(10n ** 24n),
+        })
+      const [c] = await runHookit(
+        [
+          HMU,
+          swapIn(HMU.quoteAsset, HMU.poolId as `0x${string}`, eth(0.5)),
+          swapIn(other.quoteAsset, other.poolId, eth(9)),
+        ],
+        0,
+      )
+      expect(c!.card.rows.find(([k]) => k === "dev buy")).toEqual(["dev buy", "0.50 wAAPLx (0.1%)"])
+    })
+
+    it("a Classic token's NEW TOKEN keeps bonds at and the dev buy, and ends with hooks Classic", async () => {
+      const [c] = await runHookit([HOOC, HOOC_FIRST_BUY], 0)
+      expect(c!.card.rows).toEqual([
+        ["pair", "HOOC/ETH"],
+        ["bonds at", "4.20 ETH ($10.5K)"],
+        ["dev buy", "0.0007 ETH (0.1%)"],
+        ["dev", "1 launch | 0 bonded"],
+        ["hooks", "Classic"],
+      ])
+    })
+  })
+
+  describe("every Hookit alert card ends its rows with hooks", () => {
+    const hooks = ["hooks", "Anti-Snipe, Anti-MEV +3"]
+    const master = [HKT, poolSwap(HKT, { blockTimestamp: HKT.blockTimestamp + 300 })]
+
+    it("pool BIG BUY", async () => {
+      const cs = await runHookit([
+        ...master,
+        poolSwap(HKT, {
+          quoteAmount: String(8n * 10n ** 17n),
+          quoteLiquidity: String(8n * 10n ** 18n),
+        }),
+      ])
+      expect(pick(cs, "big")!.card.rows.at(-1)).toEqual(hooks)
+    })
+
+    it("pool DEV SELL", async () => {
+      const cs = await runHookit([
+        ...master,
+        poolSwap(HKT, {
+          side: "sell",
+          trader: HKT.creator,
+          quoteLiquidity: String(8n * 10n ** 18n),
+        }),
+      ])
+      const rows = pick(cs, "devsell")!.card.rows
+      expect(rows.at(-1)).toEqual(hooks)
+      expect(rows.map(([k]) => k)).toEqual(["sold", "dev pnl", "dev", "mcap", "hooks"])
+    })
+
+    it("pool PUMPING shows age and ends with hooks", async () => {
+      const cs = await runHookit([
+        HKT,
+        poolSwap(HKT, { marketCap: eth(10), blockTimestamp: HKT.blockTimestamp + 100 }),
+        poolSwap(HKT, { marketCap: eth(12.4), blockTimestamp: HKT.blockTimestamp + 300 }),
+      ])
+      const rows = pick(cs, "pumping")!.card.rows
+      expect(rows.map(([k]) => k)).toEqual([
+        "pumped",
+        "mcap",
+        "ath",
+        "liquidity",
+        "volume",
+        "trades",
+        "buyers",
+        "age",
+        "hooks",
+      ])
+      expect(rows.at(-1)).toEqual(hooks)
+    })
+
+    it("MCAP TARGET", async () => {
+      const [u] = await sql<{ id: string }[]>`
+        insert into bot.users (platform_user_id, settings) values (501, '{}') returning id::text`
+      const ts = HKT.blockTimestamp + 300
+      await sql`
+        insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+        values (${u!.id}, 'watch', ${HKT.token}, 500000, true, 210000, to_timestamp(${ts - 100}))`
+      const cs = await runHookit([HKT, poolSwap(HKT, { marketCap: eth(300), blockTimestamp: ts })])
+      expect(pick(cs, "mcap")!.card.rows.at(-1)).toEqual(hooks)
+    })
+
+    it("dev holds goes before hooks when the card has no anchor row", () => {
+      const card = {
+        rows: [
+          ["mcap", "$1"],
+          ["hooks", "Master"],
+        ],
+      } as unknown as Card
+      const rows = withDevHolds(card, { pct: 4.2, now: false }, { before: "bonded" }).rows
+      expect(rows).toEqual([
+        ["mcap", "$1"],
+        ["dev holds", "4.2%"],
+        ["hooks", "Master"],
+      ])
+      const plain = { rows: [["mcap", "$1"]] } as unknown as Card
+      expect(
+        withDevHolds(plain, { pct: 4.2, now: false }, { before: "bonded" }).rows.at(-1),
+      ).toEqual(["dev holds", "4.2%"])
+    })
+
+    it("the DEV HOLDS row lands before age and leaves hooks last", async () => {
+      const cs = await runHookit([
+        HKT,
+        poolSwap(HKT, { marketCap: eth(10), blockTimestamp: HKT.blockTimestamp + 100 }),
+        poolSwap(HKT, { marketCap: eth(12.4), blockTimestamp: HKT.blockTimestamp + 300 }),
+      ])
+      const filled = withDevHolds(
+        pick(cs, "pumping")!.card as Card,
+        { pct: 4.2, now: false },
+        { before: ["bonded", "age"] },
+      )
+      expect(filled.rows.map(([k]) => k).slice(-3)).toEqual(["dev holds", "age", "hooks"])
+    })
+
+    const classic = (extra: Parameters<typeof insertEvents>[1]) => [HOOC, HOOC_FIRST_BUY, ...extra]
+    const classicHooks = ["hooks", "Classic"]
+
+    it("Classic BONDING", async () => {
+      const cs = await runHookit(
+        classic([curveTrade(HOOC, { soldBps: 5100, target: HOOC_FIRST_BUY.target })]),
+      )
+      expect(pick(cs, "bonding")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic BONDED", async () => {
+      const cs = await runHookit(
+        classic([bond({ launchpad: "hookit", token: HOOC.token, launchId: HOOC.launchId })]),
+      )
+      expect(pick(cs, "bonded")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic BIG BUY", async () => {
+      const cs = await runHookit(
+        classic([
+          curveTrade(HOOC, { quoteAmount: String(2n * 10n ** 17n), target: HOOC_FIRST_BUY.target }),
+        ]),
+      )
+      expect(pick(cs, "big")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic DEV SELL", async () => {
+      const cs = await runHookit(
+        classic([
+          curveTrade(HOOC, { side: "sell", trader: HOOC.creator, target: HOOC_FIRST_BUY.target }),
+        ]),
+      )
+      expect(pick(cs, "devsell")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic PUMPING", async () => {
+      const cs = await runHookit(
+        classic([curveTrade(HOOC, { soldBps: 1700, target: HOOC_FIRST_BUY.target })]),
+      )
+      expect(pick(cs, "pumping")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("Classic MCAP TARGET", async () => {
+      const [u] = await sql<{ id: string }[]>`
+        insert into bot.users (platform_user_id, settings) values (502, '{}') returning id::text`
+      const ts = HOOC.blockTimestamp + 600
+      await sql`
+        insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+        values (${u!.id}, 'watch', ${HOOC.token}, 5, true, 2, to_timestamp(${ts - 100}))`
+      const cs = await runHookit(
+        classic([curveTrade(HOOC, { target: HOOC_FIRST_BUY.target, blockTimestamp: ts })]),
+      )
+      expect(pick(cs, "mcap")!.card.rows.at(-1)).toEqual(classicHooks)
+    })
+
+    it("a card of another launchpad has no hooks row", async () => {
+      const cs = await run([L, trade({ soldBps: 4000 }), trade({ soldBps: 9500 })])
+      for (const c of cs.filter((x) => x.alert === "bonding"))
+        expect(labels(c)).not.toContain("hooks")
+    })
+  })
+})
+
+describe("multi-pair tokens", () => {
+  const quoteUsd: Record<string, number> = {
+    [NATIVE]: 2500,
+    [WNVDAX]: 206.98,
+    [WMSTRX]: 133.94,
+    [USDG]: 1,
+  }
+  const mp: Prices = { usd: (q) => quoteUsd[q] ?? null, symbol: (q) => q.slice(0, 6) }
+  const rulesAt = async (index: number, now: number) => {
+    const all = await eventsAfter(sql, "0")
+    return rulesFor(all[index]!, { ...ctx(sql), prices: mp, now: () => now })
+  }
+  const HMU_TS = HMU_SPLIT_WNVDAX.blockTimestamp
+  const INKY_TS = INKY_USDG_SELL.blockTimestamp
+
+  it("HMU's 10-minute volume is in USD and leaves out the unpriced wAMZNx leg (synthetic low swap)", async () => {
+    // An earlier wNVDAx swap at half the market cap (synthetic) gives the window its low.
+    const low = {
+      ...HMU_SPLIT_WNVDAX,
+      txHash: hash(0x501),
+      logIndex: 1,
+      blockNumber: "56521400",
+      blockTimestamp: HMU_TS - 240,
+      trader: addr(0xe1),
+      quoteAmount: String(25n * 10n ** 16n),
+      marketCap: "14000000000000000000",
+      athMarketCap: "14000000000000000000",
+    }
+    await insertEvents(sql, [HMU, low, HMU_SPLIT_WAMZNX, HMU_SPLIT_WNVDAX])
+    const c = pick(await rulesAt(3, HMU_TS + 30), "pumping")!
+    expect(c.card.rows.map(([k, v]) => `${k} ${v}`).slice(0, 6)).toEqual([
+      "pumped +103% (4m)",
+      "mcap $5.9K",
+      "ath $5.9K (0%)",
+      // 0.597 wNVDAx of quote plus 5.02 wNVDAx of tokens, at $206.98.
+      "liquidity $1.2K",
+      // 0.25 + 0.597 wNVDAx at $206.98; the 0.512 wAMZNx has no price.
+      "volume $175 (4m)",
+      "trades 3 buys | 0 sells (4m)",
+    ])
+  })
+
+  it("MCAP TARGET on a multi-pair token fires from the deepest pool only (synthetic)", async () => {
+    const [u] = await sql<{ id: string }[]>`
+      insert into bot.users (platform_user_id, settings) values (503, '{}') returning id::text`
+    await sql`
+      insert into bot.subscriptions (user_id, kind, target, target_usd, target_up, target_set_usd, target_set_at)
+      values (${u!.id}, 'watch', ${INKY.token}, 5000, true, 4000, to_timestamp(${INKY_TS - 100}))`
+    // A wMSTRx swap at 40 wMSTRx ($5.4K, synthetic) is over the target, but that pool is the shallower one.
+    const over = {
+      ...INKY_WMSTRX_BUY,
+      txHash: hash(0x502),
+      logIndex: 70,
+      blockTimestamp: INKY_TS + 30,
+      marketCap: "40000000000000000000",
+      athMarketCap: "40000000000000000000",
+    }
+    await insertEvents(sql, [INKY, INKY_USDG_SELL, over])
+    const deep = pick(await rulesAt(1, INKY_TS + 60), "mcap")!
+    expect(deep.card.rows[0]).toEqual(["mcap", "$5.0K"])
+    expect(pick(await rulesAt(2, INKY_TS + 60), "mcap")).toBeUndefined()
+  })
+
+  it("a swap in a shallower pool leaves PUMPING to the deepest pool's swaps (synthetic)", async () => {
+    const low = {
+      ...INKY_WMSTRX_BUY,
+      txHash: hash(0x503),
+      logIndex: 1,
+      blockNumber: "60124700",
+      blockTimestamp: INKY_TS - 60,
+      marketCap: "20000000000000000000",
+      athMarketCap: "20000000000000000000",
+    }
+    await insertEvents(sql, [INKY, INKY_USDG_SELL, low, INKY_WMSTRX_BUY])
+    expect((await rulesAt(3, INKY_TS + 30)).filter((c) => c.alert === "pumping")).toEqual([])
+  })
+
+  it("BIG BUY is measured against its own pool, with the token side in its liquidity row (synthetic)", async () => {
+    // 10 wMSTRx against 100 wMSTRx of quote (synthetic), after a swap in the deeper USDG pool.
+    const buy = {
+      ...INKY_WMSTRX_BUY,
+      txHash: hash(0x504),
+      logIndex: 71,
+      quoteAmount: String(10n * ETH),
+      quoteLiquidity: String(100n * ETH),
+    }
+    await insertEvents(sql, [INKY, INKY_USDG_SELL, buy])
+    const c = pick(await rulesAt(2, INKY_TS + 30), "big")!
+    expect(c.sizeBps).toBe(1111)
+    // 100 wMSTRx plus 8.82 wMSTRx of tokens, at $133.94; twice the quote side would read $26.8K.
+    expect(c.card.rows.at(-2)).toEqual(["liquidity", "$14.6K"])
+    // At $14.6K this pool is now the deepest, so its 35.66 wMSTRx is the mcap shown.
+    expect(c.card.rows.at(-3)).toEqual(["mcap", "$4.8K"])
+  })
+
+  it("BIG BUY in a shallower pool shows the deepest pool's mcap (synthetic)", async () => {
+    // 7.6 wMSTRx against 8 wMSTRx of quote: $2.3K of liquidity, under the USDG pool's $2.5K.
+    const buy = {
+      ...INKY_WMSTRX_BUY,
+      txHash: hash(0x606),
+      logIndex: 72,
+      quoteAmount: String(76n * 10n ** 17n),
+      quoteLiquidity: String(8n * ETH),
+    }
+    await insertEvents(sql, [INKY, INKY_USDG_SELL, buy])
+    const c = pick(await rulesAt(2, INKY_TS + 30), "big")!
+    // The USDG pool's $5.0K, not this pool's 35.66 wMSTRx ($4.8K); liquidity stays this pool's own.
+    expect(c.card.rows.slice(1, 3)).toEqual([
+      ["mcap", "$5.0K"],
+      ["liquidity", "$2.3K"],
+    ])
+  })
+
+  it("DEV SELL leaves out dev pnl when the dev's fills span quotes, and reads mcap from the deepest pool (synthetic fills from INKY's legs)", async () => {
+    // An 80 USDG dev buy in the USDG pool, then a sell in the wMSTRx pool: their raw amounts cannot be added.
+    const buy = {
+      ...INKY_USDG_SELL,
+      side: "buy" as const,
+      trader: INKY.creator,
+      txHash: hash(0x601),
+      logIndex: 5,
+      blockNumber: "60124700",
+      blockTimestamp: INKY_TS - 300,
+      quoteAmount: "80000000",
+    }
+    const sell = {
+      ...INKY_WMSTRX_BUY,
+      side: "sell" as const,
+      trader: INKY.creator,
+      txHash: hash(0x602),
+    }
+    await insertEvents(sql, [INKY, buy, sell])
+    const c = pick(await rulesAt(2, INKY_TS + 30), "devsell")!
+    expect(c.card.rows.map(([k]) => k)).toEqual(["sold", "dev", "mcap", "hooks"])
+    // The USDG pool's $5.0K, not the wMSTRx pool's 35.66 wMSTRx ($4.8K).
+    expect(c.card.rows[2]).toEqual(["mcap", "$5.0K"])
+  })
+
+  it("DEV SELL keeps dev pnl on a single-market token even with fills in two quotes (synthetic)", async () => {
+    const buy = {
+      ...INKY_USDG_SELL,
+      side: "buy" as const,
+      token: HKT.token,
+      launchId: HKT.launchId,
+      trader: HKT.creator,
+      txHash: hash(0x607),
+      blockTimestamp: INKY_TS - 300,
+      blockNumber: "60124700",
+    }
+    const sell = {
+      ...INKY_WMSTRX_BUY,
+      side: "sell" as const,
+      token: HKT.token,
+      launchId: HKT.launchId,
+      trader: HKT.creator,
+      txHash: hash(0x608),
+    }
+    await insertEvents(sql, [HKT, buy, sell])
+    const c = pick(await rulesAt(2, INKY_TS + 30), "devsell")!
+    expect(c.card.rows.map(([k]) => k)).toContain("dev pnl")
+  })
+
+  it("DEV SELL keeps dev pnl when every fill is in one quote (synthetic fills from INKY's legs)", async () => {
+    const buy = {
+      ...INKY_WMSTRX_BUY,
+      trader: INKY.creator,
+      txHash: hash(0x603),
+      logIndex: 5,
+      blockNumber: "60124700",
+      blockTimestamp: INKY_TS - 300,
+    }
+    const sell = {
+      ...INKY_WMSTRX_BUY,
+      side: "sell" as const,
+      trader: INKY.creator,
+      txHash: hash(0x604),
+    }
+    await insertEvents(sql, [INKY, buy, sell])
+    const c = pick(await rulesAt(2, INKY_TS + 30), "devsell")!
+    expect(c.card.rows.map(([k]) => k)).toEqual(["sold", "dev pnl", "dev", "mcap", "hooks"])
+  })
+
+  it("a swap in an unpriced shallow pool still shows the deepest pool's dollar mcap (synthetic dev sell)", async () => {
+    const sell = {
+      ...HMU_SPLIT_WAMZNX,
+      side: "sell" as const,
+      trader: HMU.creator,
+      txHash: hash(0x605),
+    }
+    await insertEvents(sql, [HMU, HMU_SPLIT_WNVDAX, sell])
+    const c = pick(await rulesAt(2, HMU_TS + 30), "devsell")!
+    expect(c.card.rows.find(([k]) => k === "mcap")).toEqual(["mcap", "$5.9K"])
+  })
+
+  it("a Tsunami swap without tokenLiquidity shows 2 × quote side (synthetic size)", async () => {
+    const { launch: l, closingBuy, bond: b, swap: recorded } = loadTsunami().gm
+    // The recorded swap is 0.495 ETH; 5 ETH (synthetic) crosses the BIG threshold. Its pool holds 24.63 ETH of quote.
+    const big = { ...recorded, quoteAmount: String(5n * ETH) }
+    await insertEvents(sql, [l, closingBuy, b, big])
+    const c = pick(await rulesAt(3, big.blockTimestamp + 30), "big")!
+    expect(c.card.rows.at(-1)).toEqual(["liquidity", "$123K"])
   })
 })

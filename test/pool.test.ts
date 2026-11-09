@@ -1,6 +1,24 @@
 import { describe, expect, it, vi } from "vitest"
-import { isPoolId, poolMcap, rpcSqrtPrice, STATE_VIEW, UNISWAP_V4_POOL_MANAGER } from "../src/pool"
+import type { Row } from "../src/history"
+import {
+  deepestPool,
+  isPoolId,
+  poolMcap,
+  rpcSqrtPrice,
+  STATE_VIEW,
+  swapLiquidity,
+  UNISWAP_V4_POOL_MANAGER,
+} from "../src/pool"
+import type { Prices } from "../src/prices"
 import { loadTsunami } from "./helpers/fixtures"
+import {
+  HMU_SPLIT_WAMZNX,
+  HMU_SPLIT_WNVDAX,
+  INKY_USDG_SELL,
+  INKY_WMSTRX_BUY,
+  WMSTRX,
+  WNVDAX,
+} from "./helpers/hookit"
 
 const NATIVE = "0x0000000000000000000000000000000000000000"
 const KRAK = "0x7466ddd16d27b2a4070a827468f8f930aab2201a"
@@ -177,5 +195,81 @@ describe("rpcSqrtPrice", () => {
     const f = rpc({})
     await expect(rpcSqrtPrice("https://rpc.test", f)(UNI, "0x1234")).rejects.toThrow("bad pool id")
     expect(f).not.toHaveBeenCalled()
+  })
+})
+
+describe("swapLiquidity", () => {
+  it("adds the token side at the swap's price in the quote's own units (INKY's USDG pool)", () => {
+    // 1.381632 USDG of quote plus 499.8M tokens at $5.03 per billion: $2,516.095105.
+    expect(swapLiquidity(INKY_USDG_SELL)).toBe(2_516_095_105n)
+  })
+
+  it("adds the token side of INKY's wMSTRx pool", () => {
+    expect(swapLiquidity(INKY_WMSTRX_BUY)).toBe(8_913_171_826_344_832_598n)
+  })
+
+  it("is twice the quote side when the swap has no token side (synthetic)", () => {
+    const { tokenLiquidity: _, ...old } = INKY_WMSTRX_BUY
+    expect(swapLiquidity(old)).toBe(2n * BigInt(INKY_WMSTRX_BUY.quoteLiquidity))
+  })
+
+  it("is twice the quote side when the supply is unknown (synthetic)", () => {
+    expect(swapLiquidity({ ...INKY_WMSTRX_BUY, supply: "0" })).toBe(
+      2n * BigInt(INKY_WMSTRX_BUY.quoteLiquidity),
+    )
+  })
+})
+
+describe("deepestPool", () => {
+  const usd: Record<string, number> = {
+    [WNVDAX]: 206.98,
+    [WMSTRX]: 133.94,
+    [INKY_USDG_SELL.quoteAsset]: 1,
+  }
+  const prices: Prices = { usd: (q) => usd[q] ?? null, symbol: (q) => q }
+  const row = (id: string, p: Row<typeof INKY_USDG_SELL>["p"]) => ({ id, p })
+
+  it("compares pools in USD, not in raw quote units", () => {
+    // wMSTRx's raw 8.9e18 dwarfs USDG's 2.5e9, but the USDG pool holds $2,516 against $1,194.
+    const pools = [row("1", INKY_WMSTRX_BUY), row("2", INKY_USDG_SELL)]
+    expect(deepestPool(pools, prices)?.id).toBe("2")
+    expect(deepestPool([...pools].reverse(), prices)?.id).toBe("2")
+  })
+
+  it("leaves out a pool whose quote has no price, however large it is (HMU's wAMZNx, scaled up: synthetic)", () => {
+    const big = {
+      ...HMU_SPLIT_WAMZNX,
+      quoteLiquidity: String(10n ** 24n),
+      tokenLiquidity: undefined,
+    }
+    const pools = [row("1", HMU_SPLIT_WNVDAX), row("2", big)]
+    expect(deepestPool(pools, prices)?.id).toBe("1")
+  })
+
+  it("prefers an empty priced pool to a newer unpriced one (synthetic)", () => {
+    const empty = { ...HMU_SPLIT_WNVDAX, quoteLiquidity: "0", tokenLiquidity: "0" }
+    const pools = [row("1", empty), row("2", HMU_SPLIT_WAMZNX)]
+    expect(deepestPool(pools, prices)?.id).toBe("1")
+  })
+
+  it("takes the pool of the latest swap when no pool has a price (synthetic)", () => {
+    const pools = [
+      row("7", HMU_SPLIT_WAMZNX),
+      row("9", { ...HMU_SPLIT_WAMZNX, poolId: `0x${"1".repeat(64)}` }),
+      row("8", HMU_SPLIT_WAMZNX),
+    ]
+    expect(deepestPool(pools, { usd: () => null, symbol: (q) => q })?.id).toBe("9")
+  })
+
+  it("is null without swaps", () => {
+    expect(deepestPool([], prices)).toBeNull()
+  })
+
+  it("takes the later swap when two pools are equally deep (synthetic)", () => {
+    const pools = [
+      row("3", HMU_SPLIT_WNVDAX),
+      row("4", { ...HMU_SPLIT_WNVDAX, poolId: `0x${"2".repeat(64)}` }),
+    ]
+    expect(deepestPool(pools, prices)?.id).toBe("4")
   })
 })

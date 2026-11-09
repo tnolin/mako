@@ -3,7 +3,7 @@ import type { InlineKeyboardButton } from "grammy/types"
 import { logAction } from "../actions"
 import { quoteUnits } from "../cards/money"
 import { clean, escapeHtml } from "../format"
-import { lastMarketOf, launchOf } from "../history"
+import { lastMarketOf, latestSwapPerPool, launchOf } from "../history"
 import { makeNftAlertCard } from "../nft/card"
 import { matchCollection } from "../nft/match"
 import type { NftState } from "../nft/state"
@@ -21,6 +21,7 @@ import {
 } from "../nft/watches"
 import { classify } from "../platforms/telegram/errors"
 import { btn, btnOn, findAddress, isAdmin, type Kb, show, stateBtn } from "../platforms/telegram/ui"
+import { deepestPool } from "../pool"
 import { findTokens } from "../tokens"
 import { chatKind, chatTitle, NOT_ADMIN } from "./alerts"
 import { chatCode } from "./chat-code"
@@ -279,7 +280,14 @@ async function watchWithTarget(
 ): Promise<void> {
   const l = (await launchOf(deps.sql, ca))!
   const name = clean(l.p.name, 64) || `$${clean(l.p.ticker, 32) || "?"}`
-  const market = await lastMarketOf(deps.sql, ca)
+  // A multi-pair token's market cap is its deepest pool's, so a target is measured there.
+  const deep =
+    (l.p.markets?.length ?? 0) > 1
+      ? deepestPool(await latestSwapPerPool(deps.sql, ca), deps.prices)
+      : null
+  const market = deep
+    ? { marketCap: BigInt(deep.p.marketCap), quote: deep.p.quoteAsset }
+    : await lastMarketOf(deps.sql, ca)
   const price = market ? deps.prices.usd(market.quote) : null
   if (!market || price === null) return void (await replyHere(ctx, TARGET_NO_PRICE(name), false))
   const nowUsd = quoteUnits(market.marketCap, market.quote) * price

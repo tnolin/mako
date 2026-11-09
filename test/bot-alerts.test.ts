@@ -61,10 +61,10 @@ const TOKEN_TEXT = [
   "<b>Alert Types</b>",
   "NEW TOKEN - newly detected tokens created.",
   "BONDING - When a token passes your set threshold.",
-  "PUMPING - When a token's curve jumps 15%+ in 10 min, or its market cap rises 20%+ in 10 min after bonding.",
+  "PUMPING - When a token jumps 15%+ on its curve, or 20%+ in its pool, in 10 min.",
   "BONDED - A token that has bonded/graduated.",
   "DEV SELL - When the creator sells any amount of their own token.",
-  "BIG BUY/SELL - one trade worth 5%+ of the token's bond target, or of its pool's liquidity after bonding.",
+  "BIG BUY/SELL - one trade worth 5%+ of the bond target or the pool's liquidity.",
 ].join("\n")
 
 const ALL_BODY = [
@@ -131,7 +131,7 @@ describe("token alerts", () => {
     expect((await userSettings()).alerts.big.pctBps).toBe(1000)
     await h.tap("al:u:tk")
     expect(screen().text).toContain(
-      "BIG BUY/SELL - one trade worth 10%+ of the token's bond target, or of its pool's liquidity after bonding.",
+      "BIG BUY/SELL - one trade worth 10%+ of the bond target or the pool's liquidity.",
     )
     expect(labels(screen()).flat()).toContain("BIG BUY/SELL at: 10%")
   })
@@ -185,7 +185,7 @@ describe("token alerts", () => {
     expect((await userSettings()).alerts.pumping.pctBps).toBe(3000)
     await h.tap("al:u:tk")
     expect(labels(screen()).flat()).toContain("PUMPING after bond: +30%")
-    expect(screen().text).toContain("or its market cap rises 30%+ in 10 min after bonding.")
+    expect(screen().text).toContain("or 30%+ in its pool, in 10 min.")
   })
 
   it("picker sets feed floor", async () => {

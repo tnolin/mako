@@ -1,7 +1,9 @@
 import type { SwapEvent, TradeEvent } from "@ink-indexer/events"
-import { expect, it } from "vitest"
+import { describe, expect, it } from "vitest"
 import type { Row } from "../src/history"
+import type { Prices } from "../src/prices"
 import {
+  acrossQuotes,
   buyers,
   devCounts,
   devPnl,
@@ -9,8 +11,18 @@ import {
   prevSoldBps,
   pumpWindow,
   windowStats,
+  windowVolumeText,
 } from "../src/rules/stats"
 import { addr, ETH, hash, swap, T0, trade } from "./helpers/events"
+import {
+  HKT,
+  HMU,
+  HMU_SPLIT_WAMZNX,
+  HMU_SPLIT_WNVDAX,
+  INKY,
+  WAMZNX,
+  WNVDAX,
+} from "./helpers/hookit"
 
 const C = addr(0xc1)
 const rows = (ts: Partial<TradeEvent>[]): Row<TradeEvent>[] =>
@@ -97,4 +109,42 @@ it("baselines an older token on the last trade at least 10 minutes back", () => 
     { soldBps: 4600, blockTimestamp: T0 + 1700 },
   ])
   expect(pumpWindow(t, t[2]!, hash(9))).toEqual({ base: 3000, firstTs: T0 + 1500 })
+})
+
+describe("volume across quotes", () => {
+  const usd: Record<string, number> = { [WNVDAX]: 206.98 }
+  const prices: Prices = {
+    usd: (q) => usd[q] ?? null,
+    symbol: (q) => (q === WAMZNX ? "wAMZNx" : "wNVDAx"),
+  }
+  const split = swapRows([HMU_SPLIT_WAMZNX, HMU_SPLIT_WNVDAX])
+  const from = HMU_SPLIT_WNVDAX.blockTimestamp - 60
+
+  it("a single-quote token's volume is unchanged", () => {
+    const s = swapRows([
+      { blockTimestamp: T0, quoteAmount: String(ETH) },
+      { blockTimestamp: T0 + 100, quoteAmount: String(2n * ETH), side: "sell" },
+    ])
+    expect(windowStats(s, 0, "2")).toEqual({ volume: 3n * ETH, buys: 1, sells: 1 })
+    // Only a token with more than one market sums in USD.
+    expect(acrossQuotes(HKT, HKT.quoteAsset, prices)).toBeUndefined()
+    expect(
+      acrossQuotes({ ...HMU, markets: HMU.markets!.slice(0, 1) }, HMU.quoteAsset, prices),
+    ).toBeUndefined()
+    expect(acrossQuotes(INKY, INKY.quoteAsset, prices)).toEqual({ prices, quote: INKY.quoteAsset })
+  })
+
+  it("sums in USD and leaves out the unpriced quote, while counting every trade", () => {
+    const w = windowStats(split, from, "2", { prices, quote: WNVDAX })
+    // 0.597088 wNVDAx at $206.98; the 0.512 wAMZNx has no price.
+    expect(w.usd).toBeCloseTo(123.585, 3)
+    expect(w).toMatchObject({ buys: 2, sells: 0 })
+    expect(windowVolumeText(w, WNVDAX, prices)).toBe("$124")
+  })
+
+  it("sums the pool's own quote when that quote has no price", () => {
+    const w = windowStats(split, from, "2", { prices, quote: WAMZNX })
+    expect(w).toEqual({ volume: BigInt(HMU_SPLIT_WAMZNX.quoteAmount), buys: 2, sells: 0 })
+    expect(windowVolumeText(w, WAMZNX, prices)).toBe("0.51 wAMZNx")
+  })
 })

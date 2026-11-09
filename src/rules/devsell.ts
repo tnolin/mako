@@ -4,7 +4,8 @@ import { bar, buysSells, compact, pct1, units } from "../format"
 import type { DevHolds } from "../rpc"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
-import { devCounts, devPnl, fills } from "./stats"
+import { withHooks } from "./hooks-row"
+import { devCounts, devPnl, devSpansQuotes, fills } from "./stats"
 import type { Candidate, SwapCtx, TradeCtx } from "./types"
 
 export function devSell(t: TradeCtx): Candidate[] {
@@ -22,6 +23,7 @@ export function devSell(t: TradeCtx): Candidate[] {
     ["curve", bar(p.soldBps)],
     ["mcap", valueText(p.marketCap, p.quoteAsset, t.prices)],
   ]
+  card.rows = withHooks(card.rows, l)
   return [
     {
       alert: "devsell",
@@ -41,7 +43,10 @@ export function devSell(t: TradeCtx): Candidate[] {
   ]
 }
 
-/** DEV SELL on a pool sell by the creator. PnL and counts cover the creator's curve trades and pool swaps. */
+/**
+ * DEV SELL on a pool sell by the creator. PnL and counts cover the creator's curve trades and pool swaps; the PnL is
+ * left out when those fills are in more than one quote, on a token with several markets. The market cap is the token's deepest pool's.
+ */
 export function devSellSwap(s: SwapCtx): Candidate[] {
   const p = s.ev.p
   const l = s.launch.p
@@ -53,10 +58,15 @@ export function devSellSwap(s: SwapCtx): Candidate[] {
   const card = makeCard("devsell", "DEV SELL", l, [])
   card.rows = [
     ["sold", `${compact(units(p.tokenAmount))} (${pct1(share)})`],
-    ["dev pnl", pnlText(pnl.realized, pnl.basis, p.quoteAsset, s.prices)],
+    ...((l.markets?.length ?? 0) > 1 && devSpansQuotes(history, l.creator, s.ev.id)
+      ? []
+      : [
+          ["dev pnl", pnlText(pnl.realized, pnl.basis, p.quoteAsset, s.prices)] as [string, string],
+        ]),
     ["dev", buysSells(dev.buys, dev.sells)],
-    ["mcap", valueText(p.marketCap, p.quoteAsset, s.prices)],
+    ["mcap", valueText(s.market.p.marketCap, s.market.p.quoteAsset, s.prices)],
   ]
+  card.rows = withHooks(card.rows, l)
   return [
     {
       alert: "devsell",
@@ -77,20 +87,24 @@ export function devSellSwap(s: SwapCtx): Candidate[] {
 }
 
 /**
- * Inserts `dev holds` next to the anchor row, or at the end when the card has no such row. Leaves the card as it
- * is when the read failed.
+ * Inserts `dev holds` next to the first anchor row found, or at the end when the card has none, though before a
+ * hooks row, which stays last. Leaves the card as it is when the read failed.
  */
 export function withDevHolds(
   card: Card,
   h: DevHolds,
-  at: { after: string } | { before: string },
+  at: { after: string } | { before: string | string[] },
 ): Card {
   if (!h) return card
   const rows = [...card.rows]
-  const anchor = "after" in at ? at.after : at.before
-  const i = rows.findIndex(([k]) => k === anchor)
+  const anchors = "after" in at ? [at.after] : [at.before].flat()
+  const i = rows.findIndex(([k]) => anchors.includes(k))
   const row: [string, string] = ["dev holds", `${pct1(h.pct)}${h.now ? " (now)" : ""}`]
-  if (i < 0) rows.push(row)
-  else rows.splice("after" in at ? i + 1 : i, 0, row)
+  if (i >= 0) rows.splice("after" in at ? i + 1 : i, 0, row)
+  else {
+    // The hooks row stays the last row.
+    const hooks = rows.findIndex(([k]) => k === "hooks")
+    rows.splice(hooks < 0 ? rows.length : hooks, 0, row)
+  }
   return { ...card, rows }
 }

@@ -2,6 +2,7 @@ import { valueText } from "../cards/money"
 import { age, bar, buysSells } from "../format"
 import { MARKS, PRIORITY } from "../settings"
 import { makeCard } from "./card"
+import { withHooks } from "./hooks-row"
 import { devCounts, prevSoldBps, windowStats } from "./stats"
 import type { Candidate, TradeCtx } from "./types"
 
@@ -22,6 +23,7 @@ export function bonding(t: TradeCtx): Candidate[] {
     ["age", age(p.blockTimestamp - l.blockTimestamp)],
     ["dev", buysSells(dev.buys, dev.sells)],
   ]
+  const shown = withHooks(rows, l)
   return crossed.map((mark) => ({
     alert: "bonding",
     eventId: t.ev.id,
@@ -30,6 +32,6 @@ export function bonding(t: TradeCtx): Candidate[] {
     priority: PRIORITY.bonding,
     eventTs: p.blockTimestamp,
     mark,
-    card: makeCard("bonding", `BONDING ${mark / 100}%`, l, rows),
+    card: makeCard("bonding", `BONDING ${mark / 100}%`, l, shown),
   }))
 }

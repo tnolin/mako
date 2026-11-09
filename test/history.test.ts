@@ -10,6 +10,7 @@ import {
   hotNow,
   justBonded,
   lastMarketOf,
+  latestSwapPerPool,
   launchesOf,
   launchOf,
   maxEventId,
@@ -21,6 +22,7 @@ import {
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, launch, launchV1, swap, T0, trade, tradeV1 } from "./helpers/events"
 import { loadFixture } from "./helpers/fixtures"
+import { HMU, HMU_SPLIT_WAMZNX, HMU_SPLIT_WNVDAX } from "./helpers/hookit"
 
 let sql: Sql
 beforeAll(async () => {
@@ -343,5 +345,29 @@ describe("swap window", () => {
     } finally {
       await own2.end()
     }
+  })
+})
+
+describe("latestSwapPerPool", () => {
+  it("returns each pool's newest swap up to an id, and nothing from other tokens", async () => {
+    const later = {
+      ...HMU_SPLIT_WNVDAX,
+      logIndex: 70,
+      blockNumber: "56521440",
+      marketCap: "30000000000000000000",
+    }
+    const ids = await insertEvents(sql, [
+      HMU,
+      HMU_SPLIT_WNVDAX,
+      HMU_SPLIT_WAMZNX,
+      later,
+      swap({ token: addr(0xee), poolId: HMU_SPLIT_WNVDAX.poolId }),
+    ])
+    const all = await latestSwapPerPool(sql, HMU.token)
+    expect(all.map((r) => r.id).sort()).toEqual([ids[2], ids[3]].sort())
+    const upto = await latestSwapPerPool(sql, HMU.token, ids[2]!)
+    expect(upto.map((r) => r.id).sort()).toEqual([ids[1], ids[2]].sort())
+    expect(upto.find((r) => r.id === ids[1])!.p.poolId).toBe(HMU_SPLIT_WNVDAX.poolId)
+    expect(await latestSwapPerPool(sql, addr(0xef))).toEqual([])
   })
 })

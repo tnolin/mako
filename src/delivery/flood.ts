@@ -116,6 +116,8 @@ export function floodRows(
     const nk = `flood:${lp}:${starts.get(l.id)}`
     // Half a second past its launch, so the notice follows the individual alerts of that same second.
     if (!notices.has(nk)) notices.set(nk, { name, ts: l.p.blockTimestamp + 0.5 })
+    // A custom hook can do anything with a trade: the launch counts toward the flood but is not listed.
+    if (l.p.customHook) continue
     const minute = Math.floor(l.p.blockTimestamp / BATCH_S)
     const ck = `newtokens:${lp}:${minute}`
     const card = cards.get(ck) ?? { lp: name, minute, entries: [] }

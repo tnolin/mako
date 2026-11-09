@@ -24,6 +24,7 @@ import {
   T0,
   trade,
 } from "./helpers/events"
+import { HKT } from "./helpers/hookit"
 import { connectAsBotRole } from "./helpers/roles"
 
 const prices: Prices = { usd: () => 2500, symbol: (q) => (q === NATIVE ? "ETH" : "xStock") }
@@ -1348,6 +1349,28 @@ describe("PUMPING after bonding", () => {
       "bonded",
     ])
     expect(rows[7]).toEqual(["dev holds", "4.2%"])
+  })
+})
+
+describe("PUMPING on a token that starts in a pool", () => {
+  it("a Master PUMPING card puts dev holds before age and keeps hooks last", async () => {
+    await addUser(sql, 1290)
+    const ids = await insertEvents(sql, [HKT])
+    await sql`update bot.state set value = ${ids[0]!} where key = 'events_cursor'`
+    const at = (s: number, cap: number) =>
+      swap({
+        launchpad: "hookit",
+        token: HKT.token,
+        launchId: HKT.launchId,
+        poolId: HKT.poolId!,
+        marketCap: eth(cap),
+        blockTimestamp: HKT.blockTimestamp + 600 + s,
+      })
+    await insertEvents(sql, [at(0, 20), at(60, 24)])
+    await pollOnce(deps({ readHolds: async () => ({ pct: 4.2, now: false }) }))
+    const [row] = (await listDeliveries(sql)).filter((r) => r.alert === "pumping")
+    const rows = row!.card.type === "card" ? row!.card.card.rows : []
+    expect(rows.map(([k]) => k).slice(-3)).toEqual(["dev holds", "age", "hooks"])
   })
 })
 

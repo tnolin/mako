@@ -4,7 +4,8 @@ import { age, bar, usd } from "../format"
 import { type Row, swapsOf, tradesOf } from "../history"
 import { PRIORITY } from "../settings"
 import { makeCard } from "./card"
-import { windowStats } from "./stats"
+import { withHooks } from "./hooks-row"
+import { acrossQuotes, windowStats, windowVolumeText } from "./stats"
 import type { Candidate, RuleCtx } from "./types"
 
 /**
@@ -53,7 +54,12 @@ export async function mcapTargets(
     trades.length > 0 ? trades : tradesOf(ctx.sql, p.token, ev.id),
     swapsOf(ctx.sql, p.token, ev.id, from),
   ])
-  const vol = windowStats([...curve, ...swaps], from, ev.id).volume
+  const vol = windowStats(
+    [...curve, ...swaps],
+    from,
+    ev.id,
+    acrossQuotes(launch.p, p.quoteAsset, ctx.prices),
+  )
   const l = launch.p
   return rows.map((r) => ({
     alert: "mcap",
@@ -65,12 +71,20 @@ export async function mcapTargets(
     eventTs: p.blockTimestamp,
     recipient: r.kind === "u" ? { user: r.id } : { chat: r.id },
     mcapTarget: { usd: r.usd, setUsd: r.setUsd, setAt: r.setAt },
-    card: makeCard("mcap", "MCAP TARGET", l, [
-      ["mcap", valueText(p.marketCap, p.quoteAsset, ctx.prices)],
-      ...(p.type === "launchpad.trade" ? [["curve", bar(p.soldBps)] as [string, string]] : []),
-      ["target", `${usd(r.usd)} (set at ${usd(r.setUsd)})`],
-      ["volume", `${valueText(vol, p.quoteAsset, ctx.prices)} (1h)`],
-      ["age", age(p.blockTimestamp - l.blockTimestamp)],
-    ]),
+    card: makeCard(
+      "mcap",
+      "MCAP TARGET",
+      l,
+      withHooks(
+        [
+          ["mcap", valueText(p.marketCap, p.quoteAsset, ctx.prices)],
+          ...(p.type === "launchpad.trade" ? [["curve", bar(p.soldBps)] as [string, string]] : []),
+          ["target", `${usd(r.usd)} (set at ${usd(r.setUsd)})`],
+          ["volume", `${windowVolumeText(vol, p.quoteAsset, ctx.prices)} (1h)`],
+          ["age", age(p.blockTimestamp - l.blockTimestamp)],
+        ],
+        l,
+      ),
+    ),
   }))
 }

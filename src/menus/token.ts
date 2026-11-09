@@ -7,9 +7,10 @@ import { classify } from "../platforms/telegram/errors"
 import { CAPTION_MAX } from "../platforms/telegram/images"
 import { renderRows, tradeUrl } from "../platforms/telegram/render"
 import { btn, findAddress, type Kb, link, show, stateBtn, threadOf } from "../platforms/telegram/ui"
-import { isPoolId, poolMcap, STATE_VIEWS } from "../pool"
+import { deepestPool, isPoolId, latestPerPool, poolMcap, STATE_VIEWS, swapLiquidity } from "../pool"
 import { creatorLinks, makeCard } from "../rules/card"
-import { devCounts, windowStats } from "../rules/stats"
+import { hooksRow } from "../rules/hooks-row"
+import { acrossQuotes, devCounts, fills, windowStats, windowVolumeText } from "../rules/stats"
 import { REFRESH_COOLDOWN_MS, refreshCooldown } from "./cooldown"
 import { NOT_FOUND } from "./copy"
 import type { BotDeps } from "./deps"
@@ -64,9 +65,36 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
   const now = Math.floor(Date.now() / 1000)
   const last = trades.at(-1)
   const q = l.p.quoteAsset
-  const dev = devCounts(trades, l.p.creator, last?.id ?? l.id)
+  const lastSwap = swaps.at(-1)
+  const dev = l.p.startsInPool
+    ? devCounts(fills(trades, swaps), l.p.creator, lastSwap?.id ?? l.id)
+    : devCounts(trades, l.p.creator, last?.id ?? l.id)
   const rows: [string, string][] = []
-  if (b) {
+  if (l.p.startsInPool) {
+    // A token that starts in a pool has no curve: its figures come from the pool, and `age` stands where a
+    // bonded token shows `bonded`.
+    // The figures are in the quote of the token's deepest pool: for a multi-pair token, the pool with the most
+    // USD liquidity at its latest swap, which need not be market 0's nor the pool of the latest swap.
+    const deep = deepestPool(latestPerPool(swaps), prices) ?? lastSwap
+    const poolQuote = deep?.p.quoteAsset ?? q
+    const pool = deep?.p ?? { poolId: l.p.poolId, poolManager: l.p.poolManager }
+    const live = await liveMcap(
+      deps,
+      pool,
+      { ...l.p, quoteAsset: poolQuote },
+      deep?.p.supply ?? l.p.totalSupply,
+    )
+    const mcap = live ?? (deep ? BigInt(deep.p.marketCap) : null)
+    const from = cursor === null ? null : BigInt(cursor) - BigInt(DAY_BLOCKS)
+    const day = swaps.filter((s) => from === null || BigInt(s.p.blockNumber) >= from)
+    const w = windowStats(day, 0, lastSwap?.id ?? l.id, acrossQuotes(l.p, poolQuote, prices))
+    if (mcap !== null) rows.push(["mcap", valueText(mcap, poolQuote, prices)])
+    if (deep) rows.push(["liquidity", valueText(swapLiquidity(deep.p), poolQuote, prices)])
+    rows.push(
+      ["volume", `${windowVolumeText(w, poolQuote, prices)} (24h)`],
+      ["trades", `${buysSells(w.buys, w.sells)} (24h)`],
+    )
+  } else if (b) {
     // A bonded token's volume and trades are its curve totals plus every pool swap since.
     const w = windowStats([...trades, ...swaps], 0, swaps.at(-1)?.id ?? b.id)
     const ago = `${bondedAgo(now - b.p.blockTimestamp)} ago`
@@ -95,6 +123,8 @@ export async function tokenCard(deps: BotDeps, ca: string): Promise<TokenCard | 
     )
   }
   rows.push(["age", age(now - l.p.blockTimestamp)], ["dev", buysSells(dev.buys, dev.sells)])
+  const hooks = hooksRow(l.p)
+  if (hooks) rows.push(hooks)
   const card = makeCard("new", "", l.p, rows, creatorLinks(l.p))
   const desc = clean(l.p.description, 200)
   const lines = [

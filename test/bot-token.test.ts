@@ -11,10 +11,26 @@ import type { Prices } from "../src/prices"
 import { insertEvents, resetDb, setCursorBlock } from "./helpers/db"
 import { addr, bond, ETH, launch, swap, trade } from "./helpers/events"
 import { loadTsunami } from "./helpers/fixtures"
+import {
+  HKT,
+  HMU,
+  HMU_SPLIT_WAMZNX,
+  HMU_SPLIT_WNVDAX,
+  HOOC,
+  HOOC_FIRST_BUY,
+  INKY,
+  INKY_USDG_SELL,
+  INKY_WMSTRX_BUY,
+  USDG,
+  WMSTRX,
+  WNVDAX,
+} from "./helpers/hookit"
 import { imageResponse, testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
-const prices: Prices = { usd: () => 2500, symbol: () => "ETH" }
+// Every quote is $2,500 unless a test replaces the price of some.
+let usdOf: (quote: string) => number | null = () => 2500
+const prices: Prices = { usd: (q) => usdOf(q), symbol: () => "ETH" }
 const report = vi.fn()
 const A = addr(0xa1)
 const CHECKSUMMED = "0x00000000000000000000000000000000000000A1"
@@ -31,6 +47,7 @@ let readSqrtPrice: ReturnType<
 >
 
 beforeEach(async () => {
+  usdOf = () => 2500
   img = testImages()
   await sql?.end()
   sql = await resetDb(inject("databaseUrl"))
@@ -295,6 +312,16 @@ describe("token card layout", () => {
     expect(lines(caption).slice(0, 2)).toEqual(["<b>$SHITCOIN</b>", "Shitcoin · Tsunami"])
   })
 
+  it('a Hookit card reads "Name · Hookit"', async () => {
+    const token = addr(0xa7)
+    await insertEvents(sql, [
+      launch({ token, launchpad: "hookit", name: "Hookling", ticker: "HKL", blockNumber: "1002" }),
+    ])
+    await h.text(`/t ${token}`)
+    const caption = h.last("sendPhoto")!.caption
+    expect(lines(caption).slice(0, 2)).toEqual(["<b>$HKL</b>", "Hookling · Hookit"])
+  })
+
   it("leaves out the description and its blank line when there is none", async () => {
     await sql`update indexer.events set payload = jsonb_set(payload, '{description}', 'null') where type = 'launchpad.launch'`
     await h.text(`/t ${A}`)
@@ -460,6 +487,27 @@ describe("discovery lists", () => {
     await sql`delete from indexer.events where entity = ${A}`
     await h.tap("l:hot")
     expect(h.last("editMessageText")!.text).toBe(`<b>Hot now</b>\n\n${EMPTY.hot}`)
+  })
+
+  it("leaves bonding-curve tokens with a custom hook out of every list", async () => {
+    const [B, C] = [addr(0xb7), addr(0xc7)]
+    const custom = { launchpad: "hookit", customHook: true, startsInPool: false } as const
+    await insertEvents(sql, [
+      launch({ token: B, ticker: "BEE", name: "Bee", blockNumber: "1002", ...custom }),
+      trade({ token: B, soldBps: 3000, blockNumber: "1003" }),
+      trade({ token: B, soldBps: 3100, blockNumber: "1004" }),
+      launch({ token: C, ticker: "CEE", name: "Cee", blockNumber: "1005", ...custom }),
+      bond({ token: C, blockNumber: "1006" }),
+    ])
+    await setCursorBlock(sql, 1006)
+    await h.tap("l:hot")
+    expect(h.last("editMessageText")!.text).toBe(
+      "<b>Hot now (24h)</b>\n\n1. $GOBLO · Goblo · 1 trade (24h)",
+    )
+    await h.tap("l:near")
+    expect(h.last("editMessageText")!.text).toBe(`<b>Near bonding</b>\n\n1. $GOBLO · Goblo · 80%`)
+    await h.tap("l:bonded")
+    expect(h.last("editMessageText")!.text).toBe(`<b>Recently bonded</b>\n\n${EMPTY.bonded}`)
   })
 
   it("falls back to 7 days for hot tokens and says so in the title", async () => {
@@ -738,5 +786,161 @@ describe("Refresh cooldown on the bot", () => {
     await h.tap(`tr:${A}`, { photo: true, from: 100 })
     await h.tap(`tr:${A}`, { photo: true, from: 200 })
     expect(edits()).toBe(2)
+  })
+})
+
+describe("Hookit token card", () => {
+  const eth = (n: number) => String(BigInt(Math.round(n * 1000)) * 10n ** 15n)
+  const swapOf = (o: Parameters<typeof swap>[0]) =>
+    swap({
+      launchpad: "hookit",
+      token: HKT.token,
+      launchId: HKT.launchId,
+      poolId: HKT.poolId as `0x${string}`,
+      marketCap: eth(100),
+      quoteLiquidity: eth(8),
+      ...o,
+    })
+  const lines = (caption: string) => caption.split("\n")
+
+  it("/t for $HKT shows age and no curve row", async () => {
+    await insertEvents(sql, [
+      HKT,
+      swapOf({ quoteAmount: eth(0.1), blockNumber: "56519930" }),
+      swapOf({ side: "sell", quoteAmount: eth(0.2), blockNumber: "56519931" }),
+      swapOf({ trader: HKT.creator, quoteAmount: eth(0.05), blockNumber: "56519932" }),
+    ])
+    await setCursorBlock(sql, 56519940)
+    await h.text(`/t ${HKT.token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    const text = (m.caption ?? m.text) as string
+    expect(lines(text).slice(0, 3)).toEqual(["<b>$HKT</b>", "HOOKIT · Hookit", ""])
+    expect(lines(text).slice(3, 7)).toEqual([
+      "<code>mcap      $250K</code>",
+      "<code>liquidity $40.0K</code>",
+      "<code>volume    $875 (24h)</code>",
+      "<code>trades    2 buys | 1 sell (24h)</code>",
+    ])
+    expect(lines(text)[7]).toMatch(/^<code>age {7}\d+d \d+h<\/code>$/)
+    expect(lines(text).slice(8)).toEqual([
+      "<code>dev       1 buy | 0 sells</code>",
+      "<code>hooks     Anti-Snipe, Anti-MEV +3</code>",
+      "",
+      "Hold one, get all",
+      "",
+      `CA   <code>${HKT.token}</code>`,
+    ])
+    expect(text).not.toContain("<code>curve")
+    expect(text).not.toContain("<code>bonded")
+  })
+
+  it("/t reads a multi-pair token's figures in the quote of its deepest pool", async () => {
+    // INKY's market 0 is USDG (6 decimals); the latest swap is in its wMSTRx pool (18 decimals).
+    const wmstrx = "0x30987adf0b11dc698438a99ba04ec3a1ab2c7eab"
+    await insertEvents(sql, [
+      INKY,
+      swap({
+        launchpad: "hookit",
+        token: INKY.token,
+        launchId: INKY.launchId,
+        quoteAsset: wmstrx,
+        poolId: POOL,
+        marketCap: eth(50),
+        quoteLiquidity: eth(8),
+        quoteAmount: eth(0.1),
+        blockNumber: "56801130",
+      }),
+    ])
+    await setCursorBlock(sql, 56801140)
+    // A price giving about 100 wMSTRx of market cap, with the token as currency1.
+    readSqrtPrice.mockResolvedValue((3_162_277_660n * 2n ** 96n) / 1_000_000n)
+    await h.text(`/t ${INKY.token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    const l = lines((m.caption ?? m.text) as string)
+    expect(l.slice(3, 7)).toEqual([
+      "<code>mcap      $250K</code>",
+      "<code>liquidity $40.0K</code>",
+      "<code>volume    $250 (24h)</code>",
+      "<code>trades    1 buy | 0 sells (24h)</code>",
+    ])
+  })
+
+  const rowsOf = async (token: string) => {
+    await h.text(`/t ${token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    return lines((m.caption ?? m.text) as string).slice(3, 7)
+  }
+  const stockUsd: Record<string, number> = { [WNVDAX]: 206.98, [WMSTRX]: 133.94, [USDG]: 1 }
+
+  it("HMU's market cap comes from its deepest priced pool", async () => {
+    // The latest swap is in the wAMZNx pool, which has no USD price.
+    usdOf = (q) => stockUsd[q] ?? null
+    await insertEvents(sql, [HMU, HMU_SPLIT_WNVDAX, HMU_SPLIT_WAMZNX])
+    await setCursorBlock(sql, 56521440)
+    expect(await rowsOf(HMU.token)).toEqual([
+      // 28.49 wNVDAx at $206.98.
+      "<code>mcap      $5.9K</code>",
+      "<code>liquidity $1.2K</code>",
+      // The wAMZNx leg is left out of the dollar total.
+      "<code>volume    $124 (24h)</code>",
+      "<code>trades    2 buys | 0 sells (24h)</code>",
+    ])
+  })
+
+  it("/t reads the deepest pool's StateView slot", async () => {
+    usdOf = (q) => stockUsd[q] ?? null
+    await insertEvents(sql, [HMU, HMU_SPLIT_WNVDAX, HMU_SPLIT_WAMZNX])
+    await setCursorBlock(sql, 56521440)
+    readSqrtPrice.mockResolvedValue(2n ** 96n)
+    await h.text(`/t ${HMU.token}`)
+    expect(readSqrtPrice).toHaveBeenCalledWith(UNISWAP_V4_POOL_MANAGER, HMU_SPLIT_WNVDAX.poolId)
+  })
+
+  it("an unpriced pool never takes a priced pool's place, even an empty one (synthetic)", async () => {
+    usdOf = (q) => stockUsd[q] ?? null
+    // The wNVDAx pool holds nothing at its latest swap; the newer wAMZNx pool has no price.
+    const empty = { ...HMU_SPLIT_WNVDAX, quoteLiquidity: "0", tokenLiquidity: undefined }
+    await insertEvents(sql, [HMU, empty, HMU_SPLIT_WAMZNX])
+    await setCursorBlock(sql, 56521440)
+    expect((await rowsOf(HMU.token)).slice(0, 2)).toEqual([
+      "<code>mcap      $5.9K</code>",
+      "<code>liquidity $0</code>",
+    ])
+  })
+
+  it("INKY's liquidity row adds the token side", async () => {
+    usdOf = (q) => stockUsd[q] ?? null
+    await insertEvents(sql, [INKY, INKY_WMSTRX_BUY, INKY_USDG_SELL])
+    await setCursorBlock(sql, 60124780)
+    expect(await rowsOf(INKY.token)).toEqual([
+      "<code>mcap      $5.0K</code>",
+      // 1.38 USDG of quote and $2,515 of tokens, where twice the quote side would read $3.
+      "<code>liquidity $2.5K</code>",
+      // The USDG sell ($3) and the wMSTRx buy (0.0219 wMSTRx at $133.94) in one dollar total.
+      "<code>volume    $6 (24h)</code>",
+      "<code>trades    1 buy | 1 sell (24h)</code>",
+    ])
+  })
+
+  it("/t for a token that starts in a pool has no curve row before its first swap", async () => {
+    await insertEvents(sql, [HKT])
+    await h.text(`/t ${HKT.token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    const text = (m.caption ?? m.text) as string
+    expect(text).not.toContain("<code>curve")
+    expect(text).toContain("<code>hooks    Anti-Snipe, Anti-MEV +3</code>")
+  })
+
+  it("a Classic token's /t ends its rows with hooks Classic", async () => {
+    await insertEvents(sql, [HOOC, HOOC_FIRST_BUY])
+    await setCursorBlock(sql, 56519400)
+    await h.text(`/t ${HOOC.token}`)
+    const m = h.last("sendPhoto") ?? h.last("sendMessage")!
+    const l = lines((m.caption ?? m.text) as string)
+    const i = l.indexOf("<code>hooks    Classic</code>")
+    expect(i).toBeGreaterThan(0)
+    expect(l[i - 1]).toMatch(/^<code>dev /)
+    expect(l[i + 1]).toBe("")
+    expect(l.some((x) => x.startsWith("<code>curve"))).toBe(true)
   })
 })

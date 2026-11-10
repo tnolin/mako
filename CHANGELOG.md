@@ -4,7 +4,7 @@
 
 ### Fixed
 
-- The one-time migration to the root-owned layout in the deploy guide no longer stops after `/opt/mako` is replaced: the `node_modules` loop no longer returns a failed status for a tree without `apps/` or `packages/`. The migration also checks out the release you set in `mako_tag` and `indexer_tag` instead of the tag already running, and refuses to start when a tag is unset or equals the running one.
+- The one-time migration to the root-owned layout in the deploy guide no longer stops after `/opt/mako` is replaced: the `node_modules` loop no longer returns a failed status for a tree without `apps/` or `packages/`. The migration also checks out the release you set in `mako_tag` and `indexer_tag` instead of the tag already running, and refuses to start when an env file is missing, a tag is unset, equals the running one or doesn't exist on GitHub. After a successful install it writes the new tag to `SENTRY_RELEASE` in the env file.
 
 ## [0.6.0] - 2026-11-10
 

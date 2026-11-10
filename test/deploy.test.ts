@@ -210,7 +210,11 @@ describe("migration tag guard", () => {
     for (const [f, v] of Object.entries(running))
       writeFileSync(join(dir, f), `SENTRY_RELEASE=${v}\n`)
     const block = migration().replaceAll("/etc/ink", dir)
-    return `${tags}\n${block.slice(0, block.indexOf("  systemctl stop"))})\n`
+    const stop = block.indexOf("  systemctl stop")
+    if (stop <= 0) throw new Error("systemctl stop not found in migration block")
+    const guard = block.slice(0, stop)
+    for (const cmd of ["mv ", "git clone", "sed -i"]) expect(guard).not.toContain(cmd)
+    return `git() { [[ "$*" == *refs/tags/v9.9.9* ]] && return 2; return 0; }\n${tags}\n${guard})\n`
   }
   const running = { "mako.env": "v0.6.0", "indexer.env": "indexer-v0.7.0" }
 
@@ -221,6 +225,18 @@ describe("migration tag guard", () => {
     const run = sh(guardScript("mako_tag=v0.6.0 indexer_tag=indexer-v0.7.1", running))
     expect(run.status).not.toBe(0)
     expect(run.stderr).toContain("already running")
+  })
+  it("refuses when a tag does not exist on GitHub", () => {
+    const run = sh(guardScript("mako_tag=v9.9.9 indexer_tag=indexer-v0.7.1", running))
+    expect(run.status).not.toBe(0)
+    expect(run.stderr).toContain("no tag v9.9.9")
+  })
+  it("refuses when an env file is missing", () => {
+    const run = sh(
+      guardScript("mako_tag=v0.6.1 indexer_tag=indexer-v0.7.1", { "mako.env": "v0.6.0" }),
+    )
+    expect(run.status).not.toBe(0)
+    expect(run.stderr).toContain("missing")
   })
   it("refuses when a tag is not set", () => {
     const run = sh(guardScript("mako_tag=v0.6.1", running))

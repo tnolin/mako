@@ -26,6 +26,16 @@ it("rolls deliveries older than 90 days into daily counts and deletes them", asy
   expect((await sql`select chat_id::text from bot.deliveries`).map((r) => r.chat_id)).toEqual(["4"])
 })
 
+it("deletes click and action rows older than 90 days and keeps newer ones", async () => {
+  await sql`delete from bot.user_actions`
+  await sql`
+    insert into bot.user_actions (chat_type, action, created_at) values
+      ('private', 'trade_click', now() - interval '91 days'),
+      ('private', 'trade_click', now() - interval '89 days')`
+  expect(await runRetention(sql)).toBe(1)
+  expect((await sql`select 1 from bot.user_actions`).length).toBe(1)
+})
+
 it("schedules the next run at 03:00 UTC", () => {
   expect(msUntil0300Utc(new Date("2026-10-12T01:00:00Z"))).toBe(2 * 3600_000)
   expect(msUntil0300Utc(new Date("2026-10-12T04:00:00Z"))).toBe(23 * 3600_000)

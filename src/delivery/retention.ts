@@ -1,7 +1,10 @@
 import type { Sql } from "../db"
 import type { Logger } from "../log"
 
-/** Rolls deliveries older than `days` into bot.delivery_daily and deletes them. Returns rows deleted. */
+/**
+ * Rolls deliveries older than `days` into bot.delivery_daily and deletes them, and deletes click and
+ * other action rows older than `days`. Returns rows deleted.
+ */
 export async function runRetention(sql: Sql, days = 90): Promise<number> {
   const cutoff = `${days} days`
   return sql.begin(async (tx) => {
@@ -13,7 +16,9 @@ export async function runRetention(sql: Sql, days = 90): Promise<number> {
       on conflict (day, alert, chat_type, status) do update set count = bot.delivery_daily.count + excluded.count`
     const deleted =
       await tx`delete from bot.deliveries where created_at < now() - ${cutoff}::interval`
-    return deleted.count
+    const actions =
+      await tx`delete from bot.user_actions where created_at < now() - ${cutoff}::interval`
+    return deleted.count + actions.count
   })
 }
 

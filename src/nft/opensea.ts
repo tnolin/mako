@@ -42,7 +42,13 @@ export type LiveCollection = {
 
 export type ItemReader = {
   /** `calcAt` is the collection's rarity `calculated_at`; a different value drops the cached rank. */
-  get(contract: string, tokenId: string, calcAt: string | null): Promise<ItemData | "unavailable">
+  get(
+    contract: string,
+    tokenId: string,
+    calcAt: string | null,
+    /** Who asked. Lookups that reach OpenSea are limited per user; omit for none. */
+    user?: number | string,
+  ): Promise<ItemData | "unavailable">
   trending(timeframe: TrendingTimeframe): Promise<TrendingRow[] | "unavailable">
   /**
    * A collection and its stats, by contract. A trending collection is built from its trending entry and
@@ -54,7 +60,12 @@ export type ItemReader = {
 }
 
 const BASE = "https://api.opensea.io/api/v2"
-const BUDGET_WAIT_MS = 5_000
+/** Longest wait for the request spacing between two takes; a longer wait is an empty budget. */
+const SPACING_WAIT_MS = 500
+/** Lookups a user can start in a minute that reach OpenSea; cached answers cost nothing. */
+export const USER_LOOKUPS_PER_MIN = 5
+/** How long a 404 or failed item lookup is remembered. */
+const FAILED_TTL_MS = 10 * 60_000
 const TIMEOUT_MS = 8_000
 const RANK_TTL_MS = 7 * 24 * 3600_000
 const OFFER_TTL_MS = 5 * 60_000
@@ -66,8 +77,9 @@ type Got<T> = { ok: true; value: T } | { ok: false; reason: "budget" | "not_foun
 
 /**
  * Reads OpenSea for the NFT card and the Trending list. Every request takes one token from the indexer's
- * shared budget (class 0, the bot) and waits at most 5 seconds for it; a 429 blocks every process sharing
- * the key. The key is only ever sent in the x-api-key header and never logged.
+ * shared budget (class 0, the bot). It waits only for the short request spacing and otherwise answers at once
+ * when no token is free, so an update is never held up. Each user can start a few lookups a minute. A 429
+ * blocks every process sharing the key. The key is only ever sent in the x-api-key header and never logged.
  */
 export function createItemReader(deps: {
   key: string
@@ -86,17 +98,46 @@ export function createItemReader(deps: {
     return (key ? s.split(key).join("***") : s).slice(0, 200)
   }
 
-  /** Waits for a budget token, at most 5 s. */
+  /**
+   * Takes a budget token. Waits only out the request spacing (a few hundred ms); an empty budget refills
+   * in seconds, so a longer wait means false at once.
+   */
   async function take(): Promise<boolean> {
-    const deadline = now() + BUDGET_WAIT_MS
-    for (;;) {
+    for (let tries = 1; ; tries++) {
       const [row] = await sql<{ wait: number }[]>`select indexer.opensea_take(0) as wait`
       const wait = row?.wait ?? 0
       if (wait === 0) return true
-      if (now() + wait > deadline) return false
+      if (wait > SPACING_WAIT_MS || tries === 3) return false
       await sleep(wait)
     }
   }
+
+  /** One token bucket per user, refilled continuously. */
+  const buckets = new Map<string, { tokens: number; at: number }>()
+  function allow(user: number | string | undefined): boolean {
+    if (user === undefined) return true
+    const t = now()
+    const key = String(user)
+    const b = buckets.get(key) ?? { tokens: USER_LOOKUPS_PER_MIN, at: t }
+    b.tokens = Math.min(
+      USER_LOOKUPS_PER_MIN,
+      b.tokens + ((t - b.at) * USER_LOOKUPS_PER_MIN) / 60_000,
+    )
+    b.at = t
+    if (b.tokens < 1) {
+      buckets.set(key, b)
+      return false
+    }
+    b.tokens -= 1
+    buckets.set(key, b)
+    if (buckets.size > 10_000) {
+      for (const [k, v] of buckets) if (t - v.at > 60_000) buckets.delete(k)
+    }
+    return true
+  }
+  /** Items whose lookup failed, until FAILED_TTL_MS passes. */
+  // Cleared whole past 10,000 items rather than evicted one by one.
+  const failed = new Map<string, number>()
 
   async function get<T>(path: string, parse: (j: unknown) => T): Promise<Got<T>> {
     const where = path.split("?")[0] ?? path
@@ -232,16 +273,31 @@ export function createItemReader(deps: {
   }
 
   return {
-    async get(contract, tokenId, calcAt) {
+    async get(contract, tokenId, calcAt, user) {
       const id = `${contract}:${tokenId}`
       const t = now()
+      const failedAt = failed.get(id)
+      if (failedAt !== undefined) {
+        if (t - failedAt < FAILED_TTL_MS) return "unavailable"
+        failed.delete(id)
+      }
       let base = bases.get(id)
-      if (!base || t - base.at > RANK_TTL_MS || base.calcAt !== calcAt) {
+      const needsBase = !base || t - base.at > RANK_TTL_MS || base.calcAt !== calcAt
+      const p0 = prices.get(id)
+      if ((needsBase || !p0 || t - p0.at > OFFER_TTL_MS) && !allow(user)) return "unavailable"
+      if (needsBase) {
         const r = await get(`/chain/ink/contract/${contract}/nfts/${tokenId}`, parseItem)
-        if (!r.ok) return "unavailable"
+        if (!r.ok) {
+          if (r.reason !== "budget") {
+            if (failed.size > 10_000) failed.clear()
+            failed.set(id, t)
+          }
+          return "unavailable"
+        }
         base = { ...r.value, at: t, calcAt }
         bases.set(id, base)
       }
+      if (!base) return "unavailable"
       let p = prices.get(id)
       if (!p || t - p.at > OFFER_TTL_MS) {
         let partial = false

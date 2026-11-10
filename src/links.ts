@@ -53,6 +53,9 @@ function parseTarget(target: string | undefined): URL | null {
   }
 }
 
+/** Click writes allowed in flight at once; more are skipped. */
+export const MAX_CLICK_WRITES = 20
+
 /**
  * GET /t/<CA>?d=<delivery uuid> → 302 to the launchpad with the referral code. GET /inkypump → 302 to
  * the launchpad's referral join page. GET /n/c/<slug>, /n/s/<slug>, /n/i/<CA>/<id> and /n/a/<CA> → 302 to
@@ -67,6 +70,7 @@ export function createLinkServer(deps: {
   onNftClick?: (target: string, deliveryId: string | null) => Promise<void>
   log: Logger
 }): Server {
+  let writes = 0
   return createServer((req, res) => {
     const url = parseTarget(req.url)
     const m = req.method === "GET" && url ? PATH.exec(url.pathname) : null
@@ -83,8 +87,14 @@ export function createLinkServer(deps: {
     if (platform || BOT_UA.test(req.headers["user-agent"] ?? "")) return
     const d = url.searchParams.get("d")
     const delivery = d && UUID.test(d) ? d : null
+    // Anyone can request a link, so under a flood the redirect still works and the clicks are dropped.
+    if (writes >= MAX_CLICK_WRITES) return
     const logged = nft ? deps.onNftClick?.(nft.id, delivery) : deps.onClick(ca, delivery)
-    logged?.catch((err) => deps.log("warn", "click not logged", { error: String(err) }))
+    if (!logged) return
+    writes++
+    logged
+      .catch((err) => deps.log("warn", "click not logged", { error: String(err) }))
+      .finally(() => writes--)
   })
 }
 

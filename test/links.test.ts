@@ -2,7 +2,7 @@ import { type AddressInfo, connect } from "node:net"
 import { afterAll, beforeAll, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { LAUNCHPADS, type Launchpad, TokenLaunchpads, tradeTarget } from "../src/launchpads"
-import { createLinkServer, logNftClick, logTradeClick } from "../src/links"
+import { createLinkServer, logNftClick, logTradeClick, MAX_CLICK_WRITES } from "../src/links"
 import { resetDb } from "./helpers/db"
 
 const CA = "0x5ab27c4e9d1f03b8a6e2c5d7f940b1a8c3d6e3c8"
@@ -305,5 +305,39 @@ describe("logNftClick", () => {
         params: { d: null, kind: null },
       },
     ])
+  })
+})
+
+describe("click write limit", () => {
+  it("skips logging while too many writes are in flight, and resumes once they finish", async () => {
+    const release: (() => void)[] = []
+    let started = 0
+    const server = createLinkServer({
+      target: (ca) => `https://inkypump.com/ink/trade/${ca}`,
+      join: () => "https://inkypump.com/ink/join/MAKO",
+      onClick: () => {
+        started++
+        return new Promise<void>((r) => release.push(r))
+      },
+      log: () => {},
+    })
+    await new Promise<void>((r) => server.listen(0, "127.0.0.1", r))
+    const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+    const hit = async () => {
+      const res = await fetch(`${base}/t/${CA}`, { redirect: "manual" })
+      expect(res.status).toBe(302)
+    }
+    try {
+      for (let i = 0; i < MAX_CLICK_WRITES + 10; i++) await hit()
+      await vi.waitFor(() => expect(started).toBe(MAX_CLICK_WRITES))
+      for (const r of release.splice(0)) r()
+      await new Promise((r) => setTimeout(r, 20))
+      await hit()
+      await vi.waitFor(() => expect(started).toBe(MAX_CLICK_WRITES + 1))
+    } finally {
+      for (const r of release.splice(0)) r()
+      server.closeAllConnections()
+      await new Promise<void>((r) => server.close(() => r()))
+    }
   })
 })

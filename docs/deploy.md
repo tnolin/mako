@@ -23,9 +23,9 @@ Ubuntu's cloud image ships `/etc/ssh/sshd_config.d/50-cloud-init.conf` with `Pas
 ```bash
 apt update && apt -y upgrade && apt -y install unattended-upgrades ufw git curl ca-certificates rclone
 [ -f /var/run/reboot-required ] && reboot   # then reconnect, `sudo -i`, and continue from the next line
-printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\n' > /etc/ssh/sshd_config.d/00-hardening.conf
+printf 'PasswordAuthentication no\nKbdInteractiveAuthentication no\nPermitRootLogin no\nX11Forwarding no\n' > /etc/ssh/sshd_config.d/00-hardening.conf
 systemctl restart ssh
-sshd -T | grep -Ei '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin) '   # all three: no
+sshd -T | grep -Ei '^(passwordauthentication|kbdinteractiveauthentication|permitrootlogin|x11forwarding) '   # all four: no
 ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
 ```
 
@@ -39,13 +39,18 @@ ufw allow 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw --force enable
 
 ## 4. Users and checkouts
 
+Both checkouts belong to root, including their `.git` directories. A service user can write only to `node_modules` and to its home directory (`/var/lib/<user>`), so code that runs as a service can't change what root or postgres later run. Git runs as root with hooks disabled.
+
 ```bash
 groupadd --system ink
 useradd --system --gid ink --home-dir /var/lib/ink-indexer --create-home --shell /usr/sbin/nologin ink-indexer
 useradd --system --gid ink --home-dir /var/lib/mako --create-home --shell /usr/sbin/nologin mako
-install -d -o ink-indexer -g ink /opt/ink-indexer && install -d -o mako -g ink /opt/mako
-sudo -u ink-indexer git clone https://github.com/tnolin/ink-indexer.git /opt/ink-indexer
-sudo -u mako git clone https://github.com/tnolin/mako.git /opt/mako
+git clone https://github.com/tnolin/ink-indexer.git /opt/ink-indexer
+git clone https://github.com/tnolin/mako.git /opt/mako
+git -C /opt/mako -c core.hooksPath=/dev/null -c advice.detachedHead=false checkout <mako tag>
+install -d -m 0755 /usr/local/lib/mako
+install -m 0755 -o root -g root /opt/mako/scripts/deploy/backup.sh /usr/local/lib/mako/backup.sh
+install -m 0755 -o root -g root /opt/mako/scripts/deploy/update.sh /usr/local/sbin/mako-update
 install -D -m 0644 /opt/mako/scripts/deploy/journald-retention.conf /etc/systemd/journald.conf.d/retention.conf
 systemctl restart systemd-journald && systemd-analyze cat-config systemd/journald.conf | grep -i MaxRetentionSec
 ```
@@ -57,6 +62,7 @@ sudo -u postgres psql -c "create database ink"
 sudo -u postgres psql -c "create role indexer login" -c "create role mako login"
 sudo -u postgres psql ink -c "create schema indexer authorization indexer" -c "create schema bot authorization mako"
 sudo -u postgres psql -c "grant create on database ink to indexer, mako"
+sudo -u postgres psql -c "create role restore login nosuperuser nocreaterole nocreatedb"
 ```
 
 The `grant create` is needed because each service's migration runs `create schema if not exists`, which checks CREATE on the database even when the schema already exists.
@@ -66,6 +72,7 @@ Peer auth, no passwords. Add to `pg_ident.conf`:
 ```
 ink   ink-indexer   indexer
 ink   mako          mako
+restore   postgres   restore
 ```
 
 And add these lines to the top of `pg_hba.conf`:
@@ -73,7 +80,10 @@ And add these lines to the top of `pg_hba.conf`:
 ```
 local   ink   indexer   peer map=ink
 local   ink   mako      peer map=ink
+local   scratch   restore   peer map=restore
 ```
+
+`restore` runs the restore drill (see Restore drill). It has no superuser, CREATEROLE or CREATEDB rights and belongs to neither `mako` nor `indexer`, so a restored dump can't run code with their rights or the postgres user's.
 
 Keep `listen_addresses = 'localhost'`, then `systemctl reload postgresql`.
 
@@ -106,7 +116,9 @@ postgres.js reads the socket directory and role from `PGHOST` and `PGUSER` when 
 Check out the latest `indexer-v*` release tag of ink-indexer. `events-v2` is the event schema version mako builds against, not a deploy tag.
 
 ```bash
-cd /opt/ink-indexer && sudo -u ink-indexer git checkout <indexer tag> && sudo -u ink-indexer pnpm install --frozen-lockfile
+cd /opt/ink-indexer && git -c core.hooksPath=/dev/null -c advice.detachedHead=false checkout <indexer tag>
+for d in . apps/* packages/*; do [ -f "$d/package.json" ] && install -d -o ink-indexer -g ink "$d/node_modules"; done
+sudo -u ink-indexer pnpm install --frozen-lockfile
 cp /opt/mako/scripts/deploy/ink-indexer.service /etc/systemd/system/
 systemctl daemon-reload && systemctl enable --now ink-indexer
 journalctl -u ink-indexer -f   # backfill from block 45,252,770 to head
@@ -117,8 +129,24 @@ sudo -u postgres psql ink -f /opt/mako/scripts/deploy/grants.sql
 
 DNS: point an `A` record for `go` at the server IP, not proxied. Only `go.makobot.xyz` points at this server; the website on `makobot.xyz` is hosted elsewhere.
 
+Caddy has no request rate limit without a plugin, so the redirect is limited at the firewall instead. Anyone can request a link. Add these rules to the `*filter` section of `/etc/ufw/before.rules` (IPv4) and `/etc/ufw/before6.rules` (IPv6, limited per /64), before each file's `COMMIT`, then `ufw reload`. They drop new connections to port 443 beyond 30 a minute from one address. Requests on an open connection are not counted; the cap on click writes below bounds what those can cost.
+
+```
+-A ufw-before-input -p tcp --dport 443 --syn -m hashlimit --hashlimit-name go-redirect --hashlimit-mode srcip --hashlimit-above 30/minute --hashlimit-burst 30 -j DROP
+```
+
+In `before6.rules`:
+
+```
+-A ufw6-before-input -p tcp --dport 443 --syn -m hashlimit --hashlimit-name go-redirect --hashlimit-mode srcip --hashlimit-srcmask 64 --hashlimit-above 30/minute --hashlimit-burst 30 -j DROP
+```
+
+The bot also skips click logging while more than 20 click writes are in flight, and deletes click rows after 90 days.
+
 ```bash
-cd /opt/mako && sudo -u mako git checkout <tag> && sudo -u mako pnpm install --frozen-lockfile
+cd /opt/mako
+for d in . apps/* packages/*; do [ -f "$d/package.json" ] && install -d -o mako -g ink "$d/node_modules"; done
+sudo -u mako pnpm install --frozen-lockfile
 cp scripts/deploy/Caddyfile /etc/caddy/Caddyfile && systemctl reload caddy
 cp scripts/deploy/mako-bot.service scripts/deploy/mako-backup.service scripts/deploy/mako-backup.timer /etc/systemd/system/
 install -d -m 0700 -o postgres -g postgres /var/backups/mako
@@ -130,10 +158,40 @@ systemctl daemon-reload && systemctl enable --now mako-bot mako-backup.timer
 The bot applies its database migrations when it starts. If a release changes `scripts/deploy/grants.sql`, run it again as in step 7.
 
 1. Take a snapshot of the server at your provider. Delete the previous one first.
-2. `sudo /opt/mako/scripts/deploy/update.sh <ink-indexer|mako> <tag>` asks for the snapshot, then checks out the tag, installs and restarts.
+2. `sudo mako-update <ink-indexer|mako> <tag>` asks for the snapshot, then checks out the tag as root with git hooks off, installs as the service user, refreshes the root-owned copies of `backup.sh` and `mako-update` from the new tree and restarts.
 3. Check `journalctl -u <unit>` and the bot, then delete the snapshot. Never keep it longer than 14 days: it holds user data, and `/help` says backups are deleted after 14 days.
 
 To roll back, restore the snapshot. Checking out the previous tag without restoring it leaves queued NFT alert and reminder rows that the older bot can't send; they fail or age out within 30 minutes.
+
+### Moving an existing server to the root-owned layout
+
+One-time, for a server set up with checkouts owned by the service users. It replaces both checkouts with fresh root-owned clones, so nothing written under the old trees carries over. Run it as root.
+
+```bash
+systemctl stop mako-bot ink-indexer mako-backup.timer
+(
+  set -euo pipefail
+  for r in mako ink-indexer; do
+    env=/etc/ink/$([ $r = mako ] && echo mako || echo indexer).env
+    tag=$(grep -h '^SENTRY_RELEASE=' $env | cut -d= -f2 | tr -d "\"'")
+    [ -n "$tag" ] || { echo "no SENTRY_RELEASE in $env: set the tag to deploy" >&2; exit 1; }
+    mv /opt/$r /opt/$r.old
+    git clone https://github.com/tnolin/$r.git /opt/$r
+    git -C /opt/$r -c core.hooksPath=/dev/null -c advice.detachedHead=false checkout "refs/tags/$tag"
+    (cd /opt/$r && for d in . apps/* packages/*; do [ -f "$d/package.json" ] && install -d -o $r -g ink "$d/node_modules"; done)
+    (cd /opt/$r && sudo -u $r pnpm install --frozen-lockfile)
+  done
+  install -d -m 0755 /usr/local/lib/mako
+  install -m 0755 -o root -g root /opt/mako/scripts/deploy/backup.sh /usr/local/lib/mako/backup.sh
+  install -m 0755 -o root -g root /opt/mako/scripts/deploy/update.sh /usr/local/sbin/mako-update
+  cp /opt/mako/scripts/deploy/ink-indexer.service /opt/mako/scripts/deploy/mako-bot.service /opt/mako/scripts/deploy/mako-backup.service /opt/mako/scripts/deploy/mako-backup.timer /etc/systemd/system/
+)
+systemctl daemon-reload && systemctl start ink-indexer mako-bot mako-backup.timer
+```
+
+Once both services are running, remove the old trees with `rm -rf /opt/mako.old /opt/ink-indexer.old`. If the block stops early, the old trees are still in place as `/opt/<name>.old`.
+
+Then create the restore role and its two `pg_ident.conf` and `pg_hba.conf` lines from step 5, and add `X11Forwarding no` to `/etc/ssh/sshd_config.d/00-hardening.conf`.
 
 ## Monitoring
 
@@ -173,13 +231,16 @@ cd /opt/ink-indexer && sudo -u ink-indexer pnpm backfill --from <that block> --s
 
 ## Restore drill
 
+The drill runs as the `restore` login from step 5, never as postgres. A dump holds code the `mako` and `indexer` roles control, such as functions in constraints and views, and a superuser restore would run it with full rights. `restore` owns `scratch`, has no CREATEROLE or CREATEDB and is a member of neither role. `--no-owner --no-privileges` leaves ownership and grants out of the restore, and the comparison queries run as `restore` too.
+
 From the local dump:
 
 ```bash
-sudo -u postgres createdb scratch && sudo -u postgres pg_restore -d scratch /var/backups/mako/bot-<date>.dump
-sudo -u postgres psql scratch -c "select count(*) from bot.users"   # compare with ink
-sudo -u postgres psql scratch -c "select count(*) from indexer.nft_overrides"   # compare with ink
-sudo -u postgres psql scratch -c "select * from indexer.cursors"   # compare with ink
+sudo -u postgres createdb -O restore scratch
+sudo -u postgres pg_restore -U restore -d scratch --no-owner --no-privileges /var/backups/mako/bot-<date>.dump
+sudo -u postgres psql -U restore scratch -c "select count(*) from bot.users"   # compare with ink
+sudo -u postgres psql -U restore scratch -c "select count(*) from indexer.nft_overrides"   # compare with ink
+sudo -u postgres psql -U restore scratch -c "select * from indexer.cursors"   # compare with ink
 sudo -u postgres dropdb scratch
 ```
 
@@ -190,12 +251,13 @@ From the off-site copy, as if the server were lost. The subshell keeps the crede
  export RCLONE_S3_PROVIDER="${S3_PROVIDER:-Other}" RCLONE_S3_NO_CHECK_BUCKET=true RCLONE_S3_ENDPOINT="$S3_ENDPOINT" \
    RCLONE_S3_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID" RCLONE_S3_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
  rclone lsf ":s3:$S3_BUCKET"                                            # at most 14 bot-<date>.dump files
- rclone copyto ":s3:$S3_BUCKET/bot-<date>.dump" /tmp/bot-restore.dump)
-chown postgres /tmp/bot-restore.dump
-sudo -u postgres createdb scratch && sudo -u postgres pg_restore -d scratch /tmp/bot-restore.dump
-sudo -u postgres psql scratch -c "select count(*) from bot.users"   # compare with ink
-sudo -u postgres psql scratch -c "select count(*) from indexer.nft_overrides"   # compare with ink
-sudo -u postgres dropdb scratch && rm /tmp/bot-restore.dump
+ rclone copyto ":s3:$S3_BUCKET/bot-<date>.dump" /var/backups/mako/offsite.dump)
+chown postgres /var/backups/mako/offsite.dump
+sudo -u postgres createdb -O restore scratch
+sudo -u postgres pg_restore -U restore -d scratch --no-owner --no-privileges /var/backups/mako/offsite.dump
+sudo -u postgres psql -U restore scratch -c "select count(*) from bot.users"   # compare with ink
+sudo -u postgres psql -U restore scratch -c "select count(*) from indexer.nft_overrides"   # compare with ink
+sudo -u postgres dropdb scratch && rm /var/backups/mako/offsite.dump
 ```
 
 Retention: provider backups and snapshots hold user data too, so keep none longer than 14 days; delete the update snapshot once the update is verified. `pg_dump` files are deleted after 14 days on the server and in the bucket, where the lifecycle rule also expires them. journald keeps 14 days of logs.

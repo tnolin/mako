@@ -465,7 +465,12 @@ async function sendItemCard(
   answerTap(ctx)
   const calc = deps.nft?.()?.get(contract)?.col?.rarityCalculatedAt
   const data = deps.items
-    ? await deps.items.get(contract, tokenId, calc == null ? null : String(calc))
+    ? await deps.items.get(
+        contract,
+        tokenId,
+        calc == null ? null : String(calc),
+        ctx.from?.id ?? ctx.chat?.id,
+      )
     : undefined
   const card = await itemCard(deps, contract, tokenId, data)
   await deps.images.send(ctx.api, {

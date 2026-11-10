@@ -2,7 +2,7 @@ import { readFileSync } from "node:fs"
 import { afterAll, beforeEach, describe, expect, inject, it, vi } from "vitest"
 import type { Sql } from "../src/db"
 import { ethText } from "../src/nft/card"
-import { createItemReader, type ItemReader } from "../src/nft/opensea"
+import { createItemReader, type ItemReader, USER_LOOKUPS_PER_MIN } from "../src/nft/opensea"
 import { loadNftState, type NftState } from "../src/nft/state"
 import { createBot } from "../src/platforms/telegram/bot"
 import type { Prices } from "../src/prices"
@@ -176,6 +176,67 @@ describe("OpenSea reader", () => {
     const start = Date.now()
     expect(await reader.get(WIRED, "4164", null)).not.toBe("unavailable")
     expect(Date.now() - start).toBeGreaterThanOrEqual(300)
+  })
+
+  it("lets one user start only a few lookups a minute and still serves another", async () => {
+    const tokens = async () =>
+      Number((await sql`select tokens from indexer.opensea_budget`)[0]!.tokens)
+    await sql`update indexer.opensea_budget set min_interval_ms = 0`
+    const before = await tokens()
+    const results = []
+    for (let i = 1; i <= 20; i++) results.push(await reader.get(WIRED, String(i), null, 111))
+    expect(results.filter((r) => r !== "unavailable")).toHaveLength(USER_LOOKUPS_PER_MIN)
+    expect(calls.filter((c) => c.includes("/nfts/") && !c.includes("/collection/"))).toHaveLength(
+      USER_LOOKUPS_PER_MIN,
+    )
+    // Each lookup takes three tokens: the item, its best offer and its best listing.
+    expect(before - (await tokens())).toBeLessThan(USER_LOOKUPS_PER_MIN * 3 + 0.5)
+    expect(await reader.get(WIRED, "99", null, 222)).not.toBe("unavailable")
+    t += 60_000
+    expect(await reader.get(WIRED, "100", null, 111)).not.toBe("unavailable")
+  })
+
+  it("answers cached items without spending the user's lookups", async () => {
+    await sql`update indexer.opensea_budget set min_interval_ms = 0`
+    await reader.get(WIRED, "1", null, 111)
+    const n = calls.length
+    for (let i = 0; i < 20; i++)
+      expect(await reader.get(WIRED, "1", null, 111)).not.toBe("unavailable")
+    expect(calls).toHaveLength(n)
+    for (let i = 2; i <= 5; i++) await reader.get(WIRED, String(i), null, 111)
+    expect(await reader.get(WIRED, "6", null, 111)).toBe("unavailable")
+  })
+
+  it("remembers a 404 and a failed lookup for 10 minutes", async () => {
+    await sql`update indexer.opensea_budget set min_interval_ms = 0`
+    route = () => json({}, 404)
+    expect(await reader.get(WIRED, "7", null)).toBe("unavailable")
+    route = () => json({}, 500)
+    expect(await reader.get(WIRED, "8", null)).toBe("unavailable")
+    expect(calls).toHaveLength(2)
+    route = okRoute()
+    t += 9 * 60_000
+    expect(await reader.get(WIRED, "7", null)).toBe("unavailable")
+    expect(await reader.get(WIRED, "8", null)).toBe("unavailable")
+    expect(calls).toHaveLength(2)
+    t += 2 * 60_000
+    expect(await reader.get(WIRED, "7", null)).not.toBe("unavailable")
+  })
+
+  it("does not remember an empty budget as a failed lookup", async () => {
+    await sql`update indexer.opensea_budget set tokens = 0`
+    expect(await reader.get(WIRED, "9", null)).toBe("unavailable")
+    await sql`update indexer.opensea_budget set tokens = 100`
+    expect(await reader.get(WIRED, "9", null)).not.toBe("unavailable")
+  })
+
+  it("never sleeps when no budget token is free", async () => {
+    const timeouts = vi.spyOn(globalThis, "setTimeout")
+    await sql`update indexer.opensea_budget set tokens = 0`
+    expect(await reader.get(WIRED, "4164", null, 1)).toBe("unavailable")
+    expect(timeouts.mock.calls.filter((c) => (c[1] ?? 0) > 500)).toEqual([])
+    expect(timeouts.mock.calls.filter((c) => (c[1] ?? 0) >= 50)).toEqual([])
+    timeouts.mockRestore()
   })
 
   it("blocks every process after a 429", async () => {
@@ -403,6 +464,24 @@ describe("NFT card", () => {
       "Some details are unavailable right now.",
     )
     expect(calls).toEqual([])
+  })
+
+  it("answers pasted item links from one user with the unavailable note after the limit, and still serves another user", async () => {
+    await sql`update indexer.opensea_budget set min_interval_ms = 0`
+    await boot()
+    for (let i = 1; i <= 20; i++)
+      await h.text(`https://opensea.io/item/ink/${WIRED}/${i}`, { from: 5 })
+    expect(calls.filter((c) => c.includes(`/nfts/`) && !c.includes("/collection/"))).toHaveLength(
+      USER_LOOKUPS_PER_MIN,
+    )
+    const sent = h.calls.filter((c) => c.method === "sendPhoto" || c.method === "sendMessage")
+    expect(sent.length).toBeGreaterThanOrEqual(20)
+    const text = (c: (typeof sent)[number]) => String(c.payload.caption ?? c.payload.text)
+    expect(text(sent.at(-1)!)).toContain("Some details are unavailable right now.")
+    await h.text(`https://opensea.io/item/ink/${WIRED}/99`, { from: 6 })
+    expect(text(h.calls.filter((c) => c.method === "sendPhoto").at(-1)!)).not.toContain(
+      "unavailable",
+    )
   })
 
   it("opens from a pasted item link and from the pick-list callback", async () => {

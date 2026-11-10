@@ -70,6 +70,10 @@ it("deploy guide disables password and root SSH login with a drop-in that wins o
   ]) {
     expect(guide).toContain(line)
   }
+  expect(guide).toContain(
+    "PermitRootLogin no\\nX11Forwarding no\\n' > /etc/ssh/sshd_config.d/00-hardening.conf",
+  )
+  expect(guide).toContain("permitrootlogin|x11forwarding)")
   expect(guide).toContain("sshd -T")
   expect(guide).toContain("/var/run/reboot-required")
   expect(guide).toContain("apt -y install unattended-upgrades ufw git curl ca-certificates rclone")
@@ -82,4 +86,94 @@ it("nightly dump holds the bot and indexer schemas and leaves out only rebuildab
   expect(skipped.sort()).toEqual(["nft_burns", "nft_mints", "nft_sales", "nft_seadrop_mints"])
   const guide = readFileSync(new URL("../docs/deploy.md", import.meta.url), "utf8")
   for (const t of skipped) expect(guide).toContain(`indexer.${t}`)
+})
+
+const guide = () => readFileSync(new URL("../docs/deploy.md", import.meta.url), "utf8")
+
+const SERVICE_USERS = ["mako", "ink-indexer"]
+const under = (path: string, dir: string) => path === dir || path.startsWith(`${dir}/`)
+const paths = (line: string) => line.match(/\/[\w.\-/$]*[\w.-]/g) ?? []
+
+/** Every `install -d -o <service user> ...` target in the guide: the directories it hands to a service user. */
+const handedToServices = () =>
+  [...guide().matchAll(/install -d (?:-m \S+ )?-o (\S+) -g \S+ (\S+)/g)]
+    .filter((m) => [...SERVICE_USERS, "$r"].includes(m[1]!))
+    .map((m) => m[2]!.replace(/["';]/g, ""))
+
+/** Directories a service user can write: its node_modules and its home directory. */
+function writableDirs(): string[] {
+  const homes = [...guide().matchAll(/^useradd .*--home-dir (\S+) .* (\S+)$/gm)]
+    .filter((m) => SERVICE_USERS.includes(m[2]!))
+    .map((m) => m[1]!)
+  return [...SERVICE_USERS.map((u) => `/opt/${u}/node_modules`), ...homes]
+}
+
+it("gives the service users only node_modules and their home directories to write", () => {
+  expect(handedToServices().length).toBeGreaterThanOrEqual(3)
+  for (const t of handedToServices()) expect(t).toMatch(/\/node_modules$/)
+  expect(writableDirs().sort()).toEqual([
+    "/opt/ink-indexer/node_modules",
+    "/opt/mako/node_modules",
+    "/var/lib/ink-indexer",
+    "/var/lib/mako",
+  ])
+  // Workspace packages get their node_modules the same way, in setup, migration and update.sh.
+  expect(guide()).toContain('for d in . apps/* packages/*; do [ -f "$d/package.json" ]')
+  expect(read("update.sh")).toContain("for d in . apps/* packages/*; do")
+})
+
+it("keeps backup.sh free of paths under the app trees", () => {
+  expect(read("backup.sh")).not.toMatch(/\/opt\/|\bsource\b|^\. /m)
+})
+
+it("runs nothing as root or postgres from a path a service user can write", () => {
+  const writable = writableDirs()
+  const bad: string[] = []
+  for (const f of ["mako-backup.service", "mako-bot.service", "ink-indexer.service"]) {
+    const u = read(f)
+    const user = /^User=(\S+)/m.exec(u)?.[1] ?? "root"
+    if (SERVICE_USERS.includes(user)) continue
+    for (const line of u.split("\n").filter((l) => /^Exec/.test(l))) {
+      for (const p of paths(line)) if (writable.some((w) => under(p, w))) bad.push(`${f}: ${p}`)
+    }
+  }
+  for (const line of guide()
+    .split("\n")
+    .map((l) => l.trim())) {
+    const asService = /sudo -u (mako|ink-indexer|\$r)\b/.test(line)
+    const runsPrivileged =
+      /sudo -u postgres|\bpsql\b/.test(line) || /^(cp|install -m|install -D|bash|sh) /.test(line)
+    if (asService || !runsPrivileged) continue
+    for (const p of paths(line)) if (writable.some((w) => under(p, w))) bad.push(`guide: ${line}`)
+  }
+  expect(bad).toEqual([])
+  expect(read("mako-backup.service")).toContain("ExecStart=/usr/local/lib/mako/backup.sh")
+})
+
+it("update.sh runs git as root with hooks off and gives the service user only node_modules", () => {
+  const u = read("update.sh")
+  expect(u).toContain("git -c core.hooksPath=/dev/null")
+  expect(u).not.toMatch(/sudo -u "\$user" git/)
+  expect(u).toContain('install -d -o "$user" -g ink "$d/node_modules"')
+  expect(u).toContain("/usr/local/lib/mako/backup.sh")
+  expect(u).toContain("/usr/local/sbin/mako-update")
+})
+
+it("restore drill runs as an unprivileged restore login mapped by a peer map", () => {
+  const g = guide()
+  expect(g).toContain("create role restore login nosuperuser nocreaterole nocreatedb")
+  expect(g).toContain("restore   postgres   restore")
+  expect(g).toContain("local   scratch   restore   peer map=restore")
+  expect(g).toContain("createdb -O restore scratch")
+  expect(g).not.toMatch(/sudo -u postgres (pg_restore|psql) (?!-U restore)[^\n]*scratch/)
+  const restores = g.split("\n").filter((l) => l.includes("pg_restore"))
+  expect(restores.filter((l) => l.startsWith("sudo")).length).toBeGreaterThan(0)
+  for (const l of restores.filter((l) => l.startsWith("sudo")))
+    expect(l).toContain("-U restore -d scratch --no-owner --no-privileges")
+})
+
+it("documents the redirect rate limit and the migration to root-owned checkouts", () => {
+  const g = guide()
+  expect(g).toContain("--hashlimit-above 30/minute")
+  expect(g).toContain("Moving an existing server to the root-owned layout")
 })

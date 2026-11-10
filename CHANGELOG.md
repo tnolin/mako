@@ -12,6 +12,10 @@
 
 ### Changed
 
+- NFT item lookups that reach OpenSea are limited to 5 a minute per user, a 404 or failed lookup is remembered for 10 minutes, and with no free request in the shared budget a lookup answers that details are unavailable right away instead of waiting up to 5 seconds.
+- The deploy guide now keeps `/opt/mako` and `/opt/ink-indexer` root-owned, with the service users writing only `node_modules`. `mako-update` replaces `scripts/deploy/update.sh` and runs git as root with hooks off, and the nightly dump runs `/usr/local/lib/mako/backup.sh`. The guide has a one-time section for moving an existing server, and sets `X11Forwarding no` (see [ADR 0025](docs/adr/0025-root-owned-deploy-and-abuse-limits.md)).
+- The restore drill runs as an unprivileged `restore` login instead of postgres.
+- Click and other action rows in `bot.user_actions` are deleted after 90 days, and the redirect server skips click logging while more than 20 writes are in flight. The deploy guide adds a firewall rate limit for the redirect.
 - The `liquidity` row counts both sides of the pool, so pools with a narrow price range show their full liquidity.
 - DEV SELL leaves out `dev pnl` when the developer's trades are in several quote currencies.
 

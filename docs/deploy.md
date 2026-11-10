@@ -165,6 +165,8 @@ To roll back, restore the snapshot. Checking out the previous tag without restor
 
 ### Moving an existing server to the root-owned layout
 
+> **Operator note (upgrading to 0.6.0):** run this migration once before using `mako-update` for any later release. `mako-update` and the root-owned layout replace `scripts/deploy/update.sh` and user-owned checkouts, so a server on the old layout cannot update until it has moved.
+
 One-time, for a server set up with checkouts owned by the service users. It replaces both checkouts with fresh root-owned clones, so nothing written under the old trees carries over. Run it as root.
 
 ```bash

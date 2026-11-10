@@ -1,5 +1,8 @@
-import { readFileSync } from "node:fs"
-import { expect, it } from "vitest"
+import { spawnSync } from "node:child_process"
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { describe, expect, it } from "vitest"
 
 const read = (f: string) => readFileSync(new URL(`../scripts/deploy/${f}`, import.meta.url), "utf8")
 
@@ -176,4 +179,52 @@ it("documents the redirect rate limit and the migration to root-owned checkouts"
   const g = guide()
   expect(g).toContain("--hashlimit-above 30/minute")
   expect(g).toContain("Moving an existing server to the root-owned layout")
+})
+
+const migration = () => {
+  const section = guide().split("### Moving an existing server")[1] ?? ""
+  const blocks = [...section.matchAll(/```bash\n([\s\S]*?)```/g)].map((m) => m[1])
+  const block = blocks.find((b) => b?.includes("git clone"))
+  if (!block) throw new Error("migration block not found")
+  return block
+}
+const sh = (script: string) => spawnSync("bash", ["-c", script], { encoding: "utf8" })
+
+it("migration node_modules loop survives set -euo pipefail on a tree without apps/ or packages/", () => {
+  const line = migration()
+    .split("\n")
+    .find((l) => l.includes("for d in . apps/* packages/*"))
+  expect(line).toBeDefined()
+  const dir = mkdtempSync(join(tmpdir(), "mako-tree-"))
+  writeFileSync(join(dir, "package.json"), "{}")
+  const script = `set -euo pipefail; r=mako; install() { :; }; ${(line as string).trim().replace("/opt/$r", dir)}; echo done`
+  const run = sh(script)
+  expect(run.stdout.trim()).toBe("done")
+  expect(run.status).toBe(0)
+})
+
+describe("migration tag guard", () => {
+  // The guard is everything in the migration subshell before the services are stopped.
+  const guardScript = (tags: string, running: Record<string, string>) => {
+    const dir = mkdtempSync(join(tmpdir(), "mako-env-"))
+    for (const [f, v] of Object.entries(running))
+      writeFileSync(join(dir, f), `SENTRY_RELEASE=${v}\n`)
+    const block = migration().replaceAll("/etc/ink", dir)
+    return `${tags}\n${block.slice(0, block.indexOf("  systemctl stop"))})\n`
+  }
+  const running = { "mako.env": "v0.6.0", "indexer.env": "indexer-v0.7.0" }
+
+  it("passes when both tags differ from the running ones", () => {
+    expect(sh(guardScript("mako_tag=v0.6.1 indexer_tag=indexer-v0.7.1", running)).status).toBe(0)
+  })
+  it("refuses when a tag equals the running tag", () => {
+    const run = sh(guardScript("mako_tag=v0.6.0 indexer_tag=indexer-v0.7.1", running))
+    expect(run.status).not.toBe(0)
+    expect(run.stderr).toContain("already running")
+  })
+  it("refuses when a tag is not set", () => {
+    const run = sh(guardScript("mako_tag=v0.6.1", running))
+    expect(run.status).not.toBe(0)
+    expect(run.stderr).toContain("set mako_tag and indexer_tag first")
+  })
 })

@@ -169,19 +169,34 @@ To roll back, restore the snapshot. Checking out the previous tag without restor
 
 One-time, for a server set up with checkouts owned by the service users. It replaces both checkouts with fresh root-owned clones, so nothing written under the old trees carries over. Run it as root.
 
+Set the release to deploy first. The block checks out these tags, so they must differ from the ones running now (`SENTRY_RELEASE` in each env file). The block refuses to start if an env file is missing, a tag is unset, a tag equals the running one or a tag doesn't exist on GitHub. After a successful install it writes each tag to `SENTRY_RELEASE` in its env file.
+
 ```bash
-systemctl stop mako-bot ink-indexer mako-backup.timer
+mako_tag=v0.6.1
+indexer_tag=indexer-v0.7.1
+```
+
+```bash
 (
   set -euo pipefail
   for r in mako ink-indexer; do
-    env=/etc/ink/$([ $r = mako ] && echo mako || echo indexer).env
-    tag=$(grep -h '^SENTRY_RELEASE=' $env | cut -d= -f2 | tr -d "\"'")
-    [ -n "$tag" ] || { echo "no SENTRY_RELEASE in $env: set the tag to deploy" >&2; exit 1; }
+    if [ $r = mako ]; then env=/etc/ink/mako.env tag=${mako_tag:-}; else env=/etc/ink/indexer.env tag=${indexer_tag:-}; fi
+    [ -n "$tag" ] || { echo "set mako_tag and indexer_tag first" >&2; exit 1; }
+    [ -f "$env" ] || { echo "missing $env" >&2; exit 1; }
+    running=$(grep -h -m1 '^SENTRY_RELEASE=' $env | cut -d= -f2 | tr -d "\"'" || true)
+    [ "$tag" != "$running" ] || { echo "$tag is already running: set a different tag" >&2; exit 1; }
+    git ls-remote --exit-code https://github.com/tnolin/$r.git "refs/tags/$tag" >/dev/null || { echo "no tag $tag in $r" >&2; exit 1; }
+  done
+  systemctl stop mako-bot ink-indexer mako-backup.timer
+  for r in mako ink-indexer; do
+    if [ $r = mako ]; then env=/etc/ink/mako.env tag=$mako_tag; else env=/etc/ink/indexer.env tag=$indexer_tag; fi
     mv /opt/$r /opt/$r.old
     git clone https://github.com/tnolin/$r.git /opt/$r
     git -C /opt/$r -c core.hooksPath=/dev/null -c advice.detachedHead=false checkout "refs/tags/$tag"
-    (cd /opt/$r && for d in . apps/* packages/*; do [ -f "$d/package.json" ] && install -d -o $r -g ink "$d/node_modules"; done)
+    (cd /opt/$r && for d in . apps/* packages/*; do if [ -f "$d/package.json" ]; then install -d -o $r -g ink "$d/node_modules"; fi; done)
     (cd /opt/$r && sudo -u $r pnpm install --frozen-lockfile)
+    sed -i '/^SENTRY_RELEASE=/d' $env
+    echo "SENTRY_RELEASE=$tag" >> $env
   done
   install -d -m 0755 /usr/local/lib/mako
   install -m 0755 -o root -g root /opt/mako/scripts/deploy/backup.sh /usr/local/lib/mako/backup.sh

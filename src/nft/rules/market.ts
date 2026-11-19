@@ -17,7 +17,6 @@ import { NFTX_LOCKER, nftxSlugOf, walletText } from "../nftx"
 import {
   FLOOR_MAX_AGE_S,
   MIN_BIGSALE_WEI,
-  MIN_LISTING_LIFE_S,
   RARE_PRICE_DEN,
   RARE_PRICE_NUM,
   SWEEP_WINDOW_S,
@@ -89,8 +88,6 @@ function listing(ev: Row<NftListingEvent>, ctx: RuleCtx, rate: number | null): C
   const p = ev.p
   const st = ctx.nft.get(p.contract)
   if (isLate("under", p.blockTimestamp, ctx.now())) return []
-  // Relist bots: a listing that expires within the hour is ignored.
-  if (p.expiresAt - p.blockTimestamp < MIN_LISTING_LIFE_S) return []
   if (p.floorWei === null || p.floorAt === null || p.blockTimestamp - p.floorAt > FLOOR_MAX_AGE_S)
     return []
   const price = BigInt(p.priceWei)

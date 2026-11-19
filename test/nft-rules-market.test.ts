@@ -103,11 +103,14 @@ describe("UNDER FLOOR", () => {
     expect(by(await run(under({ floorAt: T0 + 60 - 16 * 60 })), "under")).toBeUndefined()
   })
 
-  it("is skipped with no floor, a discount under 10%, or a short life", async () => {
+  it("is skipped with no floor or a discount under 10%", async () => {
     expect(by(await run(under({ floorWei: null, floorAt: null })), "under")).toBeUndefined()
     expect(by(await run(under({ priceWei: milli(0.039) })), "under")).toBeUndefined()
-    expect(by(await run(under({ expiresAt: T0 + 60 + 3599 })), "under")).toBeUndefined()
-    expect(by(await run(under({ expiresAt: T0 + 60 + 3600 })), "under")).toBeDefined()
+  })
+
+  it("fires however soon the listing expires", async () => {
+    expect(by(await run(under({ expiresAt: T0 + 60 + 60 })), "under")).toBeDefined()
+    expect(by(await run(under({ expiresAt: T0 + 60 + 3599 })), "under")).toBeDefined()
   })
 
   it("names the item from the collection when the listing has no name, and omits rank when unknown", async () => {
@@ -522,6 +525,8 @@ describe("NFTX", () => {
         nftxSlug: "lil-dudes",
         tokenId: "77",
       })
+      // The multiple is measured from the NFTX spot and the percent from the combined floor, which
+      // sits lower when OpenSea's floor is below the spot, so 1.08x pairs with +10% here.
       expect(rows(c)).toEqual([
         "item|Lil Dudes #77",
         "rank|12 / 3,333 (top 1%)",
@@ -529,6 +534,24 @@ describe("NFTX", () => {
         "floor|0.031 ETH (+10%)",
         "expires|in 6d",
       ])
+    })
+
+    it("an OpenSea listing and an NFTX listing that each expire 20 minutes after they are posted give a listing alert", async () => {
+      const soon = T0 + 60 + 20 * 60
+      const os = await run(
+        nftListing({
+          itemName: "PRTSCN #4405",
+          priceWei: milli(0.032),
+          floorWei: milli(0.042),
+          floorAt: T0,
+          expiresAt: soon,
+          rank: 3232,
+          maxRank: 4440,
+        }),
+      )
+      expect(by(os, "under")).toBeDefined()
+      const nftx = by(await run(rare({ expiresAt: soon })), "rare")!
+      expect(rows(nftx)).toContain("expires|in 19m")
     })
 
     it("leaves the multiple out when the listing has none", async () => {

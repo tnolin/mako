@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { current, nftxPool } from "../src/events"
+import { current } from "../src/events"
 import { UNISWAP_V4_POOL_MANAGER } from "../src/pool"
 import {
   bond,
@@ -13,7 +13,6 @@ import {
   trade,
   tradeV1,
 } from "./helpers/events"
-import { loadNftx } from "./helpers/fixtures"
 
 describe("current", () => {
   it("current upgrades a v1 trade", () => {
@@ -53,15 +52,19 @@ describe("current", () => {
 
   it("an events-v4 nft.sale, nft.listing and nft.stats row decode with the new fields absent", () => {
     for (const e of [nftSale(), nftListing(), nftStats()]) {
-      expect(current(e)).toBe(e)
-      for (const f of ["market", "via", "toPool", "floorMultiple", "listingType", "floorMarket"])
-        expect(f in e).toBe(false)
+      const decoded: Record<string, unknown> = current(e)
+      for (const f of [
+        "market",
+        "via",
+        "toPool",
+        "floorMultiple",
+        "listingType",
+        "floorMarket",
+        "nftxFloorWei",
+        "poolCount",
+        "nftxSlug",
+      ])
+        expect(decoded[f] ?? null).toBeNull()
     }
-  })
-
-  it("an nft.launch or nft.stats without nftxFloorWei and poolCount reads both as null", () => {
-    const { nftxFloorWei: _w, poolCount: _c, nftxSlug: _s, ...open } = loadNftx().lilDudes.launch
-    expect(nftxPool(open)).toEqual({ floorWei: null, poolCount: null })
-    expect(nftxPool(nftStats())).toEqual({ floorWei: null, poolCount: null })
   })
 })

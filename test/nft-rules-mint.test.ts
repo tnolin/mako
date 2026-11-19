@@ -942,6 +942,9 @@ describe("NOW ON NFTX", () => {
       null,
     )
     expect(noRate.rows.map(([l]) => l)).toEqual(["creator"])
+    // An open the indexer wrote without the pool fields reads the same as null ones.
+    const { nftxFloorWei: _f, poolCount: _c, ...bare } = open
+    expect(nftxOpenCard(state.get(LD)!, bare, null).rows.map(([l]) => l)).toEqual(["creator"])
     const c = only(process(open))
     expect(rows(c)).toEqual(["floor|0.0009 ETH ($2.16)", "pool|35 NFTs", "creator|0x9860…3b40"])
   })
@@ -1058,7 +1061,7 @@ describe("NOW ON NFTX", () => {
     })
   })
 
-  it("an open before the alerts are enabled for the collection, or late, sends nothing", () => {
+  it("an open more than 30 minutes old sends nothing", () => {
     process(col())
     now = open.blockTimestamp + 31 * 60
     expect(process(open)).toEqual([])

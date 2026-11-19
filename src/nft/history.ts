@@ -35,7 +35,10 @@ export function nftSince<T extends NftEvent["type"]>(
     order by events.id desc limit ${limit}`
 }
 
-/** One buyer's sales in a collection since `sinceTs`, up to this event id, oldest first. */
+/**
+ * One buyer's sales in a collection since `sinceTs`, up to this event id, oldest first. Sales routed into the
+ * NFTX pool (`toPool`) are left out: they are not a buyer's purchases.
+ */
 export function salesByBuyer(
   sql: Sql,
   contract: string,
@@ -47,6 +50,7 @@ export function salesByBuyer(
     select id::text, payload as p from indexer.events
     where type = 'nft.sale' and entity = ${contract} and id <= ${uptoId}
       and payload->>'buyer' = ${buyer} and (payload->>'blockTimestamp')::bigint >= ${sinceTs}
+      and payload->>'toPool' is distinct from 'true'
     order by events.id`
 }
 

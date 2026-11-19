@@ -1,4 +1,3 @@
-import { shortAddr } from "./card"
 import type { CollectionState } from "./state"
 
 /** NFTX's Locker: the vault every NFTX collection's NFTs sit in. A trade whose buyer or seller is the Locker is against the pool. */
@@ -38,7 +37,3 @@ export function nftxSlugOf(
   ].find((s) => s != null)
   return safeSlug(found)
 }
-
-/** A trade's wallet: the Locker is the NFTX pool, anyone else a shortened address. */
-export const walletText = (a: string): string =>
-  a.toLowerCase() === NFTX_LOCKER ? "NFTX pool" : shortAddr(a)

@@ -11,9 +11,10 @@ import {
   type NftAlertCard,
   type NftAlertKind,
   shortAddr,
+  walletText,
 } from "../card"
 import { salesByBuyer } from "../history"
-import { NFTX_LOCKER, nftxSlugOf, walletText } from "../nftx"
+import { NFTX_LOCKER, nftxSlugOf } from "../nftx"
 import {
   FLOOR_MAX_AGE_S,
   MIN_BIGSALE_WEI,

@@ -1,7 +1,7 @@
 import type { NftCollectionEvent } from "@ink-indexer/events"
 import { clean, safeUrl, usd } from "../format"
 import type { AlertKind, TokenAlert } from "../settings"
-import { safeSlug } from "./nftx"
+import { NFTX_LOCKER, safeSlug } from "./nftx"
 
 export type NftAlertKind = Exclude<AlertKind, TokenAlert>
 
@@ -39,6 +39,10 @@ export type NftAlertCard = {
 
 /** 0x12ab…cd34 */
 export const shortAddr = (a: string): string => `${a.slice(0, 6)}…${a.slice(-4)}`
+
+/** A trade's wallet: the Locker is the NFTX pool, anyone else a shortened address. */
+export const walletText = (a: string): string =>
+  a.toLowerCase() === NFTX_LOCKER ? "NFTX pool" : shortAddr(a)
 
 /** Dollars: cents under $10, the usual money style above. */
 export const usdText = (n: number): string => (n < 10 ? `$${n.toFixed(2)}` : usd(n))

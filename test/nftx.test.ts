@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import {
   NFTX_HOME,
@@ -7,8 +8,8 @@ import {
   nftxSlugOf,
   onNftx,
   safeSlug,
-  walletText,
 } from "../src/nft/nftx"
+import { walletText } from "../src/nft/card"
 import { createNftState } from "../src/nft/state"
 import { addr, nftAuction, nftCollection, nftLaunch, nftStats } from "./helpers/events"
 import { loadNftx } from "./helpers/fixtures"
@@ -21,6 +22,14 @@ function stateOf(...events: Parameters<ReturnType<typeof createNftState>["apply"
   for (const [i, p] of events.entries()) state.apply({ id: String(i + 1), p })
   return state.get(events[0]!.contract)!
 }
+
+describe("module layout", () => {
+  it("nftx.ts imports nothing from card.ts, which imports it", () => {
+    const src = (f: string) => readFileSync(new URL(`../src/nft/${f}`, import.meta.url), "utf8")
+    expect(src("nftx.ts")).not.toMatch(/from "\.\/card"/)
+    expect(src("card.ts")).toMatch(/from "\.\/nftx"/)
+  })
+})
 
 describe("constants", () => {
   it("names the Locker, the Ink pages and the slug shape", () => {

@@ -351,6 +351,17 @@ describe("no auction card without verdict real", () => {
   })
 })
 
+describe("an event the state has replaced", () => {
+  it("gives nothing", async () => {
+    const [id] = await insertEvents(sql, [A.created])
+    const old = { id: id!, p: A.created } as Row<NftAuctionEvent>
+    state.apply(old)
+    state.apply({ id: String(++n), p: A.live })
+    const ctx = { sql, prices, log: () => {}, nft: state, now: () => A.created.blockTimestamp }
+    expect(await auctionRules(old, ctx)).toEqual([])
+  })
+})
+
 describe("catch-up when the verdict turns real", () => {
   let now = 0
   const pending = { ...real, verdict: "pending" as const, manual: false }
@@ -408,6 +419,12 @@ describe("catch-up when the verdict turns real", () => {
     process({ ...pending, blockTimestamp: now + 1 })
     process({ ...A.live, txHash: hash(0xa1) })
     now = A.live.endsAt + 5
+    expect(process({ ...real, blockTimestamp: now })).toEqual([])
+  })
+
+  it("an auction already marked ended sends no catch-up whatever its times say", () => {
+    now = A.created.startsAt - 2 * H
+    process({ ...A.ended, startsAt: now + H, endsAt: now + 25 * H })
     expect(process({ ...real, blockTimestamp: now })).toEqual([])
   })
 

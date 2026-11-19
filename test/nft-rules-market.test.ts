@@ -648,6 +648,12 @@ describe("NFTX", () => {
       expect(await sweepAfter([...real, arb])).toBeUndefined()
     })
 
+    it("a toPool buy after five real buys by the same buyer gives no SWEEP of its own", async () => {
+      const real = [0, 1, 2, 3, 4].map((i) => sale(i, { buyer: ARBITRAGE }))
+      const arb = { ...fx.lilDudes.arbitrageSale, blockTimestamp: T0 + 5 * 40 }
+      expect(await sweepAfter([...real, arb])).toBeUndefined()
+    })
+
     it("a toPool buy before four real buys is not counted toward them", async () => {
       const arb = { ...fx.lilDudes.arbitrageSale, blockTimestamp: T0 }
       const real = [1, 2, 3, 4].map((i) => sale(i, { buyer: ARBITRAGE }))

@@ -524,7 +524,10 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
   const now = nowS(deps)
   const nameOf = (s: CollectionState) =>
     makeNftAlertCard("minted", "", s.col, [], {
-      contract: (s.col?.contract ?? s.launch?.contract ?? s.nftxLaunch?.contract)!,
+      contract: (s.col?.contract ??
+        s.launch?.contract ??
+        s.nftxLaunch?.contract ??
+        s.auction?.contract)!,
     })
   if (code === "m") {
     return state

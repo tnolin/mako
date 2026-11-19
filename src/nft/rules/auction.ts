@@ -1,10 +1,17 @@
 import type { NftAuctionEvent } from "@ink-indexer/events"
-import { clean, count, inText, utcDate, utcTime } from "../../format"
+import { count, inText, utcDate, utcTime } from "../../format"
 import type { Row } from "../../history"
 import { NATIVE } from "../../prices"
 import type { Candidate, RuleCtx } from "../../rules/types"
 import { type AlertKind, LONG_WINDOW, PRIORITY } from "../../settings"
-import { ethNumber, ethText, makeNftAlertCard, type NftAlertCard, type NftAlertKind } from "../card"
+import {
+  ethNumber,
+  ethText,
+  makeNftAlertCard,
+  type NftAlertCard,
+  type NftAlertKind,
+  stateName,
+} from "../card"
 import { auctionPrices } from "../history"
 import { nftxSlugOf } from "../nftx"
 import { AUCTION_UPCOMING_MIN_S, BID_RAISE_BPS, BID_RAISE_GAP_S } from "../policy"
@@ -39,7 +46,7 @@ function build(
   })
   return {
     ...base,
-    name: clean(st.col?.name, 64) || clean(st.nftxLaunch?.tokenName, 64) || base.name,
+    name: stateName(st, a.contract),
     links: o.links ? base.links : [],
   }
 }

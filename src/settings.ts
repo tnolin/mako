@@ -203,15 +203,15 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
     case "mcap":
       return "MCAP TARGET - When a watched token's market cap reaches the target you set with /watch."
     case "upcoming":
-      return "UPCOMING MINT - When a new mint is scheduled."
+      return "UPCOMING MINT - When a new mint or NFTX auction is scheduled."
     case "mintstart":
-      return "MINT STARTING - When a mint's public stage opens."
+      return "MINT STARTING - When a mint's public stage opens, or an NFTX auction starts."
     case "minted":
-      return "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints)."
+      return "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints), or a watched auction's minimum bid rises 25%+."
     case "soldout":
-      return "SOLD OUT - When a collection completely mints out."
+      return "SOLD OUT - When a collection completely mints out, or an NFTX auction ends."
     case "launch":
-      return "NEW COLLECTION - A new Chimera collection is detected."
+      return "NEW COLLECTION - A collection opening on NFTX."
     case "bigsale":
       return `BIG SALE - an item sells for ${ethTrim(a.bigsale.minWei)} ETH or more.`
     case "under":
@@ -227,7 +227,7 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
         ? "SOLD - an item sells at any price."
         : `SOLD - an item sells for ${ethTrim(a.sale.minWei)} ETH or more.`
     case "reminder":
-      return "REMINDERS - a message 15 min before each mint stage."
+      return "REMINDERS - a message 15 min before each mint stage, and 1 hour before an auction you follow ends."
   }
 }
 

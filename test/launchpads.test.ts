@@ -93,6 +93,24 @@ it("the README lists Hookit", () => {
   )
 })
 
+it("the README lists NFTX and the new alert lines", () => {
+  const lines = readFileSync(new URL("../README.md", import.meta.url), "utf8").split("\n")
+  expect(lines).toContain(
+    "- **NFTX:** collections with an NFTX market on Ink: pool price, sales, listings and auctions. View and Buy buttons open NFTX for these.",
+  )
+  expect(lines).not.toContain("- **Chimera:** new Chimera-404 collections.")
+  for (const l of [
+    "| UPCOMING MINT | When a new mint or NFTX auction is scheduled. |",
+    "| MINT STARTING | When a mint's public stage opens, or an NFTX auction starts. |",
+    "| MINTED | When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints), or a watched auction's minimum bid rises 25%+. |",
+    "| SOLD OUT | When a collection completely mints out, or an NFTX auction ends. |",
+    "| NEW COLLECTION | A collection opening on NFTX. |",
+    "| REMINDERS | a message 15 min before each mint stage, and 1 hour before an auction you follow ends. |",
+    "Remind me: These alerts are only for an NFT's upcoming mint stages and NFTX auctions. Select 'Remind me' if you want to get notifications 15 min before each mint stage, or 1 hour before an auction ends, without adding the collection to your Watchlist.",
+  ])
+    expect(lines).toContain(l)
+})
+
 const two: Record<string, Launchpad> = {
   ...LAUNCHPADS,
   otherpad: {

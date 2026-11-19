@@ -211,7 +211,7 @@ describe("Tokens and NFTs screens", () => {
     ).toEqual(["l:hot", "l:near", "l:bonded", "m"])
   })
 
-  it("NFTs screen text is exact and links OpenSea and Chimera", async () => {
+  it("NFTs screen reads Supported: OpenSea, NFTX with the /p/nftx link", async () => {
     await h.tap("nfts")
     const p = h.last("editMessageText")!
     expect(p.text).toBe(
@@ -219,7 +219,7 @@ describe("Tokens and NFTs screens", () => {
         "<b>NFTs</b>",
         "",
         "Alerts and lists for NFT collections on Ink.",
-        'Supported: <a href="https://go.makobot.xyz/p/opensea">OpenSea</a>, <a href="https://go.makobot.xyz/p/chimera">Chimera</a>',
+        'Supported: <a href="https://go.makobot.xyz/p/opensea">OpenSea</a>, <a href="https://go.makobot.xyz/p/nftx">NFTX</a>',
         "",
         "/nft &lt;collection&gt; [1h|24h|7d|30d]",
         "/nft &lt;collection&gt; &lt;id&gt; look up one NFT",
@@ -282,11 +282,11 @@ const DEFAULTS = {
     "BIG BUY/SELL - one trade worth 5%+ of the bond target or the pool's liquidity.",
   ],
   all: [
-    "UPCOMING MINT - When a new mint is scheduled.",
-    "MINT STARTING - When a mint's public stage opens.",
-    "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints).",
-    "SOLD OUT - When a collection completely mints out.",
-    "NEW COLLECTION - A new Chimera collection is detected.",
+    "UPCOMING MINT - When a new mint or NFTX auction is scheduled.",
+    "MINT STARTING - When a mint's public stage opens, or an NFTX auction starts.",
+    "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints), or a watched auction's minimum bid rises 25%+.",
+    "SOLD OUT - When a collection completely mints out, or an NFTX auction ends.",
+    "NEW COLLECTION - A collection opening on NFTX.",
   ],
   watched: [
     "UNDER FLOOR - an item lists 20%+ under floor.",
@@ -295,7 +295,7 @@ const DEFAULTS = {
     "SWEEP - one wallet buys 5+ items in 10 min.",
     "BIG SALE - an item sells for 0.1 ETH or more.",
     "SOLD - an item sells for 0.05 ETH or more.",
-    "REMINDERS - a message 15 min before each mint stage.",
+    "REMINDERS - a message 15 min before each mint stage, and 1 hour before an auction you follow ends.",
   ],
 }
 
@@ -351,7 +351,7 @@ describe("Help", () => {
         "",
         "<b>Muted</b>: I won't send you any alerts on tokens or NFTs that you mute. If it is on your watchlist, it is removed automatically.",
         "",
-        "<b>Remind me</b>: These alerts are only for an NFT's upcoming mint stages. Select 'Remind me' if you want to get notifications 15 min before each mint stage without adding the collection to your Watchlist.",
+        "<b>Remind me</b>: These alerts are only for an NFT's upcoming mint stages and NFTX auctions. Select 'Remind me' if you want to get notifications 15 min before each mint stage, or 1 hour before an auction ends, without adding the collection to your Watchlist.",
       ].join("\n"),
     )
     await h.tap("h:group")

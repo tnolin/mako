@@ -121,6 +121,16 @@ describe("buttons in a DM", () => {
     )
   })
 
+  it("names a collection with no OpenSea page by its NFTX token in the Watch pop-up", async () => {
+    const fx = loadNftx()
+    const LD = fx.lilDudes.collection.contract
+    const bare = { ...fx.lilDudes.collection, name: null, slug: null }
+    const ids = await insertEvents(sql, [bare, fx.lilDudes.launch])
+    state = await loadNftState(sql, ids.at(-1)!)
+    await h.tap(`nwa:${LD}`, { keyboard: [[{ text: "Watch", callback_data: `nwa:${LD}` }]] })
+    expect(popupText()).toBe(popup.watch(fx.lilDudes.launch.tokenName!))
+  })
+
   it("Remind me on an ended auction answers with the mint copy", async () => {
     const fx = loadNftx()
     const LD = fx.lilDudes.collection.contract

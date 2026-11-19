@@ -56,7 +56,7 @@ export type NftxFixtures = {
     stats: NftStatsEvent
     arbitrageSale: NftSaleEvent
   }
-  bubbleCats: { launch: NftLaunchEvent }
+  bubbleCats: { launch: NftLaunchEvent; arbitrageSales: NftSaleEvent[] }
   humanInk: { launch: NftLaunchEvent }
   inktrons: {
     created: NftAuctionEvent

@@ -634,9 +634,22 @@ describe("NFTX", () => {
       expect(fifth).toMatchObject({ sweepItems: 5 })
     })
 
-    it("five toPool buys by an arbitrage contract give no SWEEP (synthetic)", async () => {
-      const arb = (i: number) => sale(i, { buyer: ARBITRAGE, toPool: true })
-      expect(await sweepAfter([0, 1, 2, 3, 4].map(arb))).toBeUndefined()
+    it("five toPool buys by an arbitrage contract give no SWEEP", async () => {
+      const bubbleCats = fx.bubbleCats.launch.contract
+      state.apply({ id: String(++n), p: { ...fx.lilDudes.collection, contract: bubbleCats } })
+      const five = fx.bubbleCats.arbitrageSales.slice(0, 5).map((s, i) => ({
+        ...s,
+        floorWei: milli(0.0016),
+        blockTimestamp: T0 + i * 40,
+      }))
+      expect(await sweepAfter(five)).toBeUndefined()
+      // Without the pool marker the same five sales are a sweep.
+      const unmarked = five.map((s) => ({
+        ...s,
+        toPool: false,
+        txHash: hash(0x900 + Number(s.tokenId)),
+      }))
+      expect(await sweepAfter(unmarked)).toBeDefined()
     })
 
     it("seven buys in one Zap transaction give SWEEP · NFTX (synthetic)", async () => {

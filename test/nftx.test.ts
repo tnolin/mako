@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { nftxPool } from "../src/events"
 import {
   NFTX_HOME,
   NFTX_INK,
@@ -106,9 +105,77 @@ describe("walletText", () => {
   })
 })
 
-describe("nftxPool", () => {
-  it("reads the pool price and count of an open and of a stats row", () => {
-    expect(nftxPool(fx.lilDudes.launch)).toEqual({ floorWei: "899999999999999", poolCount: 35 })
-    expect(nftxPool(fx.lilDudes.stats)).toEqual({ floorWei: "308559859825663", poolCount: 60 })
+describe("recorded fixtures", () => {
+  const txHash = /^0x[0-9a-f]{64}$/
+
+  it("carry a transaction hash, or the indexer's id for a phase no transaction carries", () => {
+    const { inktrons, lilDudes, bubbleCats, humanInk } = fx
+    for (const e of [
+      lilDudes.launch,
+      lilDudes.stats,
+      lilDudes.arbitrageSale,
+      bubbleCats.launch,
+      ...bubbleCats.arbitrageSales,
+      humanInk.launch,
+      inktrons.created,
+      inktrons.price,
+    ]) {
+      expect(e.txHash).toMatch(txHash)
+    }
+    // `live` and `ended` come from the clock, not from a transaction.
+    for (const e of [inktrons.live, inktrons.ended]) {
+      expect(e.txHash).toBe(`nftx:auction:${e.auction}:${e.phase}:${e.blockNumber}`)
+    }
+  })
+
+  it("holds Lil Dudes' collection as the OpenSea snapshot the indexer writes", () => {
+    const c = fx.lilDudes.collection
+    expect(c).toMatchObject({ source: "opensea", logIndex: 0, blockNumber: "0" })
+    expect(c.txHash).toBe(`os:col:${c.contract}:1`)
+  })
+
+  it("names each collection as its CollectionCreated log does and gives each an NFTX slug", () => {
+    expect(fx.lilDudes.launch).toMatchObject({ tokenName: "Lil Dudes", nftxSlug: "lil-dudes" })
+    expect(fx.bubbleCats.launch).toMatchObject({
+      tokenName: "Ink Bubble Cats",
+      nftxSlug: "ink-bubble-cats",
+    })
+    expect(fx.humanInk.launch).toMatchObject({ tokenName: "Human ink", nftxSlug: "human-ink" })
+  })
+
+  it("holds the nine Ink Bubble Cats sales into the pool by one arbitrage contract", () => {
+    const sales = fx.bubbleCats.arbitrageSales
+    expect(sales.map((s) => s.blockNumber)).toEqual([
+      "60018368",
+      "60018424",
+      "60018479",
+      "60018581",
+      "60018636",
+      "60018691",
+      "60018747",
+      "60018803",
+      "60018858",
+    ])
+    expect(sales.map((s) => s.tokenId)).toEqual([
+      "648",
+      "1762",
+      "1578",
+      "1672",
+      "946",
+      "1508",
+      "1668",
+      "551",
+      "1413",
+    ])
+    for (const s of sales) {
+      expect(s).toMatchObject({
+        contract: fx.bubbleCats.launch.contract,
+        buyer: "0x312f2f0eb07465f79e14c6eb931c1aadd380ae13",
+        seller: "0x714b3cebcc5d5aebcc4ea193f1f2ef6cb1fa4e21",
+        priceWei: "100000000000000",
+        toPool: true,
+      })
+    }
+    expect(new Set(sales.map((s) => s.txHash)).size).toBe(9)
   })
 })

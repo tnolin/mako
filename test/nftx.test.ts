@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
+import { walletText } from "../src/nft/card"
 import {
   NFTX_HOME,
   NFTX_INK,
@@ -9,7 +10,6 @@ import {
   onNftx,
   safeSlug,
 } from "../src/nft/nftx"
-import { walletText } from "../src/nft/card"
 import { createNftState } from "../src/nft/state"
 import { addr, nftAuction, nftCollection, nftLaunch, nftStats } from "./helpers/events"
 import { loadNftx } from "./helpers/fixtures"

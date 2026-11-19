@@ -283,6 +283,25 @@ describe("finding a collection", () => {
     expect(h.last("sendMessage")!.text).toBe(NOT_FOUND)
   })
 
+  it("the collection card and the picker leave out holders when owners is null", async () => {
+    await boot([
+      nftCollection({ contract: addr(0xc1), name: "WIRED", slug: "wired-a" }),
+      nftStats({ contract: addr(0xc1), owners: null, floorWei: eth(0.001) }),
+      nftCollection({ contract: addr(0xc2), name: "WIRED", slug: "wired-b" }),
+      nftStats({ contract: addr(0xc2), owners: 5 }),
+    ])
+    mkBot()
+    await h.text("/nft wired")
+    expect(texts(h.last("sendMessage"))).toEqual([
+      ["WIRED · 0x0000…00c2 · 5 holders"],
+      ["WIRED · 0x0000…00c1"],
+    ])
+    await h.text(`/nft ${addr(0xc1)}`)
+    const cap = h.last("sendPhoto")!.caption as string
+    expect(cap).toContain("<code>floor    0.001 ETH")
+    expect(cap).not.toContain("holders")
+  })
+
   it("asks for 3 characters, and says it found nothing for a name nothing matches", async () => {
     await boot(hornet())
     mkBot()

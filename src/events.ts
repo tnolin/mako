@@ -1,4 +1,4 @@
-import type { IndexerEvent, StoredEvent } from "@ink-indexer/events"
+import type { IndexerEvent, NftLaunchEvent, NftStatsEvent, StoredEvent } from "@ink-indexer/events"
 import { UNISWAP_V4_POOL_MANAGER } from "./pool"
 
 /**
@@ -26,3 +26,11 @@ export function current(p: StoredEvent): IndexerEvent {
   }
   return p as IndexerEvent
 }
+
+/** The NFTX pool price and NFT count of an `nft.launch` or `nft.stats` row; null when the indexer wrote neither. */
+export const nftxPool = (
+  p: NftLaunchEvent | NftStatsEvent,
+): { floorWei: string | null; poolCount: number | null } => ({
+  floorWei: p.nftxFloorWei ?? null,
+  poolCount: p.poolCount ?? null,
+})

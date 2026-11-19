@@ -141,13 +141,15 @@ function floorMove(ev: Row<NftStatsEvent>, ctx: RuleCtx, rate: number | null): C
   if (floorBps < 1000) return []
   const dir = change > 0 ? "up" : "down"
   const st = ctx.nft.get(p.contract)
+  // An NFTX pool move before OpenSea has stats for the collection carries no volume, sales or holders.
   const rows: Rows = [
     ["floor", ethText(floor, rate)],
     ["24h ago", ethText(ago, null)],
-    ["volume", `${ethText(BigInt(p.volume24hWei), rate)} (24h)`],
-    ["sales", `${count(p.sales24h)} (24h)`],
-    ["holders", count(p.owners)],
   ]
+  if (p.volume24hWei !== null)
+    rows.push(["volume", `${ethText(BigInt(p.volume24hWei), rate)} (24h)`])
+  if (p.sales24h !== null) rows.push(["sales", `${count(p.sales24h)} (24h)`])
+  if (p.owners !== null) rows.push(["holders", count(p.owners)])
   const card = makeNftAlertCard(
     "floor",
     `FLOOR ${dir.toUpperCase()} ${pct(floorBps)}%`,

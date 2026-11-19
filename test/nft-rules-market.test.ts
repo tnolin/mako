@@ -213,6 +213,24 @@ describe("FLOOR UP / DOWN", () => {
     ])
   })
 
+  it("FLOOR DOWN from a stats row with null owners, volume and sales has no holders, volume or sales row", async () => {
+    const [c] = await run(stats({ owners: null, volume24hWei: null, sales24h: null }))
+    expect(card(c).title).toBe("FLOOR DOWN 24%")
+    expect(rows(c)).toEqual(["floor|0.427 ETH ($1.0K)", "24h ago|0.562 ETH"])
+    expect(rows(by(await run(stats({ owners: null })), "floor"))).toEqual([
+      "floor|0.427 ETH ($1.0K)",
+      "24h ago|0.562 ETH",
+      "volume|2.86 ETH ($6.9K) (24h)",
+      "sales|4 (24h)",
+    ])
+    expect(rows(by(await run(stats({ volume24hWei: null })), "floor"))).not.toContainEqual(
+      expect.stringMatching(/^volume\|/),
+    )
+    expect(rows(by(await run(stats({ sales24h: null })), "floor"))).not.toContainEqual(
+      expect.stringMatching(/^sales\|/),
+    )
+  })
+
   it("fires up, and not at 9%, with no 24h-ago floor, or after 30 minutes", async () => {
     const [up] = await run(stats({ floorWei: milli(0.7), floor24hAgoWei: milli(0.5) }))
     expect(up!.floorDir).toBe("up")

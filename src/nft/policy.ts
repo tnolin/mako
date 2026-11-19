@@ -56,6 +56,18 @@ export const MINT_RECENT_S = 3600
 export const CATCH_UP_MAX_S = 3600
 /** A Chimera launch held for its OpenSea page is sent only this long after the launch. */
 export const LAUNCH_HOLD_S = 7 * 24 * 3600
+/** UPCOMING AUCTION needs the auction to start at least this long ahead. */
+export const AUCTION_UPCOMING_MIN_S = 10 * 60
+/** MINIMUM BID RAISED fires when the minimum bid is this far above the last one alerted: 25%. */
+export const BID_RAISE_BPS = 2500
+/** At most one MINIMUM BID RAISED per auction in this long. */
+export const BID_RAISE_GAP_S = 30 * 60
+/** AUCTION ENDING SOON goes out this long before the auction ends. */
+export const AUCTION_REMINDER_LEAD_S = 60 * 60
+/** An auction shorter than this gets no AUCTION ENDING SOON. */
+export const AUCTION_REMINDER_MIN_S = 2 * 3600
+/** Chimera launches send no NEW COLLECTION alert; the card builder stays for when they do. */
+export const CHIMERA_LAUNCH_ALERTS = false
 export const ITEM_CACHE_RANK_S = 7 * 24 * 3600
 export const ITEM_CACHE_OFFER_S = 5 * 60
 export const TRENDING_CACHE_S = 10 * 60

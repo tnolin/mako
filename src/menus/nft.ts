@@ -120,7 +120,7 @@ export async function collectionCard(
   if (running && minted)
     rows.push(["supply", `${count(Number(minted.minted))} / ${count(Number(minted.maxSupply))}`])
   else if (knownMax(total)) rows.push(["supply", count(Number(total))])
-  if (stats) rows.push(["holders", count(stats.owners)])
+  if (stats?.owners != null) rows.push(["holders", count(stats.owners)])
   if (stats?.listedCount) {
     const share = knownMax(total)
       ? ` (${Number(((stats.listedCount / Number(total)) * 100).toFixed(1))}%)`
@@ -524,7 +524,7 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
   const now = nowS(deps)
   const nameOf = (s: CollectionState) =>
     makeNftAlertCard("minted", "", s.col, [], {
-      contract: (s.col?.contract ?? s.launch?.contract)!,
+      contract: (s.col?.contract ?? s.launch?.contract ?? s.nftxLaunch?.contract)!,
     })
   if (code === "m") {
     return state
@@ -653,9 +653,10 @@ export async function openMatch(
   const kb: Kb = m.contracts.map((c) => {
     const s = state.get(c)!
     const name = makeNftAlertCard("minted", "", s.col, [], { contract: c }).name
-    const holders = s.stats
-      ? ` · ${count(s.stats.owners)} holder${s.stats.owners === 1 ? "" : "s"}`
-      : ""
+    const holders =
+      s.stats?.owners != null
+        ? ` · ${count(s.stats.owners)} holder${s.stats.owners === 1 ? "" : "s"}`
+        : ""
     return [btn(withTail(name, ` · ${shortAddr(c)}${holders}`, 34), `nc:${c}`)]
   })
   await show(

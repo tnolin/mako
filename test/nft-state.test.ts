@@ -1,10 +1,10 @@
 import type { NftCollectionEvent } from "@ink-indexer/events"
-import { afterAll, beforeEach, expect, inject, it } from "vitest"
+import { afterAll, beforeEach, describe, expect, inject, it } from "vitest"
 import type { Sql } from "../src/db"
 import type { Row } from "../src/history"
 import { floorAt, latestNft, nftSince, salesByBuyer, salesSince } from "../src/nft/history"
 import { parseOpenSeaLink } from "../src/nft/match"
-import { loadNftState } from "../src/nft/state"
+import { createNftState, loadNftState } from "../src/nft/state"
 import { insertEvents, resetDb } from "./helpers/db"
 import {
   addr,
@@ -16,6 +16,7 @@ import {
   nftStats,
   T0,
 } from "./helpers/events"
+import { loadNftx } from "./helpers/fixtures"
 
 let sql: Sql
 beforeEach(async () => {
@@ -24,6 +25,7 @@ beforeEach(async () => {
 })
 afterAll(() => sql.end())
 
+const fx = loadNftx()
 const C1 = addr(0xc0)
 const C2 = addr(0xc2)
 const row = <T>(id: string, p: T): Row<T> => ({ id, p })
@@ -236,4 +238,99 @@ it("per-collection reads use events_type_entity_id", async () => {
   } finally {
     c.release()
   }
+})
+
+describe("NFTX", () => {
+  const LD = fx.lilDudes.launch.contract
+  const state = () => createNftState()
+  const apply = (
+    s: ReturnType<typeof createNftState>,
+    ...ps: Parameters<typeof s.apply>[0]["p"][]
+  ) => {
+    for (const [i, p] of ps.entries()) s.apply(row(String(i + 1), p))
+  }
+
+  it("an NFTX open and a Chimera launch of one collection are both kept", () => {
+    const chimera = nftLaunch({ contract: LD })
+    for (const order of [
+      [chimera, fx.lilDudes.launch],
+      [fx.lilDudes.launch, chimera],
+    ]) {
+      const s = state()
+      apply(s, ...order)
+      expect(s.get(LD)?.launch).toMatchObject({ launchpad: "chimera", campaignId: "7" })
+      expect(s.get(LD)?.nftxLaunch).toMatchObject({ launchpad: "nftx", poolCount: 35 })
+    }
+  })
+
+  it("nft.auction is applied and the newest phase wins", () => {
+    const s = state()
+    apply(s, fx.inktrons.created, fx.inktrons.live, fx.inktrons.price)
+    expect(s.get(LD)?.auction?.phase).toBe("price")
+    expect(s.get(LD)?.auction?.auction).toBe(fx.inktrons.created.auction)
+    expect(s.get(LD)?.col).toBeNull()
+  })
+
+  it("loadNftState restores the NFTX open, the Chimera launch and the auction from stored rows", async () => {
+    const ids = await insertEvents(sql, [
+      nftLaunch({ contract: LD }),
+      fx.lilDudes.launch,
+      nftLaunch({ contract: LD, campaignId: "8" }),
+      fx.inktrons.created,
+      fx.inktrons.live,
+    ])
+    const s = (await loadNftState(sql, ids.at(-1)!)).get(LD)!
+    expect(s.launch).toMatchObject({ launchpad: "chimera", campaignId: "8" })
+    expect(s.nftxLaunch).toMatchObject({ launchpad: "nftx", poolCount: 35 })
+    expect(s.auction?.phase).toBe("live")
+  })
+
+  describe("auctionsEnding", () => {
+    const end = fx.inktrons.created.endsAt
+    const build = (auction = {}, col = fx.lilDudes.collection) => {
+      const s = state()
+      apply(s, col, { ...fx.inktrons.created, ...auction })
+      return s
+    }
+    const ending = (s: ReturnType<typeof state>, at: number) =>
+      s.auctionsEnding(at, 3600, 60).map((c) => c.col?.contract)
+
+    it("returns a real collection whose auction ends 60 minutes ahead, within 60 seconds either side", () => {
+      const s = build()
+      expect(ending(s, end - 3600)).toEqual([LD])
+      expect(ending(s, end - 3600 - 60)).toEqual([LD])
+      expect(ending(s, end - 3600 + 60)).toEqual([LD])
+      expect(ending(s, end - 3600 - 61)).toEqual([])
+      expect(ending(s, end - 3600 + 61)).toEqual([])
+    })
+
+    it("skips an ended auction, a collection that is not real, and an auction shorter than 2 hours", () => {
+      const at = end - 3600
+      expect(ending(build({ phase: "ended", graduated: true, cleared: "101" }), at)).toEqual([])
+      expect(ending(build({}, { ...fx.lilDudes.collection, verdict: "pending" }), at)).toEqual([])
+      expect(ending(build({ startsAt: end - 7199 }), at)).toEqual([])
+      expect(ending(build({ startsAt: end - 7200 }), at)).toEqual([LD])
+    })
+
+    it("skips a collection with no auction", () => {
+      const s = state()
+      apply(s, fx.lilDudes.collection)
+      expect(ending(s, end - 3600)).toEqual([])
+    })
+  })
+
+  it('an auction whose currency is an ERC-20 address, "eth" or "ETH " is not applied, so auctionsEnding never returns it', () => {
+    for (const currency of [addr(0xe0), "eth", "ETH "]) {
+      const s = state()
+      apply(s, fx.lilDudes.collection, { ...fx.inktrons.created, currency: currency as never })
+      expect(s.get(LD)?.auction).toBeNull()
+      expect(s.auctionsEnding(fx.inktrons.created.endsAt - 3600, 3600, 60)).toEqual([])
+    }
+  })
+
+  it("an auction of a currency that is not ETH leaves the one already applied in place", () => {
+    const s = state()
+    apply(s, fx.inktrons.created, { ...fx.inktrons.live, currency: addr(0xe0) as never })
+    expect(s.get(LD)?.auction?.phase).toBe("created")
+  })
 })

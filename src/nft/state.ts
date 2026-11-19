@@ -1,4 +1,5 @@
 import type {
+  NftAuctionEvent,
   NftCollectionEvent,
   NftDropEvent,
   NftEvent,
@@ -10,7 +11,7 @@ import type { Sql } from "../db"
 import type { Row } from "../history"
 import { findAddress } from "../platforms/telegram/ui"
 import { normalise, parseOpenSeaLink } from "./match"
-import { isTeamStage } from "./policy"
+import { AUCTION_REMINDER_MIN_S, isTeamStage } from "./policy"
 
 /** What the rules and screens know about one collection: the latest event of each kind. */
 export type CollectionState = {
@@ -22,7 +23,12 @@ export type CollectionState = {
   lastMark: NftMintEvent | null
   soldOut: NftMintEvent | null
   stats: NftStatsEvent | null
+  /** The latest Chimera launch. */
   launch: NftLaunchEvent | null
+  /** The latest open on NFTX, kept apart from a Chimera launch of the same collection. */
+  nftxLaunch: NftLaunchEvent | null
+  /** The latest phase of the collection's ETH auction. */
+  auction: NftAuctionEvent | null
 }
 
 /** 1 exact slug, 2 exact name, 3 name prefix, 4 name or slug contains. */
@@ -39,6 +45,11 @@ export type NftState = {
   live(): CollectionState[]
   /** Collections not sold out with a non-Team stage starting within `withinS` after `nowS`, soonest first. */
   upcoming(nowS: number, withinS: number): CollectionState[]
+  /**
+   * Real collections whose auction has not ended, runs at least `AUCTION_REMINDER_MIN_S` and ends `aheadS` from
+   * `nowS`, give or take `windowS`.
+   */
+  auctionsEnding(nowS: number, aheadS: number, windowS: number): CollectionState[]
 }
 
 const empty = (): CollectionState => ({
@@ -49,6 +60,8 @@ const empty = (): CollectionState => ({
   soldOut: null,
   stats: null,
   launch: null,
+  nftxLaunch: null,
+  auction: null,
 })
 
 const verdictRank = (s: CollectionState) => (s.col?.verdict === "real" ? 0 : 1)
@@ -102,6 +115,8 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
     get: (c) => byContract.get(c),
     apply({ p }) {
       if (p.type === "nft.listing" || p.type === "nft.sale") return null
+      // Amounts of another currency cannot be rendered, and nothing downstream may see such an auction.
+      if (p.type === "nft.auction" && p.currency !== "ETH") return null
       const s = entry(p.contract)
       switch (p.type) {
         case "nft.collection": {
@@ -118,7 +133,11 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
           s.stats = p
           break
         case "nft.launch":
-          s.launch = p
+          if (p.launchpad === "nftx") s.nftxLaunch = p
+          else s.launch = p
+          break
+        case "nft.auction":
+          s.auction = p
           break
         case "nft.mint":
           if (p.kind === "stage_start") s.lastStage = p
@@ -147,6 +166,12 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
         .filter((s) => !s.soldOut && Number.isFinite(next(s)))
         .sort((a, b) => next(a) - next(b))
     },
+    auctionsEnding: (nowS, aheadS, windowS) =>
+      [...byContract.values()].filter(({ col, auction: a }) => {
+        if (!a || a.phase === "ended" || col?.verdict !== "real") return false
+        if (a.endsAt - a.startsAt < AUCTION_REMINDER_MIN_S) return false
+        return Math.abs(a.endsAt - nowS - aheadS) <= windowS
+      }),
   }
 }
 
@@ -158,34 +183,36 @@ export async function loadNftState(sql: Sql, uptoId: string): Promise<NftState> 
   const states = new Map<string, CollectionState>()
   const ents = await sql<{ entity: string }[]>`
     select entity from indexer.events
-    where type in ('nft.collection', 'nft.launch', 'nft.drop', 'nft.mint') and id <= ${uptoId}
+    where type in ('nft.collection', 'nft.launch', 'nft.drop', 'nft.mint', 'nft.auction') and id <= ${uptoId}
     group by entity`
   const contracts = ents.map((e) => e.entity)
   if (contracts.length === 0) return createNftState(states)
   // One lookup per collection and kind through events_type_entity_id: the newest row with id <= uptoId.
-  const latest = <T extends NftEvent>(type: string, kind?: string) =>
+  const latest = <T extends NftEvent>(type: string, filter?: [field: string, value: string]) =>
     sql<{ p: T }[]>`
       select l.payload as p
       from unnest(${contracts}::text[]) as c(entity)
       cross join lateral (
         select payload from indexer.events
         where type = ${type} and entity = c.entity and id <= ${uptoId}
-          ${kind === undefined ? sql`` : sql`and payload->>'kind' = ${kind}`}
+          ${filter === undefined ? sql`` : sql`and payload->>${filter[0]} = ${filter[1]}`}
         order by id desc limit 1
       ) l`
-  const [cols, drops, stages, marks, outs, stats, launches] = await Promise.all([
+  const [cols, drops, stages, marks, outs, stats, launches, opens, auctions] = await Promise.all([
     latest<NftCollectionEvent>("nft.collection"),
     latest<NftDropEvent>("nft.drop"),
-    latest<NftMintEvent>("nft.mint", "stage_start"),
-    latest<NftMintEvent>("nft.mint", "progress"),
-    latest<NftMintEvent>("nft.mint", "sold_out"),
+    latest<NftMintEvent>("nft.mint", ["kind", "stage_start"]),
+    latest<NftMintEvent>("nft.mint", ["kind", "progress"]),
+    latest<NftMintEvent>("nft.mint", ["kind", "sold_out"]),
     latest<NftStatsEvent>("nft.stats"),
-    latest<NftLaunchEvent>("nft.launch"),
+    latest<NftLaunchEvent>("nft.launch", ["launchpad", "chimera"]),
+    latest<NftLaunchEvent>("nft.launch", ["launchpad", "nftx"]),
+    latest<NftAuctionEvent>("nft.auction"),
   ])
   const state = createNftState(states)
   const put = (rows: { p: NftEvent }[]) => {
     for (const { p } of rows) state.apply({ id: "0", p })
   }
-  for (const rows of [cols, drops, stages, marks, outs, stats, launches]) put(rows)
+  for (const rows of [cols, drops, stages, marks, outs, stats, launches, opens, auctions]) put(rows)
   return state
 }

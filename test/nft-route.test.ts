@@ -84,6 +84,18 @@ describe("NFT routing", () => {
     expect(route([cand("minted", { markBps: 5000 })], aud)).toHaveLength(1)
   })
 
+  it("MINIMUM BID RAISED reaches a watcher whose MINTED marks are 75% only, and no feed", () => {
+    const only75 = dm("1", (s) => {
+      s.alerts.minted.marks = [7500]
+    })
+    const feed = dm("2")
+    const aud = audience({ users: [only75, feed], watches: watching(["1"]) })
+    const raise = cand("minted", { bidRaise: true, feedEligible: false })
+    expect(who(route([raise], aud))).toEqual(["101:minted"])
+    // Without the flag a candidate with no mark does not reach the 75% watcher.
+    expect(route([cand("minted", { feedEligible: false })], aud)).toEqual([])
+  })
+
   it("Watched only alerts never reach a chat that does not watch the collection, even a real one", () => {
     const aud = audience({ users: [dm("1")], chats: [grp("-5")] })
     for (const [kind, extra] of [
@@ -335,6 +347,21 @@ describe("separate candidates", () => {
     const o = open()
     const ds = route([{ ...catchUp, eventId: o.eventId }, o], aud)
     expect(who(ds)).toEqual(["-5:launch", "-5:mintstart", "101:launch", "101:mintstart"])
+  })
+
+  it("NOW ON NFTX, the auction catch-up and a mint catch-up from one snapshot all reach one chat", () => {
+    const aud = audience({ users: [dm("1")], chats: [grp("-5")], watches: watching(["1"], ["-5"]) })
+    const o = open()
+    const auction = { ...cand("upcoming", { separate: true }), eventId: o.eventId }
+    const mint = { ...cand("mintstart"), eventId: o.eventId }
+    expect(who(route([mint, o, auction], aud))).toEqual([
+      "-5:launch",
+      "-5:mintstart",
+      "-5:upcoming",
+      "101:launch",
+      "101:mintstart",
+      "101:upcoming",
+    ])
   })
 
   it("two ordinary candidates from one event still give the chat one alert", () => {

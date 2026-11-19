@@ -48,7 +48,7 @@ export const walletText = (a: string): string =>
 export const usdText = (n: number): string => (n < 10 ? `$${n.toFixed(2)}` : usd(n))
 
 /** Three significant digits, trailing zeros trimmed: 0.00025, 0.0112, 0.427, 3.5. */
-function ethNumber(wei: bigint): string {
+export function ethNumber(wei: bigint): string {
   const n = Number(wei) / 1e18
   if (n === 0) return "0"
   if (n >= 1000) return Math.round(n).toLocaleString("en-US")

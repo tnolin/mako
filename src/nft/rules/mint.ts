@@ -29,6 +29,7 @@ import {
   STAGE_START_MAX_S,
 } from "../policy"
 import type { CollectionState } from "../state"
+import { auctionCatchUp } from "./auction"
 
 type MintCtx = Pick<RuleCtx, "nft" | "now" | "nftSince" | "prices">
 type Rows = NftAlertCard["rows"]
@@ -538,6 +539,8 @@ export function mintRules(
         open.blockTimestamp >= (ctx.nftSince ?? 0)
       )
         out.push({ ...nftxOpen(b, st, open, now, rate), separate: true })
+      // The auction's current card is news of its own, beside the open and the mint catch-up.
+      if (becameReal) out.push(auctionCatchUp(b, st, now, rate))
       const becameEligible = !upcomingEligible(prev) && upcomingEligible(p)
       if (becameReal || becameEligible) {
         const up = upcomingEligible(p) && st.drop ? upcoming(b, st, st.drop, now) : null

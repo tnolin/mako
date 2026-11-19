@@ -40,6 +40,8 @@ export type Candidate = {
   separate?: true
   /** MINT UPDATED: sent under the REMINDERS switch, to watchers only. */
   mintUpdate?: boolean
+  /** MINIMUM BID RAISED: sent under MINTED to watchers, whatever mint percentages they chose. */
+  bidRaise?: true
   /** MINTED: the crossed mark. */
   markBps?: NftMark
   /** UNDER FLOOR: the discount to the floor, in basis points. */

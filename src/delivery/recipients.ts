@@ -110,7 +110,8 @@ export function nftAccepts(s: Settings, c: Candidate): boolean {
   const a = s.alerts
   switch (c.alert) {
     case "minted":
-      return c.markBps !== undefined && a.minted.marks.includes(c.markBps)
+      // A minimum bid rise has no mint percentage, so the chat's marks do not apply to it.
+      return c.bidRaise === true || (c.markBps !== undefined && a.minted.marks.includes(c.markBps))
     case "under":
       return (c.discountBps ?? 0) >= a.under.pctBps
     case "rare":

@@ -8,8 +8,17 @@ import {
   shortAddr,
   usdText,
 } from "../src/nft/card"
+import {
+  bidRaisedCard,
+  endedCard,
+  endingSoonCard,
+  liveAuctionCard,
+  upcomingAuctionCard,
+} from "../src/nft/rules/auction"
+import { createNftState } from "../src/nft/state"
 import { nftAlertKeyboard, nftViewPath, renderNftAlert } from "../src/platforms/telegram/render"
 import { NFT_ALL_ALERTS, NFT_WATCHED_ALERTS } from "../src/settings"
+import { loadNftx } from "./helpers/fixtures"
 
 const HORNET = "0x4d243f15743f6df7c832fcd5ee9a3e8453d47a4b"
 const PRTSCN = "0x3ea71c6abde8a1b3cf6e5683761a7378b4e9e448"
@@ -831,5 +840,112 @@ describe("nftAlertKeyboard", () => {
       for (const b of kb.inline_keyboard.flat())
         if ("callback_data" in b) expect(Buffer.byteLength(b.callback_data!)).toBeLessThan(64)
     }
+  })
+})
+
+describe("auction cards", () => {
+  const fx = loadNftx()
+  const { inktrons: A } = fx
+  const st = createNftState()
+  st.apply({
+    id: "1",
+    p: { ...fx.lilDudes.collection, links: { twitter: "@dudes", website: null, discord: null } },
+  })
+  st.apply({ id: "2", p: A.ended })
+  const col = st.get(fx.lilDudes.collection.contract)!
+  const rate = 2400
+  const header = (title: string) => [`<b>${title}</b>`, "Lil Dudes · NFTX", ""]
+  const xLine = '<a href="https://x.com/dudes">X</a>'
+
+  it("the five auction cards render as the facts file shows, with no CA line", () => {
+    const raised = {
+      ...A.price,
+      clearingPriceWei: "160000000000000",
+      bidders: 4,
+      raisedWei: "200000000000000000",
+    }
+    const cards = [
+      upcomingAuctionCard(col, A.created, A.created.blockTimestamp, rate),
+      liveAuctionCard(col, A.live, A.live.blockTimestamp, rate),
+      bidRaisedCard(col, raised, raised.endsAt - 9 * 3600, rate),
+      endingSoonCard(col, A.ended, A.ended.endsAt - 3600, rate),
+      endedCard(col, A.ended, A.ended.endsAt + 60, rate),
+    ]
+    expect(cards.map((c) => renderNftAlert(c))).toEqual([
+      [
+        ...header("UPCOMING AUCTION"),
+        ...code(
+          "starts   Nov 5 13:00 UTC (in 13h 9m)",
+          "ends     Nov 6 13:00 UTC",
+          "supply   1,100 NFTs",
+          "min bid  0.0001 ETH ($0.24)",
+        ),
+        "",
+        xLine,
+      ].join("\n"),
+      [
+        ...header("AUCTION LIVE"),
+        ...code(
+          "min bid  0.0001 ETH ($0.24)",
+          "ends     Nov 6 13:00 UTC (in 1d)",
+          "supply   1,100 NFTs",
+        ),
+        "",
+        xLine,
+      ].join("\n"),
+      [
+        ...header("MINIMUM BID RAISED"),
+        ...code(
+          "min bid  0.00016 ETH ($0.38) (+60%)",
+          "bidders  4",
+          "raised   0.2 ETH ($480)",
+          "ends     in 9h",
+        ),
+      ].join("\n"),
+      [
+        ...header("AUCTION ENDING SOON"),
+        ...code(
+          "ends     13:00 UTC (in 1h)",
+          "min bid  0.0001 ETH ($0.24)",
+          "bidders  11",
+          "raised   0.0102 ETH ($24)",
+        ),
+      ].join("\n"),
+      [
+        ...header("AUCTION ENDED"),
+        ...code(
+          "price    0.0001 ETH ($0.24) per NFT",
+          "sold     101 / 1,100 (9%)",
+          "raised   0.0102 ETH ($24)",
+          "bidders  11",
+          "claims   from 13:05 UTC",
+        ),
+      ].join("\n"),
+    ])
+    for (const c of cards) {
+      expect(renderNftAlert(c)).not.toContain("CA ")
+      expect(nftViewPath(c)).toBe("/n/x/lil-dudes")
+    }
+  })
+
+  it("the refunded AUCTION ENDED renders result, raised and bidders", () => {
+    const failed = {
+      ...A.ended,
+      graduated: false,
+      cleared: "0",
+      raisedWei: "4100000000000000000",
+      requiredRaiseWei: "10000000000000000000",
+      bidders: 52,
+    }
+    expect(renderNftAlert(endedCard(col, failed, failed.endsAt, rate))).toBe(
+      [
+        ...header("AUCTION ENDED"),
+        ...code(
+          "result   minimum not raised, bids refunded",
+          "raised   4.1 / 10 ETH",
+          "bidders  52",
+        ),
+      ].join("\n"),
+    )
   })
 })

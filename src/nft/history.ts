@@ -1,4 +1,4 @@
-import type { NftEvent, NftSaleEvent, NftStatsEvent } from "@ink-indexer/events"
+import type { NftAuctionEvent, NftEvent, NftSaleEvent, NftStatsEvent } from "@ink-indexer/events"
 import type { Sql } from "../db"
 import type { Row } from "../history"
 
@@ -51,6 +51,20 @@ export function salesByBuyer(
     where type = 'nft.sale' and entity = ${contract} and id <= ${uptoId}
       and payload->>'buyer' = ${buyer} and (payload->>'blockTimestamp')::bigint >= ${sinceTs}
       and payload->>'toPool' is distinct from 'true'
+    order by events.id`
+}
+
+/** One auction's `price` events up to this event id, oldest first. */
+export function auctionPrices(
+  sql: Sql,
+  contract: string,
+  auction: string,
+  uptoId: string,
+): Promise<Row<NftAuctionEvent>[]> {
+  return sql<Row<NftAuctionEvent>[]>`
+    select id::text, payload as p from indexer.events
+    where type = 'nft.auction' and entity = ${contract} and id <= ${uptoId}
+      and payload->>'auction' = ${auction} and payload->>'phase' = 'price'
     order by events.id`
 }
 

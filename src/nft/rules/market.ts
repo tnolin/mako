@@ -169,10 +169,10 @@ function floorMove(ev: Row<NftStatsEvent>, ctx: RuleCtx, rate: number | null): C
     ["floor", ethText(floor, rate)],
     ["24h ago", ethText(ago, null)],
   ]
-  if (p.volume24hWei !== null)
+  if (p.volume24hWei != null)
     rows.push(["volume", `${ethText(BigInt(p.volume24hWei), rate)} (24h)`])
-  if (p.sales24h !== null) rows.push(["sales", `${count(p.sales24h)} (24h)`])
-  if (p.owners !== null) rows.push(["holders", count(p.owners)])
+  if (p.sales24h != null) rows.push(["sales", `${count(p.sales24h)} (24h)`])
+  if (p.owners != null) rows.push(["holders", count(p.owners)])
   const card = makeNftAlertCard(
     "floor",
     `FLOOR ${dir.toUpperCase()} ${pct(floorBps)}%`,

@@ -200,6 +200,12 @@ describe("FLOOR UP / DOWN", () => {
       ...o,
     })
 
+  it("renders with volume, sales and holders absent from the row, not just null", async () => {
+    const { volume24hWei: _v, sales24h: _s, owners: _o, ...bare } = stats()
+    const c = by(await run(bare as never), "floor")
+    expect(rows(c)).toEqual(["floor|0.427 ETH ($1.0K)", "24h ago|0.562 ETH"])
+  })
+
   it("fires on a 24% drop with the expected rows", async () => {
     const [c] = await run(stats())
     expect(c).toMatchObject({

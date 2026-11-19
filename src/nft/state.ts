@@ -219,7 +219,7 @@ export async function loadNftState(sql: Sql, uptoId: string): Promise<NftState> 
     latest<NftStatsEvent>("nft.stats"),
     latest<NftLaunchEvent>("nft.launch", ["launchpad", "chimera"]),
     latest<NftLaunchEvent>("nft.launch", ["launchpad", "nftx"]),
-    latest<NftAuctionEvent>("nft.auction"),
+    latest<NftAuctionEvent>("nft.auction", ["currency", "ETH"]),
   ])
   const state = createNftState(states)
   const put = (rows: { p: NftEvent }[]) => {

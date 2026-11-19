@@ -4,11 +4,13 @@ import type { Sql } from "../src/db"
 import type { Row } from "../src/history"
 import type { NftAlertCard } from "../src/nft/card"
 import { BID_RAISE_GAP_S } from "../src/nft/policy"
+import { queueReminders } from "../src/nft/reminders"
 import { auctionRules, bidRaiseWalk, endingSoonCard } from "../src/nft/rules/auction"
 import { mintRules } from "../src/nft/rules/mint"
 import { createNftState, loadNftState, type NftState } from "../src/nft/state"
 import type { Prices } from "../src/prices"
 import { type Candidate, rulesFor } from "../src/rules/index"
+import { addUser } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
 import { hash, NATIVE } from "./helpers/events"
 import { loadNftx } from "./helpers/fixtures"
@@ -348,6 +350,28 @@ describe("no auction card without verdict real", () => {
   it("gives nothing for an auction the state did not take (an ERC-20 currency)", async () => {
     const erc20 = { ...A.live, currency: "0x2222222222222222222222222222222222222222" as const }
     expect(await run(erc20, erc20.blockTimestamp)).toEqual([])
+  })
+})
+
+describe("after a restart", () => {
+  it("keeps the ETH auction when a later auction is in another currency, so its reminder and AUCTION ENDED still go out", async () => {
+    const other = {
+      ...A.created,
+      auction: "0x1111111111111111111111111111111111111111" as const,
+      currency: "0x2222222222222222222222222222222222222222" as never,
+      txHash: hash(0xe1),
+      blockNumber: "999999999",
+    }
+    const ids = await insertEvents(sql, [real, A.created, A.live, other])
+    const reloaded = await loadNftState(sql, ids.at(-1)!)
+    expect(reloaded.get(LD)?.auction?.auction).toBe(AU)
+    const user = await addUser(sql, 101)
+    await sql`insert into bot.reminders (user_id, contract) values (${user}, ${LD})`
+    await queueReminders({ sql, nft: () => reloaded, now: () => A.created.endsAt - H, prices })
+    const rows = await sql`select dedupe_key from bot.deliveries`
+    expect(rows.map((r) => r.dedupe_key)).toEqual([`auction:${AU}:ending`])
+    const ended = only(await run(A.ended, A.ended.blockTimestamp + 60, reloaded))
+    expect(card(ended).title).toBe("AUCTION ENDED")
   })
 })
 

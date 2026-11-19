@@ -64,7 +64,7 @@ describe("current", () => {
         "poolCount",
         "nftxSlug",
       ])
-        expect(decoded[f] ?? null).toBeNull()
+        expect(decoded[f], `${e.type}.${f}`).toBeUndefined()
     }
   })
 })

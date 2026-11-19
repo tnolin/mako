@@ -97,7 +97,9 @@ install -m 0600 -o root -g root /dev/null /etc/ink/indexer.env
 install -m 0600 -o root -g root /dev/null /etc/ink/mako.env
 ```
 
-`/etc/ink/indexer.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=indexer`, `INK_RPC_WS_URLS=`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
+`/etc/ink/indexer.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=indexer`, `INK_RPC_WS_URLS=`, `INDEXER_SOURCES=`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
+
+`INDEXER_SOURCES` is a comma-separated list of the platforms the indexer follows. Empty means every platform the release knows; the names are listed in ink-indexer's `.env.example`.
 
 `/etc/ink/mako.env`: `DATABASE_URL=postgres:///ink`, `PGHOST=/var/run/postgresql`, `PGUSER=mako`, `TELEGRAM_BOT_TOKEN=…`, `INKYPUMP_REF_CODE=…`, `LINKS_BASE_URL=https://go.makobot.xyz`, `OPENSEA_API_KEY=…`, `SENTRY_DSN=…`, `SENTRY_RELEASE=…`.
 
@@ -162,6 +164,39 @@ The bot applies its database migrations when it starts. If a release changes `sc
 3. Check `journalctl -u <unit>` and the bot, then delete the snapshot. Never keep it longer than 14 days: it holds user data, and `/help` says backups are deleted after 14 days.
 
 To roll back, restore the snapshot. Checking out the previous tag without restoring it leaves queued NFT alert and reminder rows that the older bot can't send; they fail or age out within 30 minutes.
+
+### A release that adds a platform
+
+An indexer release can add a platform to the ones `INDEXER_SOURCES` names. With `INDEXER_SOURCES` empty, the first start after the update follows the new platform from the cursor onward with none of its earlier history. To bring it in with its history, keep it out of the live service until it has been backfilled. The blocks and backfill sources below are placeholders. `--sources` takes backfill source names, which can differ from the platform name: the `opensea` platform's are `nft-mints,nft-sales`. A launchpad's include `v4-swaps` beside its own name (`inkfun` is `inkfun,v4-swaps`), and the release's changelog names a new platform's.
+
+1. Before `mako-update ink-indexer <tag>`, set `INDEXER_SOURCES` in `/etc/ink/indexer.env` to the platforms that already run, without the new one. The running service logs them at start. If the journal has no such line (it keeps 14 days), they are the platforms the running release lists in `/opt/ink-indexer/.env.example`, so read that file before you update:
+
+   ```bash
+   journalctl -u ink-indexer -o cat | grep '"msg":"sources"' | tail -1
+   ```
+
+2. Run `mako-update`, then backfill the new platform beside the running service. The service user can't read `/etc/ink/indexer.env`, so the backfill runs as a transient systemd unit that loads the file as root and then runs as `ink-indexer`. `<start block>` is the first block the platform has data from, and `<end block>` comes from the cursor (`sudo -u postgres psql ink -tc "select block from indexer.cursors where source = 'inkypump'"`), at or below it:
+
+   ```bash
+   since=$(date '+%F %T')
+   sudo systemd-run --unit=ink-backfill --collect --uid=ink-indexer --gid=ink \
+     -p EnvironmentFile=/etc/ink/indexer.env -p WorkingDirectory=/opt/ink-indexer \
+     -p NoNewPrivileges=yes -p ProtectSystem=strict -p ProtectHome=yes -p PrivateTmp=yes \
+     /usr/bin/node --import tsx apps/indexer/src/main.ts backfill \
+     --from <start block> --to <end block> --sources <backfill sources> --block-reads 8
+   journalctl -u ink-backfill --since "$since" -f
+   ```
+
+   The backfill can take tens of minutes, and at the default log level it prints the block ranges that held events and an `rpc calls` summary every 10 minutes, so long quiet stretches are normal. It has finished when the journal shows `"msg":"backfill done"` and systemd then logs `ink-backfill.service: Deactivated successfully` (exit status 0); press Ctrl-C to leave `journalctl`. A failure ends with `Failed with result 'exit-code'`, and the lines before it, `"level":"error","msg":"backfill failed"` among them, give the error. Do not go on to the next step after a failure. If the endpoints refuse a block for 10 minutes, the error gives the `--from`, `--to` and `--sources` to resume with. `--collect` unloads the unit after a failed run too, so the same command can be run again.
+
+3. Backfill the tail. Stop the service so the cursor stops moving, read the cursor again, and run the same command with `--from` set to the first run's `--to` plus 1 and `--to` set to the cursor block. When it has finished, add the platform to `INDEXER_SOURCES` and start the service:
+
+   ```bash
+   systemctl stop ink-indexer
+   sudo -u postgres psql ink -tc "select block from indexer.cursors where source = 'inkypump'"
+   # backfill the tail as in step 2, then add the platform to INDEXER_SOURCES in /etc/ink/indexer.env
+   systemctl start ink-indexer
+   ```
 
 ### Moving an existing server to the root-owned layout
 
@@ -243,8 +278,15 @@ The indexer schema is dumped with its rows except for the raw chain tables `inde
 After restoring on a new server, the four chain tables are empty while the cursor is at its old position. Set `NFT_HISTORY_START_BLOCK` in the indexer's env file to the block your mint history started from (the first stored mint) so collections keep their `legacy` status, then refill the tables:
 
 ```bash
-cd /opt/ink-indexer && sudo -u ink-indexer pnpm backfill --from <that block> --sources nft-mints,nft-sales
+since=$(date '+%F %T')
+sudo systemd-run --unit=ink-backfill --collect --uid=ink-indexer --gid=ink \
+  -p EnvironmentFile=/etc/ink/indexer.env -p WorkingDirectory=/opt/ink-indexer \
+  -p NoNewPrivileges=yes -p ProtectSystem=strict -p ProtectHome=yes -p PrivateTmp=yes \
+  /usr/bin/node --import tsx apps/indexer/src/main.ts backfill --from <that block> --sources nft-mints,nft-sales
+journalctl -u ink-backfill --since "$since" -f
 ```
+
+Run it before you start the indexer service on the restored server, and start the service once the journal shows `"msg":"backfill done"`. The unit runs as `ink-indexer` with the service's env file, which only root can read.
 
 ## Restore drill
 

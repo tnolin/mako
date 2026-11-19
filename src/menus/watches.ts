@@ -467,7 +467,11 @@ export function registerWatches(bot: Bot, deps: BotDeps): void {
     tap(deps, async (u, contract) => {
       await remind(deps.sql, u.id, contract)
       await log(deps, "remind", contract)
-      return { text: popup.remind(), edit: true }
+      const auction = deps.nft?.()?.get(contract)?.auction
+      return {
+        text: auction && auction.phase !== "ended" ? popup.remindAuction() : popup.remind(),
+        edit: true,
+      }
     }),
   )
   pm.callbackQuery(

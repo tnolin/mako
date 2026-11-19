@@ -1,13 +1,17 @@
 import type { NftDropStage } from "@ink-indexer/events"
 import { afterAll, beforeEach, describe, expect, inject, it } from "vitest"
 import type { Sql } from "../src/db"
+import type { NftAlertCard } from "../src/nft/card"
 import { queueReminders, startReminders } from "../src/nft/reminders"
 import { createNftState, type NftState } from "../src/nft/state"
 import { muteCollection, remind, unremind, watch } from "../src/nft/watches"
+import type { Prices } from "../src/prices"
+import { NATIVE } from "../src/prices"
 import { basicPreset } from "../src/settings"
 import { addChat, addUser, listDeliveries } from "./helpers/bot"
 import { resetDb } from "./helpers/db"
 import { addr, nftCollection, nftDrop, nftMint } from "./helpers/events"
+import { loadNftx } from "./helpers/fixtures"
 
 const C = addr(0xc0)
 const START = Date.UTC(2026, 8, 6, 13) / 1000
@@ -197,5 +201,145 @@ describe("MINT REMINDER scheduler", () => {
     await new Promise((r) => setTimeout(r, 100))
     stop()
     expect(await cards()).toHaveLength(1)
+  })
+})
+
+describe("AUCTION ENDING SOON scheduler", () => {
+  const fx = loadNftx()
+  const LD = fx.lilDudes.collection.contract
+  const A = fx.inktrons
+  const ENDS = A.created.endsAt
+  const hourBefore = ENDS - 3600
+  const prices: Prices = { usd: (q) => (q === NATIVE ? 2400 : null), symbol: () => "ETH" }
+  const ending = async () =>
+    (await listDeliveries(sql)).filter((r) => r.dedupe_key.endsWith(":ending"))
+  let st: NftState
+  beforeEach(() => {
+    st = createNftState()
+    st.apply({ id: "1", p: fx.lilDudes.collection })
+    st.apply({ id: "2", p: A.live })
+  })
+  const queue = (now: number, p: Prices | null = prices) =>
+    queueReminders({ sql, nft: () => st, now: () => now, prices: p ?? undefined })
+
+  it("queues AUCTION ENDING SOON an hour before the end for a Remind me user and a watcher", async () => {
+    const a = await addUser(sql, 101)
+    const b = await addUser(sql, 102)
+    await remind(sql, a, LD)
+    await watch(sql, { userId: b }, LD)
+    await queue(hourBefore)
+    const rows = await ending()
+    expect(rows.map((r) => r.chat_id).sort()).toEqual(["101", "102"])
+    expect(rows[0]).toMatchObject({
+      chat_type: "private",
+      alert: "reminder",
+      dedupe_key: `auction:${A.created.auction}:ending`,
+      priority: 2,
+      status: "pending",
+    })
+    const p = rows[0]!.card as unknown as { type: string; image: boolean; card: NftAlertCard }
+    expect(p).toMatchObject({ type: "nftalert", image: true })
+    expect(p.card).toMatchObject({
+      title: "AUCTION ENDING SOON",
+      marketplace: "NFTX",
+      link: "nftx",
+      links: [],
+      contract: LD,
+    })
+    expect(p.card.remind).toBeUndefined()
+    expect(p.card.rows).toEqual([
+      ["ends", "13:00 UTC (in 1h)"],
+      ["min bid", "0.0001 ETH ($0.24)"],
+      ["bidders", "0"],
+      ["raised", "0 ETH ($0.00)"],
+    ])
+  })
+
+  it("shows ETH only without a fresh price", async () => {
+    await remind(sql, await addUser(sql, 101), LD)
+    await queue(hourBefore, { usd: () => null, symbol: () => "ETH" })
+    const p = (await ending())[0]!.card as unknown as { card: NftAlertCard }
+    expect(p.card.rows[1]).toEqual(["min bid", "0.0001 ETH"])
+    await sql`delete from bot.deliveries`
+    await queue(hourBefore, null)
+    expect((await ending())[0]!.card).toMatchObject({
+      card: {
+        rows: [
+          ["ends", expect.any(String)],
+          ["min bid", "0.0001 ETH"],
+          ["bidders", "0"],
+          ["raised", "0 ETH"],
+        ],
+      },
+    })
+  })
+
+  it("skips a muted user, a blocked user, groups and a user with REMINDERS off who only watches", async () => {
+    const muted = await addUser(sql, 101)
+    const blocked = await addUser(sql, 102)
+    const off = basicPreset("private")
+    off.alerts.reminder.on = false
+    const quiet = await addUser(sql, 103, off)
+    await remind(sql, muted, LD)
+    await muteCollection(sql, { userId: muted }, LD)
+    await remind(sql, blocked, LD)
+    await sql`update bot.users set blocked_at = now() where id = ${blocked}`
+    await watch(sql, { userId: quiet }, LD)
+    await addChat(sql, -1001, "supergroup")
+    await watch(sql, { chatId: "-1001" }, LD)
+    await queue(hourBefore)
+    expect(await ending()).toEqual([])
+  })
+
+  it("fires only from 59 to 61 minutes ahead", async () => {
+    await remind(sql, await addUser(sql, 101), LD)
+    for (const min of [62, 58, 30]) {
+      await queue(ENDS - min * 60)
+      expect(await ending(), `${min}m`).toEqual([])
+    }
+    await queue(ENDS - 61 * 60)
+    expect(await ending()).toHaveLength(1)
+    await sql`delete from bot.deliveries`
+    await queue(ENDS - 59 * 60)
+    expect(await ending()).toHaveLength(1)
+  })
+
+  it("sends once when the end moves inside the window", async () => {
+    await remind(sql, await addUser(sql, 101), LD)
+    await queue(hourBefore)
+    st.apply({ id: "3", p: { ...A.live, endsAt: ENDS + 30, blockNumber: "999999999" } })
+    await queue(hourBefore + 30)
+    expect(await ending()).toHaveLength(1)
+  })
+
+  it("sends nothing once the auction ended, for a collection that is not real, or for an auction under 2 hours", async () => {
+    await remind(sql, await addUser(sql, 101), LD)
+    st.apply({ id: "3", p: A.ended })
+    await queue(hourBefore)
+    expect(await ending()).toEqual([])
+    const unverified = createNftState()
+    unverified.apply({ id: "1", p: { ...fx.lilDudes.collection, verdict: "pending" } as never })
+    unverified.apply({ id: "2", p: A.live })
+    st = unverified
+    await queue(hourBefore)
+    expect(await ending()).toEqual([])
+    const short = createNftState()
+    short.apply({ id: "1", p: fx.lilDudes.collection })
+    short.apply({ id: "2", p: { ...A.live, startsAt: ENDS - 3600 - 600, endsAt: ENDS } })
+    st = short
+    await queue(hourBefore)
+    expect(await ending()).toEqual([])
+  })
+
+  it("names a mint reminder for a collection NFTX trades without an OpenSea page as NFTX", async () => {
+    const nftxOnly = createNftState()
+    const slugless = { ...fx.lilDudes.collection, slug: null }
+    nftxOnly.apply({ id: "1", p: slugless })
+    nftxOnly.apply({ id: "2", p: nftDrop({ contract: LD, stages: [stage("FCFS")] }) })
+    nftxOnly.apply({ id: "3", p: A.live })
+    await remind(sql, await addUser(sql, 101), LD)
+    await queueReminders({ sql, nft: () => nftxOnly, now: () => ago15, prices })
+    const r = (await cards())[0]!.card as unknown as { card: NftAlertCard }
+    expect(r.card).toMatchObject({ marketplace: "NFTX", link: "nftx" })
   })
 })

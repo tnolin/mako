@@ -4,6 +4,7 @@ import { BATCH_SHOWN } from "../../delivery/flood"
 import type { ChatType } from "../../delivery/recipients"
 import { escapeHtml, safeUrl } from "../../format"
 import type { NftAlertCard } from "../../nft/card"
+import { safeSlug } from "../../nft/nftx"
 import { btnOn, stateBtn } from "./ui"
 
 /** Data rows: one <code> per line, labels padded to max(9, longest + 1) so values align. */
@@ -36,19 +37,26 @@ export function renderCard(card: Card): string {
 
 /** An NFT alert: bold title, `Name ✓ · OpenSea`, one <code> row per line, CA (and any token address), links. */
 export function renderNftAlert(card: NftAlertCard): string {
-  const addrs: [string, string][] = [["CA", card.contract], ...card.extra]
+  // An NFTX card has no address lines: View opens the collection on NFTX.
+  const addrs: [string, string][] =
+    card.link === "nftx" ? [] : [["CA", card.contract], ...card.extra]
   // A lone CA keeps the token alerts' three spaces; with more addresses the labels align two columns past the longest.
-  const width = card.extra.length === 0 ? 5 : Math.max(...addrs.map(([l]) => l.length)) + 2
+  const width = addrs.length < 2 ? 5 : Math.max(...addrs.map(([l]) => l.length)) + 2
   const lines = [
     `<b>${escapeHtml(card.title)}</b>`,
     `${escapeHtml(card.name)}${card.verified ? " ✓" : ""} · ${escapeHtml(card.marketplace)}`,
     "",
     ...renderRows(card.rows),
-    "",
-    ...addrs.map(([l, a]) => `${escapeHtml(l.padEnd(width))}<code>${escapeHtml(a)}</code>`),
   ]
+  if (addrs.length > 0) {
+    lines.push(
+      "",
+      ...addrs.map(([l, a]) => `${escapeHtml(l.padEnd(width))}<code>${escapeHtml(a)}</code>`),
+    )
+  }
   const links = card.links.filter((l) => safeUrl(l.url) !== null)
   if (links.length > 0) {
+    if (addrs.length === 0) lines.push("")
     lines.push(
       links.map((l) => `<a href="${escapeHtml(l.url)}">${escapeHtml(l.label)}</a>`).join(" · "),
     )
@@ -60,6 +68,21 @@ export function renderNftAlert(card: NftAlertCard): string {
 export type NftViewerState = { watching?: boolean; muted?: boolean; reminded?: boolean }
 
 const ITEM_PAGE = new Set<NftAlertCard["alert"]>(["under", "rare", "sale", "bigsale"])
+
+/**
+ * The redirect path View and Buy use. A card queued before NFTX support has no `link` and is an OpenSea card.
+ * The slug is checked again here: a card in the queue is data, and the path must never be built from a bad one.
+ */
+export function nftViewPath(card: NftAlertCard): string {
+  const item = ITEM_PAGE.has(card.alert) && card.tokenId !== null
+  if ((card.link ?? "opensea") === "nftx") {
+    const slug = safeSlug(card.nftxSlug)
+    if (!slug) return "/p/nftx"
+    return item ? `/n/xi/${slug}/${card.tokenId}` : `/n/x/${slug}`
+  }
+  const c = card.contract
+  return item ? `/n/i/${c}/${card.tokenId}` : card.slug ? `/n/c/${card.slug}` : `/n/a/${c}`
+}
 
 export function nftAlertKeyboard(
   card: NftAlertCard,
@@ -73,12 +96,11 @@ export function nftAlertKeyboard(
 ): InlineKeyboardMarkup {
   const d = ctx.deliveryId ? `?d=${ctx.deliveryId}` : ""
   const c = card.contract
-  const item = ITEM_PAGE.has(card.alert) && card.tokenId !== null
-  const path = item ? `/n/i/${c}/${card.tokenId}` : card.slug ? `/n/c/${card.slug}` : `/n/a/${c}`
   const open: InlineKeyboardButton = {
     text: card.alert === "under" || card.alert === "rare" ? "Buy" : "View",
-    url: `${ctx.linksBase}${path}${d}`,
+    url: `${ctx.linksBase}${nftViewPath(card)}${d}`,
   }
+  const remind = card.alert === "upcoming" || card.remind === true
   const st = ctx.state ?? {}
   if (ctx.chatType === "private" && card.alert === "reminder") {
     return { inline_keyboard: [[open, btnOn("Reminder set", `nrr:${c}`)]] }
@@ -89,7 +111,7 @@ export function nftAlertKeyboard(
   })
   if (ctx.chatType !== "private") {
     const rows = [[open, deep("Watch", "wn")]]
-    if (card.alert === "upcoming") rows.push([deep("Remind me", "rn")])
+    if (remind) rows.push([deep("Remind me", "rn")])
     return { inline_keyboard: rows }
   }
   const row = [
@@ -101,7 +123,7 @@ export function nftAlertKeyboard(
     stateBtn({ on: !!st.muted, off: "Mute", onText: "Muted" }, `${st.muted ? "nmu" : "nm"}:${c}`),
   ]
   const rows = [row]
-  if (card.alert === "upcoming") {
+  if (remind) {
     rows.push([
       stateBtn(
         { on: !!st.reminded, off: "Remind me", onText: "Reminder set" },

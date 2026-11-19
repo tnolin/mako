@@ -1,6 +1,7 @@
 import type { NftCollectionEvent } from "@ink-indexer/events"
 import { clean, safeUrl, usd } from "../format"
 import type { AlertKind, TokenAlert } from "../settings"
+import { safeSlug } from "./nftx"
 
 export type NftAlertKind = Exclude<AlertKind, TokenAlert>
 
@@ -13,7 +14,13 @@ export type NftAlertCard = {
   name: string
   /** OpenSea marks the collection verified: ` ✓` after the name. */
   verified: boolean
-  marketplace: "OpenSea" | "Chimera"
+  marketplace: "OpenSea" | "Chimera" | "NFTX"
+  /**
+   * Where View and Buy go. A card queued before NFTX support has no `link` and reads as OpenSea.
+   */
+  link: "opensea" | "nftx"
+  /** The collection's name in NFTX's URLs, validated; null when there is none. */
+  nftxSlug: string | null
   rows: [label: string, value: string][]
   /** The collection contract. */
   contract: string
@@ -26,6 +33,8 @@ export type NftAlertCard = {
   /** The image cache key: `nft:<contract>` for the collection image, `nft:<contract>:<id>` for an item. */
   imageKey: string
   links: { label: "X" | "Website" | "Discord"; url: string }[]
+  /** Adds a Remind me button to a card that is not UPCOMING (AUCTION LIVE). */
+  remind?: true
 }
 
 /** 0x12ab…cd34 */
@@ -95,6 +104,10 @@ export function makeNftAlertCard(
     tokenId?: string
     imageUrl?: string | null
     extra?: NftAlertCard["extra"]
+    /** `"nftx"` labels the card NFTX and sends View and Buy to NFTX. */
+    market?: "nftx"
+    nftxSlug?: string | null
+    remind?: true
   },
 ): NftAlertCard {
   const contract = col?.contract ?? opts.contract ?? ""
@@ -105,7 +118,14 @@ export function makeNftAlertCard(
     title,
     name: clean(col?.name, 64) || shortAddr(contract),
     verified: col?.safelist === "verified",
-    marketplace: alert === "launch" && col?.launchpad === "chimera" ? "Chimera" : "OpenSea",
+    marketplace:
+      opts.market === "nftx"
+        ? "NFTX"
+        : alert === "launch" && col?.launchpad === "chimera"
+          ? "Chimera"
+          : "OpenSea",
+    link: opts.market === "nftx" ? "nftx" : "opensea",
+    nftxSlug: opts.market === "nftx" ? safeSlug(opts.nftxSlug) : null,
     rows,
     contract,
     extra: opts.extra ?? [],
@@ -114,6 +134,7 @@ export function makeNftAlertCard(
     imageUrl: item ?? col?.imageUrl ?? null,
     imageKey: item ? `nft:${contract}:${opts.tokenId}` : `nft:${contract}`,
     links,
+    ...(opts.remind ? { remind: true as const } : {}),
   }
 }
 

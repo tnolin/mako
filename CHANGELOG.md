@@ -1,5 +1,23 @@
 # Changelog
 
+## Unreleased
+
+### Added
+
+- NFTX on NFT cards: SOLD, BIG SALE, RARE LISTING, FLOOR UP/DOWN and SWEEP for NFTX trades read `· NFTX` and their View and Buy buttons open NFTX. SOLD and BIG SALE show how the trade happened, a purchase from or sale into the pool names `NFTX pool`, and RARE LISTING shows the listing's multiple of the floor and when a Dutch listing ends. The collection card has an `nftx` row with the pool's price and size (see [ADR 0026](docs/adr/0026-nftx-marketplace-and-auctions.md)).
+- NOW ON NFTX, sent as NEW COLLECTION when a collection opens on NFTX.
+- UPCOMING AUCTION, AUCTION LIVE, MINIMUM BID RAISED, AUCTION ENDING SOON and AUCTION ENDED for NFTX auctions, under the UPCOMING MINT, MINT STARTING, MINTED, REMINDERS and SOLD OUT switches. MINIMUM BID RAISED goes to watchers when the minimum bid rises 25% or more. Remind me on an auction sends AUCTION ENDING SOON an hour before it ends (see [ADR 0027](docs/adr/0027-remind-me-for-auctions.md)).
+- Mint alerts of a collection that NFTX trades and OpenSea has no page for read `· NFTX` and link to NFTX, and the collection lists name it by its token.
+
+### Changed
+
+- NEW COLLECTION is for collections opening on NFTX, and Chimera launches no longer send it. The NFTs screen lists OpenSea and NFTX.
+- SWEEP no longer counts sales to an NFTX pool or purchases routed into it.
+- SOLD OUT for a collection without mint stages has no mint price.
+- Listing alerts no longer require a listing to stay up for an hour.
+- The collection card header always reads `· OpenSea`.
+- The alert descriptions in the menus, Help and README name auctions, and the Remind me paragraph covers auctions.
+
 ## [0.6.1] - 2026-11-10
 
 ### Fixed

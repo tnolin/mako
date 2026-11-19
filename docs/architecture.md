@@ -67,11 +67,11 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 
 | Alert | Fires when |
 | --- | --- |
-| UPCOMING MINT | A mint is scheduled |
-| MINT STARTING | The public stage of a mint opens; a mint without stages sends it with no stage label. A watched collection also sends it for each stage other than a Team stage |
-| MINTED | A watched collection's mint passes a mark (25%, 50% or 75%) |
-| SOLD OUT | A collection mints out |
-| NEW COLLECTION | A new Chimera collection has a name and an image |
+| UPCOMING MINT | A mint is scheduled, or an NFTX auction (UPCOMING AUCTION, ADR 0026) |
+| MINT STARTING | The public stage of a mint opens; a mint without stages sends it with no stage label. A watched collection also sends it for each stage other than a Team stage. An NFTX auction starts (AUCTION LIVE) |
+| MINTED | A watched collection's mint passes a mark (25%, 50% or 75%). A watched auction's minimum bid rises 25% or more over the last one alerted (MINIMUM BID RAISED), at least 30 minutes apart, without regard to the marks |
+| SOLD OUT | A collection mints out, or an NFTX auction ends (AUCTION ENDED). A collection without mint stages shows no mint price |
+| NEW COLLECTION | A collection opens on NFTX (NOW ON NFTX) and passes the quality checks. Chimera launches send nothing |
 
 **NFT alerts, Watched only**
 
@@ -84,6 +84,7 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 | BIG SALE | A sale at or above 0.05, 0.1, 0.25 or 0.5 ETH (0.1 by default) |
 | SOLD | A sale at or above a minimum (any, 0.01, 0.05, 0.1, 0.5 or 1 ETH) |
 | MINT REMINDER | 15 minutes before each stage that isn't a Team stage, from the REMINDERS switch or a Remind me tap |
+| AUCTION ENDING SOON | 1 hour before an NFTX auction of at least 2 hours ends, from the REMINDERS switch or a Remind me tap (ADR 0027) |
 
 **Routing**
 
@@ -95,8 +96,9 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 - One alert per event per chat, the highest priority first. Paused and topic routes apply to every kind.
 - Defaults depend on the chat type: the All collections alerts are on in DMs and off in groups and channels. The Watched only alerts are on everywhere except SOLD.
 - At most 3 UNDER FLOOR or RARE LISTING alerts per collection per chat per hour, and one FLOOR MOVE per collection and direction per chat every 6 hours. UNDER FLOOR and RARE LISTING need a floor read within 15 minutes of the listing (ADR 0018).
-- Priorities, from first to last: DEV SELL; BONDED, MCAP TARGET, SOLD OUT; BONDING, MINT STARTING, MINT REMINDER, RARE LISTING; PUMPING, UPCOMING MINT, MINTED, UNDER FLOOR, SWEEP, BIG SALE, NEW COLLECTION; BIG BUY/SELL, FLOOR MOVE; NEW TOKEN, SOLD.
-- A collection that turns real after its mint started gets one MINT STARTING that reads "started Nm ago", with no back-filled marks.
+- Priorities, from first to last: DEV SELL; BONDED, MCAP TARGET, SOLD OUT, AUCTION ENDED; BONDING, MINT STARTING, AUCTION LIVE, MINT REMINDER, AUCTION ENDING SOON, RARE LISTING; PUMPING, UPCOMING MINT, MINTED, UNDER FLOOR, SWEEP, BIG SALE, NEW COLLECTION, UPCOMING AUCTION, MINIMUM BID RAISED; BIG BUY/SELL, FLOOR MOVE; NEW TOKEN, SOLD.
+- A collection that turns real after its mint started gets one MINT STARTING that reads "started Nm ago", with no back-filled marks. One that turns real while its NFTX auction is upcoming or running also gets that auction's card.
+- Auction cards need the collection to pass the quality checks, watched or not. MINIMUM BID RAISED goes to watchers only. A card is labelled NFTX, and its View and Buy open NFTX, for NFTX sales, listings, floor moves, auctions and NOW ON NFTX, and for mint alerts of a collection with no OpenSea page (ADR 0026). SWEEP leaves out sales to an NFTX pool.
 - A user or chat watches up to 50 tokens and 50 collections, counted separately.
 
 **Dedupe:** one alert per token per threshold. Curve PUMPING has a per-token cooldown; bonded PUMPING re-arms when the 10-minute gain falls under +5%. A bond alert replaces any pending progress alert for that token. NFT alerts dedupe on the sale or stage they describe.
@@ -187,7 +189,7 @@ Outbound trade and marketplace links carry referral codes where the platform off
 
 - Trade buttons open `go.makobot.xyz/t/<address>`, which redirects to the token on its launchpad with `?ref=<code>`. InkyPump tags a visitor who arrives with `?ref=`.
 - The Tokens screen links the launchpad through `go.makobot.xyz/inkypump`, which redirects to the launchpad's referral join page.
-- NFT buttons (View, Recent sales, the NFT card) open OpenSea through `go.makobot.xyz/n/…`. OpenSea links carry no referral code. The NFTs screen links OpenSea and Chimera through `go.makobot.xyz/p/…`.
+- NFT buttons (View, Recent sales, the NFT card) open OpenSea through `go.makobot.xyz/n/…`. OpenSea links carry no referral code. NFTX cards open the NFTX page through `go.makobot.xyz/n/x/<slug>` and `go.makobot.xyz/n/xi/<slug>/<id>`, or `go.makobot.xyz/p/nftx` when a card has no slug. The NFTs screen links OpenSea and NFTX through `go.makobot.xyz/p/…`.
 - The redirects log a click with no user data. Clicks on the join link have no token and kind `join`.
 
 ## Decisions

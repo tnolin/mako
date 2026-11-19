@@ -67,7 +67,7 @@ export const AUCTION_REMINDER_LEAD_S = 60 * 60
 /** An auction shorter than this gets no AUCTION ENDING SOON. */
 export const AUCTION_REMINDER_MIN_S = 2 * 3600
 /** Chimera launches send no NEW COLLECTION alert; the card builder stays for when they do. */
-export const CHIMERA_LAUNCH_ALERTS = false
+export const CHIMERA_LAUNCH_ALERTS: boolean = false
 export const ITEM_CACHE_RANK_S = 7 * 24 * 3600
 export const ITEM_CACHE_OFFER_S = 5 * 60
 export const TRENDING_CACHE_S = 10 * 60

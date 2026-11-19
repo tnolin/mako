@@ -7,6 +7,7 @@ import type {
 } from "@ink-indexer/events"
 import { age, clean, count, inText, utcDate, utcTime, wallets } from "../../format"
 import type { Row } from "../../history"
+import { NATIVE } from "../../prices"
 import type { Candidate, RuleCtx } from "../../rules/types"
 import { type AlertKind, LONG_WINDOW, PRIORITY } from "../../settings"
 import {
@@ -18,8 +19,10 @@ import {
   type NftAlertKind,
   shortAddr,
 } from "../card"
+import { nftxSlugOf, onNftx } from "../nftx"
 import {
   CATCH_UP_MAX_S,
+  CHIMERA_LAUNCH_ALERTS,
   isTeamStage,
   LAUNCH_HOLD_S,
   MINT_RECENT_S,
@@ -27,7 +30,7 @@ import {
 } from "../policy"
 import type { CollectionState } from "../state"
 
-type MintCtx = Pick<RuleCtx, "nft" | "now" | "nftSince">
+type MintCtx = Pick<RuleCtx, "nft" | "now" | "nftSince" | "prices">
 type Rows = NftAlertCard["rows"]
 
 const lateS = (kind: AlertKind) => ((LONG_WINDOW as readonly string[]).includes(kind) ? 1800 : 180)
@@ -108,6 +111,14 @@ const publicStage = (st: CollectionState, ev: NftMintEvent): boolean =>
 /** A mint with no stages (not a SeaDrop drop): its one `stage_start` reads MINT STARTING without a stage label. */
 const stageless = (st: CollectionState): boolean => (st.col ? !st.col.seadrop : !st.drop)
 
+/**
+ * What the mint cards of a collection pass to `makeNftAlertCard`. A collection NFTX trades that has no
+ * OpenSea page links to NFTX; one with a page keeps its OpenSea label and links.
+ */
+export function mintMarket(st: CollectionState): { market?: "nftx"; nftxSlug?: string | null } {
+  return onNftx(st) && st.col?.slug == null ? { market: "nftx", nftxSlug: nftxSlugOf(st) } : {}
+}
+
 type Base = { eventId: string; contract: string }
 function cand(
   b: Base,
@@ -142,6 +153,7 @@ export function upcomingCard(
   col: NftCollectionEvent | null,
   drop: NftDropEvent,
   now: number,
+  market: ReturnType<typeof mintMarket> = {},
 ): NftAlertCard | null {
   const stages = drop.stages.filter((s) => !isTeamStage(s))
   const first = firstOpenStage(drop, now)
@@ -159,11 +171,14 @@ export function upcomingCard(
     ])
   const creator = creatorRow(col)
   if (creator) rows.push(creator)
-  return makeNftAlertCard("upcoming", "UPCOMING MINT", col, rows, { contract: drop.contract })
+  return makeNftAlertCard("upcoming", "UPCOMING MINT", col, rows, {
+    contract: drop.contract,
+    ...market,
+  })
 }
 
 function upcoming(b: Base, st: CollectionState, drop: NftDropEvent, now: number): Candidate | null {
-  const card = upcomingCard(st.col, drop, now)
+  const card = upcomingCard(st.col, drop, now, mintMarket(st))
   if (!card) return null
   return cand(
     b,
@@ -192,6 +207,7 @@ function stageStart(
     if (creator) rows.push(creator)
     const card = makeNftAlertCard("mintstart", "MINT STARTING", st.col, rows, {
       contract: b.contract,
+      ...mintMarket(st),
     })
     // The key predates the fold into MINT STARTING; keeping it stops a second card for a mint already sent.
     return cand(b, "mintstart", `mintlive:${b.contract}`, card, at, feedOk(st))
@@ -219,6 +235,7 @@ function stageStart(
     rows,
     {
       contract: b.contract,
+      ...mintMarket(st),
     },
   )
   // The All collections feed carries only the stage that opens the mint to everyone; a watcher gets every non-Team stage.
@@ -249,6 +266,7 @@ function minted(b: Base, st: CollectionState, ev: NftMintEvent): Candidate | nul
   rows.push(["minters", wallets(ev.minters)])
   const card = makeNftAlertCard("minted", `MINTED ${ev.markBps / 100}%`, st.col, rows, {
     contract: b.contract,
+    ...mintMarket(st),
   })
   return cand(
     b,
@@ -305,8 +323,23 @@ function soldOut(b: Base, st: CollectionState, ev: NftMintEvent): Candidate {
       stages.map((s) => `${label(s.label)} ${count(Number(s.minted))}`).join(" · "),
     ])
   }
-  const card = makeNftAlertCard("soldout", "SOLD OUT", st.col, rows, { contract: b.contract })
+  const card = makeNftAlertCard("soldout", "SOLD OUT", st.col, rows, {
+    contract: b.contract,
+    ...mintMarket(st),
+  })
   return cand(b, "soldout", `soldout:${b.contract}`, card, ev.blockTimestamp, feedOk(st))
+}
+
+/** The Chimera NEW COLLECTION card: the name and ticker come from the launch, and the token address is listed. */
+export function newCollectionCard(st: CollectionState, launch: NftLaunchEvent): NftAlertCard {
+  const rows: Rows = [["type", "Chimera-404"]]
+  if (launch.tokenSymbol) rows.push(["token", `$${clean(launch.tokenSymbol, 32)}`])
+  rows.push(creatorRow(st.col) ?? ["creator", shortAddr(launch.creator)])
+  const base = makeNftAlertCard("launch", "NEW COLLECTION", st.col, rows, {
+    contract: launch.contract,
+    extra: [["token", launch.token]],
+  })
+  return { ...base, name: clean(launch.tokenName, 64) || base.name }
 }
 
 function newCollection(
@@ -315,17 +348,44 @@ function newCollection(
   launch: NftLaunchEvent,
   eventTs: number,
 ): Candidate {
-  const rows: Rows = [["type", "Chimera-404"]]
-  if (launch.tokenSymbol) rows.push(["token", `$${clean(launch.tokenSymbol, 32)}`])
-  rows.push(creatorRow(st.col) ?? ["creator", shortAddr(launch.creator)])
-  const base = makeNftAlertCard("launch", "NEW COLLECTION", st.col, rows, {
-    contract: b.contract,
-    extra: [["token", launch.token]],
-  })
-  // The name and ticker come from the launch.
-  const card = { ...base, name: clean(launch.tokenName, 64) || base.name }
   // The page check was passed, so the All collections feed may carry it.
-  return cand(b, "launch", `launch:${b.contract}`, card, eventTs, true)
+  return cand(b, "launch", `launch:${b.contract}`, newCollectionCard(st, launch), eventTs, true)
+}
+
+/**
+ * NOW ON NFTX: the pool's opening price and size from the launch, the supply and holders when OpenSea
+ * stats are known. A collection with no OpenSea page reads its name from the launch.
+ */
+export function nftxOpenCard(
+  st: CollectionState,
+  launch: NftLaunchEvent,
+  rate: number | null,
+): NftAlertCard {
+  const rows: Rows = []
+  if (launch.nftxFloorWei != null) rows.push(["floor", ethText(BigInt(launch.nftxFloorWei), rate)])
+  if (launch.poolCount != null) rows.push(["pool", `${count(launch.poolCount)} NFTs`])
+  const stats = st.stats
+  if (stats?.totalSupply != null) rows.push(["supply", count(Number(stats.totalSupply))])
+  if (stats?.owners != null) rows.push(["holders", count(stats.owners)])
+  // The page's creator is shown only when it is the account that opened the pool.
+  const same = st.col?.creator?.address.toLowerCase() === launch.creator.toLowerCase()
+  rows.push((same ? creatorRow(st.col) : null) ?? ["creator", shortAddr(launch.creator)])
+  const base = makeNftAlertCard("launch", "NOW ON NFTX", st.col, rows, {
+    contract: launch.contract,
+    market: "nftx",
+    nftxSlug: nftxSlugOf(st, launch.nftxSlug),
+  })
+  return { ...base, name: clean(st.col?.name, 64) || clean(launch.tokenName, 64) || base.name }
+}
+
+function nftxOpen(
+  b: Base,
+  st: CollectionState,
+  launch: NftLaunchEvent,
+  eventTs: number,
+  rate: number | null,
+): Candidate {
+  return cand(b, "launch", `nftx:${b.contract}`, nftxOpenCard(st, launch, rate), eventTs, true)
 }
 
 /** Non-Team stages by label, to match a stage between two drop events. */
@@ -393,6 +453,7 @@ function mintUpdated(
     [["status", status], ...rows],
     {
       contract: b.contract,
+      ...mintMarket(st),
     },
   )
   return cand(
@@ -424,6 +485,7 @@ export function mintRules(
   const now = ctx.now()
   const st = ctx.nft.get(p.contract)
   if (!st) return []
+  const rate = ctx.prices.usd(NATIVE)
   const b: Base = { eventId: ev.id, contract: p.contract }
   const out: (Candidate | null)[] = []
   switch (p.type) {
@@ -444,7 +506,10 @@ export function mintRules(
       }
       break
     case "nft.launch":
-      if (pageOk(st.col) && !isLate("launch", p.blockTimestamp, now)) {
+      if (isLate("launch", p.blockTimestamp, now)) break
+      if (p.launchpad === "nftx") {
+        if (feedOk(st)) out.push(nftxOpen(b, st, p, p.blockTimestamp, rate))
+      } else if (CHIMERA_LAUNCH_ALERTS && pageOk(st.col)) {
         out.push(newCollection(b, st, p, p.blockTimestamp))
       }
       break
@@ -453,6 +518,7 @@ export function mintRules(
       // a week of the launch and never for one from before the alerts cutoff.
       const held = st.launch
       if (
+        CHIMERA_LAUNCH_ALERTS &&
         held &&
         pageOk(p) &&
         !pageOk(prev) &&
@@ -461,6 +527,16 @@ export function mintRules(
       )
         out.push(newCollection(b, st, held, now))
       const becameReal = prev?.verdict !== "real" && p.verdict === "real"
+      // An NFTX open that came before the collection turned real goes out now. It is separate from the
+      // mint catch-up below: both are news from the same snapshot.
+      const open = st.nftxLaunch
+      if (
+        becameReal &&
+        open &&
+        now - open.blockTimestamp <= LAUNCH_HOLD_S &&
+        open.blockTimestamp >= (ctx.nftSince ?? 0)
+      )
+        out.push({ ...nftxOpen(b, st, open, now, rate), separate: true })
       const becameEligible = !upcomingEligible(prev) && upcomingEligible(p)
       if (becameReal || becameEligible) {
         const up = upcomingEligible(p) && st.drop ? upcoming(b, st, st.drop, now) : null

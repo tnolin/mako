@@ -456,6 +456,38 @@ describe("NFTX cards", () => {
     )
   })
 
+  it("NOW ON NFTX lists floor, pool, supply, holders and creator, then the links, and View opens /n/x/<slug>", () => {
+    const card = nftx({
+      alert: "launch",
+      title: "NOW ON NFTX",
+      rows: [
+        ["floor", "0.0009 ETH ($2.16)"],
+        ["pool", "35 NFTs"],
+        ["supply", "3,333"],
+        ["holders", "212"],
+        ["creator", "0x9860…3b40"],
+      ],
+      links: links("X", "Website"),
+    })
+    expect(renderNftAlert(card)).toBe(
+      [
+        "<b>NOW ON NFTX</b>",
+        "Lil Dudes · NFTX",
+        "",
+        ...code(
+          "floor    0.0009 ETH ($2.16)",
+          "pool     35 NFTs",
+          "supply   3,333",
+          "holders  212",
+          "creator  0x9860…3b40",
+        ),
+        "",
+        linkLine("X", "Website"),
+      ].join("\n"),
+    )
+    expect(nftViewPath(card)).toBe("/n/x/lil-dudes")
+  })
+
   it("an NFTX card without links ends at its last row", () => {
     expect(renderNftAlert(nftx({}))).toBe(
       ["<b>FLOOR UP 40%</b>", "Lil Dudes · NFTX", "", ...code("floor    0.000309 ETH")].join("\n"),

@@ -450,7 +450,11 @@ describe("lists", () => {
     await watch(sql, { userId: user }, C)
     await h.tap(`nc:${C}:u`)
     const p = h.last("sendPhoto")!
-    const alert = mintRules({ id: "x", p: drop } as never, null, { nft: state, now: () => NOW })[0]!
+    const alert = mintRules({ id: "x", p: drop } as never, null, {
+      nft: state,
+      now: () => NOW,
+      prices: { usd: () => null, symbol: () => "ETH" },
+    })[0]!
     expect(p.caption).toBe(renderNftAlert(alert.card as NftAlertCard))
     expect(p.caption).not.toContain("volume")
     const kb = kbOf(p)

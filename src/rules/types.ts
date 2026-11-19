@@ -33,6 +33,11 @@ export type Candidate = {
   customHook?: boolean
   /** NFT: the collection passes the quality checks, so the All collections feed may carry it. */
   feedEligible?: boolean
+  /**
+   * NFT: delivered beside the chat's one best alert for the event instead of competing with it. A collection
+   * turning `real` can owe several alerts at once (a held NFTX open and a mint catch-up).
+   */
+  separate?: true
   /** MINT UPDATED: sent under the REMINDERS switch, to watchers only. */
   mintUpdate?: boolean
   /** MINTED: the crossed mark. */

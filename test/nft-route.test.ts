@@ -326,6 +326,54 @@ describe("NFT routing", () => {
   })
 })
 
+describe("separate candidates", () => {
+  const open = () => cand("launch", { separate: true })
+
+  it("NOW ON NFTX and a mint catch-up from one snapshot both reach one chat", () => {
+    const aud = audience({ users: [dm("1")], chats: [grp("-5")], watches: watching(["1"], ["-5"]) })
+    const catchUp = cand("mintstart")
+    const o = open()
+    const ds = route([{ ...catchUp, eventId: o.eventId }, o], aud)
+    expect(who(ds)).toEqual(["-5:launch", "-5:mintstart", "101:launch", "101:mintstart"])
+  })
+
+  it("two ordinary candidates from one event still give the chat one alert", () => {
+    const aud = audience({ users: [dm("1")], watches: watching(["1"]) })
+    const a = cand("mintstart")
+    const b = { ...cand("minted", { markBps: 5000 }), eventId: a.eventId }
+    expect(who(route([a, b], aud))).toEqual(["101:mintstart"])
+  })
+
+  it("two separate candidates of one event are both delivered", () => {
+    const aud = audience({ users: [dm("1")], watches: watching(["1"]) })
+    const a = open()
+    const b = { ...cand("soldout", { separate: true }), eventId: a.eventId }
+    expect(who(route([a, b], aud))).toEqual(["101:launch", "101:soldout"])
+  })
+
+  it("a separate candidate still respects the chat's mute, pause and cap", () => {
+    const muted = new Map([[C, { users: new Set(["1"]), chats: new Set<string>() }]])
+    const aud = audience({
+      users: [dm("1"), dm("2")],
+      chats: [
+        grp("-5", (s) => {
+          s.pausedRoutes = ["launch"]
+        }),
+      ],
+      watches: watching(["1", "2"], ["-5"]),
+      nftMutes: muted,
+    })
+    expect(who(route([open()], aud))).toEqual(["102:launch"])
+    const floor = cand("floor", { separate: true, floorDir: "up", floorBps: 2500 })
+    const cooling = audience({
+      users: [dm("1")],
+      watches: watching(["1"]),
+      lastFloor: new Map([[`101:${C}:up`, [{ ts: T0 - 60, key: "earlier" }]]]),
+    })
+    expect(route([floor], cooling)).toEqual([])
+  })
+})
+
 describe("loadAudience for NFTs", () => {
   let sql: Sql
   beforeEach(async () => {

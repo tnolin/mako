@@ -14,11 +14,12 @@ const NFT_CONTRACT = /^\/n\/a\/(0x[0-9a-fA-F]{40})$/
 const NFTX_COLLECTION = /^\/n\/x\/([a-z0-9-]{1,100})$/
 const NFTX_ITEM = /^\/n\/xi\/([a-z0-9-]{1,100})\/([0-9]{1,78})$/
 const OPENSEA = "https://opensea.io"
-/** The platform links on the NFTs screen. They are not logged. */
+const NFTX_PLATFORM = "/p/nftx"
+/** The platform links on the NFTs screen. They are not logged, except an NFTX card's own click. */
 const PLATFORMS: Record<string, string> = {
   "/p/opensea": OPENSEA,
   "/p/chimera": "https://www.chimeras.ink/",
-  "/p/nftx": NFTX_HOME,
+  [NFTX_PLATFORM]: NFTX_HOME,
 }
 
 /**
@@ -93,12 +94,16 @@ export function createLinkServer(deps: {
     const ca = m ? m[1]!.toLowerCase() : null
     const to = nft?.to ?? platform ?? (ca ? deps.target(ca) : deps.join())
     res.writeHead(302, { location: to, "cache-control": "no-store" }).end()
-    if (platform || BOT_UA.test(req.headers["user-agent"] ?? "")) return
+    if (BOT_UA.test(req.headers["user-agent"] ?? "")) return
     const d = url.searchParams.get("d")
     const delivery = d && UUID.test(d) ? d : null
+    // A card without an NFTX slug opens /p/nftx with its delivery id; the NFTs screen's link has none.
+    const cardClick = url.pathname === NFTX_PLATFORM && delivery !== null
+    if (platform && !cardClick) return
     // Anyone can request a link, so under a flood the redirect still works and the clicks are dropped.
     if (writes >= MAX_CLICK_WRITES) return
-    const logged = nft ? deps.onNftClick?.(nft.id, delivery) : deps.onClick(ca, delivery)
+    const logged =
+      nft || cardClick ? deps.onNftClick?.(nft?.id ?? "nftx", delivery) : deps.onClick(ca, delivery)
     if (!logged) return
     writes++
     logged

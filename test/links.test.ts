@@ -195,6 +195,17 @@ describe("redirect server", () => {
     expect(nftClicks).toEqual([])
   })
 
+  it("logs /p/nftx as an nft_click when a card's delivery opens it, but not the NFTs screen's link", async () => {
+    nftClicks.length = 0
+    const res = await get(`/p/nftx?d=${D}`)
+    expect(res.headers.get("location")).toBe("https://nftx.io/")
+    await vi.waitFor(() => expect(nftClicks).toEqual([["nftx", D]]))
+    nftClicks.length = 0
+    await get("/p/nftx?d=not-a-delivery")
+    await new Promise((r) => setTimeout(r, 20))
+    expect(nftClicks).toEqual([])
+  })
+
   it("302s the platform links without logging them", async () => {
     nftClicks.length = 0
     expect((await get("/p/opensea")).headers.get("location")).toBe("https://opensea.io")

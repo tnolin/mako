@@ -488,7 +488,37 @@ describe("SOLD OUT", () => {
     process(nftCollection({ seadrop: false }))
     now = SEP6 + 2 * H
     const c = only(process(out({ stageCounts: undefined, stageLabel: "Mint", stagePriceWei: "0" })))
-    expect(rows(c).map((r) => r.split("|")[0])).toEqual(["minted", "mint", "minters"])
+    expect(rows(c).map((r) => r.split("|")[0])).toEqual(["minted", "minters"])
+  })
+
+  it("SOLD OUT for a collection without stages has minted, floor without a multiple, listed and minters", () => {
+    process(nftCollection({ seadrop: false }))
+    process({ ...nftStatsLike(4n * 10n ** 15n, 5) })
+    now = SEP6 + 2 * H
+    const c = only(process(out({ stageCounts: undefined, stageLabel: "Mint", stagePriceWei: "0" })))
+    expect(rows(c)).toEqual([
+      "minted|1,000 in 2h 0m",
+      "floor|0.004 ETH",
+      "listed|5 (0.5%)",
+      "minters|901 wallets",
+    ])
+  })
+
+  it("a SeaDrop SOLD OUT keeps its mint row and multiple", () => {
+    process(nftCollection({ seadrop: true }))
+    process(nftDrop({ stages: [stage("Core", 0, 5n * 10n ** 14n)], maxSupply: "1000" }))
+    process({ ...nftStatsLike(4n * 10n ** 15n, 5) })
+    now = SEP6 + 2 * H
+    const c = only(
+      process(
+        out({ stageCounts: [{ stageIndex: 0, label: "Core", minted: "1000" }], stageIndex: 0 }),
+      ),
+    )
+    expect(rows(c).slice(0, 3)).toEqual([
+      "minted|1,000 in 2h 0m",
+      "mint|0.0005 ETH",
+      "floor|0.004 ETH (8x mint)",
+    ])
   })
 })
 

@@ -298,7 +298,8 @@ function soldOut(b: Base, st: CollectionState, ev: NftMintEvent): Candidate {
       : [BigInt(ev.stagePriceWei)]
   const lo = prices.reduce((a, c) => (c < a ? c : a))
   const hi = prices.reduce((a, c) => (c > a ? c : a))
-  rows.push(["mint", lo === hi ? price(lo) : `${price(lo)} – ${price(hi)}`])
+  // A mint without stages has no stage price to report.
+  if (!stageless(st)) rows.push(["mint", lo === hi ? price(lo) : `${price(lo)} – ${price(hi)}`])
   const stats = st.stats
   const floor = stats?.floorWei != null && stats.listedCount !== 0 ? BigInt(stats.floorWei) : null
   if (floor !== null) {

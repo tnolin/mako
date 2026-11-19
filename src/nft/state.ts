@@ -68,6 +68,20 @@ const verdictRank = (s: CollectionState) => (s.col?.verdict === "real" ? 0 : 1)
 const owners = (s: CollectionState) => s.stats?.owners ?? 0
 const sales = (s: CollectionState) => s.stats?.sales24h ?? 0
 
+/**
+ * Whether the collection's auction can still send AUCTION ENDING SOON: the collection is real, the auction
+ * has not ended and it lasts long enough.
+ */
+export const remindsAuction = (s: CollectionState): boolean => {
+  const a = s.auction
+  return (
+    !!a &&
+    a.phase !== "ended" &&
+    s.col?.verdict === "real" &&
+    a.endsAt - a.startsAt >= AUCTION_REMINDER_MIN_S
+  )
+}
+
 export function createNftState(initial: Map<string, CollectionState> = new Map()): NftState {
   const byContract = initial
   const entry = (c: string) => {
@@ -167,11 +181,9 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
         .sort((a, b) => next(a) - next(b))
     },
     auctionsEnding: (nowS, aheadS, windowS) =>
-      [...byContract.values()].filter(({ col, auction: a }) => {
-        if (!a || a.phase === "ended" || col?.verdict !== "real") return false
-        if (a.endsAt - a.startsAt < AUCTION_REMINDER_MIN_S) return false
-        return Math.abs(a.endsAt - nowS - aheadS) <= windowS
-      }),
+      [...byContract.values()].filter(
+        (s) => remindsAuction(s) && Math.abs(s.auction!.endsAt - nowS - aheadS) <= windowS,
+      ),
   }
 }
 

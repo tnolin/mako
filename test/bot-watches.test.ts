@@ -20,6 +20,7 @@ let sql: Sql
 let h: ReturnType<typeof harness>
 let state: NftState
 let userId: string
+let clock: number | undefined
 
 type B = { text: string; url?: string; callback_data?: string; style?: string }
 const kbOf = (p: Payload | undefined) => (p?.reply_markup?.inline_keyboard ?? []) as B[][]
@@ -50,8 +51,10 @@ beforeEach(async () => {
       linksBase: "https://go.makobot.xyz",
       images: testImages().images,
       nft: () => state,
+      now: () => clock ?? Math.floor(Date.now() / 1000),
     }),
   )
+  clock = undefined
   userId = await addUser(sql, 100)
 })
 afterAll(() => sql.end())
@@ -110,6 +113,7 @@ describe("buttons in a DM", () => {
     const ids = await insertEvents(sql, [fx.lilDudes.collection, fx.inktrons.created])
     state = await loadNftState(sql, ids.at(-1)!)
     const kb: B[][] = [[{ text: "Remind me", callback_data: `nrm:${LD}` }]]
+    clock = fx.inktrons.live.startsAt + 3600
     await h.tap(`nrm:${LD}`, { keyboard: kb })
     expect(popupText()).toBe(popup.remindAuction())
     expect(popup.remindAuction()).toBe(
@@ -129,6 +133,35 @@ describe("buttons in a DM", () => {
     state = await loadNftState(sql, ids.at(-1)!)
     await h.tap(`nwa:${LD}`, { keyboard: [[{ text: "Watch", callback_data: `nwa:${LD}` }]] })
     expect(popupText()).toBe(popup.watch(fx.lilDudes.launch.tokenName!))
+  })
+
+  it("Remind me answers with the mint copy when no auction reminder will come", async () => {
+    const fx = loadNftx()
+    const LD = fx.lilDudes.collection.contract
+    const kb: B[][] = [[{ text: "Remind me", callback_data: `nrm:${LD}` }]]
+    const A = fx.inktrons
+    const cases: [string, number, Parameters<typeof insertEvents>[1]][] = [
+      ["its end has passed", A.live.endsAt + 60, [fx.lilDudes.collection, A.live]],
+      [
+        "it is not real",
+        A.live.startsAt + 3600,
+        [{ ...fx.lilDudes.collection, verdict: "pending" }, A.live],
+      ],
+      [
+        "it lasts under 2 hours",
+        A.live.startsAt + 600,
+        [fx.lilDudes.collection, { ...A.live, endsAt: A.live.startsAt + 3600 }],
+      ],
+    ]
+    for (const [why, at, events] of cases) {
+      await sql`delete from indexer.events`
+      const ids = await insertEvents(sql, events)
+      state = await loadNftState(sql, ids.at(-1)!)
+      clock = at
+      h.calls.length = 0
+      await h.tap(`nrm:${LD}`, { keyboard: kb })
+      expect(popupText(), why).toBe(popup.remind())
+    }
   })
 
   it("Remind me on an ended auction answers with the mint copy", async () => {

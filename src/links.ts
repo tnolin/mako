@@ -97,13 +97,16 @@ export function createLinkServer(deps: {
     if (BOT_UA.test(req.headers["user-agent"] ?? "")) return
     const d = url.searchParams.get("d")
     const delivery = d && UUID.test(d) ? d : null
-    // A card without an NFTX slug opens /p/nftx with its delivery id; the NFTs screen's link has none.
+    // A card without an NFTX slug opens /p/nftx with its delivery id; the NFTs screen's link has none. Its click
+    // is logged as `nftx:` with no slug, which no OpenSea slug or NFTX slug can equal.
     const cardClick = url.pathname === NFTX_PLATFORM && delivery !== null
     if (platform && !cardClick) return
     // Anyone can request a link, so under a flood the redirect still works and the clicks are dropped.
     if (writes >= MAX_CLICK_WRITES) return
     const logged =
-      nft || cardClick ? deps.onNftClick?.(nft?.id ?? "nftx", delivery) : deps.onClick(ca, delivery)
+      nft || cardClick
+        ? deps.onNftClick?.(nft?.id ?? "nftx:", delivery)
+        : deps.onClick(ca, delivery)
     if (!logged) return
     writes++
     logged

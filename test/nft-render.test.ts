@@ -871,7 +871,7 @@ describe("auction cards", () => {
     expect(html).not.toContain("<b>x</b>")
   })
 
-  it("the five auction cards render as the facts file shows, with no CA line", () => {
+  it("the five auction cards render their rows with no CA line", () => {
     const raised = {
       ...A.price,
       clearingPriceWei: "160000000000000",

@@ -199,7 +199,7 @@ describe("redirect server", () => {
     nftClicks.length = 0
     const res = await get(`/p/nftx?d=${D}`)
     expect(res.headers.get("location")).toBe("https://nftx.io/")
-    await vi.waitFor(() => expect(nftClicks).toEqual([["nftx", D]]))
+    await vi.waitFor(() => expect(nftClicks).toEqual([["nftx:", D]]))
     nftClicks.length = 0
     await get("/p/nftx?d=not-a-delivery")
     await new Promise((r) => setTimeout(r, 20))

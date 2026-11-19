@@ -6,7 +6,7 @@ import { clean, escapeHtml } from "../format"
 import { lastMarketOf, latestSwapPerPool, launchOf } from "../history"
 import { stateName } from "../nft/card"
 import { matchCollection } from "../nft/match"
-import type { NftState } from "../nft/state"
+import { type NftState, remindsAuction } from "../nft/state"
 import {
   muteCollection,
   mutesOf,
@@ -466,9 +466,13 @@ export function registerWatches(bot: Bot, deps: BotDeps): void {
     tap(deps, async (u, contract) => {
       await remind(deps.sql, u.id, contract)
       await log(deps, "remind", contract)
-      const auction = deps.nft?.()?.get(contract)?.auction
+      const st = deps.nft?.()?.get(contract)
+      const now = deps.now?.() ?? Math.floor(Date.now() / 1000)
       return {
-        text: auction && auction.phase !== "ended" ? popup.remindAuction() : popup.remind(),
+        text:
+          st && remindsAuction(st) && now < st.auction!.endsAt
+            ? popup.remindAuction()
+            : popup.remind(),
         edit: true,
       }
     }),

@@ -9,8 +9,8 @@ Status: Accepted
 
 ## Decision
 
-- Remind me also queues AUCTION ENDING SOON, 1 hour before an auction ends, for a collection whose auction is running or upcoming. It works without a watch, removes a mute on the collection like it does for mint reminders, and removing the reminder keeps the watch but stops its reminders.
-- The tap on an AUCTION LIVE card (or any card of a collection with an auction that has not ended) answers `Reminder set. I'll message you 1 hour before the auction ends.` For any other collection the answer stays the 15-minute mint copy.
+- Remind me also queues AUCTION ENDING SOON, 1 hour before an auction ends, for a collection that passes the quality checks and has an auction that has not ended and lasts at least 2 hours. It works without a watch, removes a mute on the collection like it does for mint reminders, and removing the reminder keeps the watch but stops its reminders.
+- The tap on an AUCTION LIVE card (or any card of such a collection) answers `Reminder set. I'll message you 1 hour before the auction ends.` For any other collection the answer stays the 15-minute mint copy.
 - Watchers get AUCTION ENDING SOON while their REMINDERS switch is on and the watch has reminders on, the same rule as MINT REMINDER. Groups get neither.
 - This replaces the sentence "Remind me is for NFT mints only" in ADR 0013.
 

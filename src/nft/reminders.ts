@@ -18,8 +18,8 @@ export type RemindersDeps = {
   sql: Sql
   /** The poller's NFT state; undefined until it is loaded. */
   nft: () => NftState | undefined
-  /** The ETH price for the dollar figures; without it an auction card shows ETH only. */
-  prices?: Prices
+  /** The ETH price for the dollar figures; without a fresh one an auction card shows ETH only. */
+  prices: Prices
   now?: () => number
 }
 
@@ -116,7 +116,7 @@ export async function queueReminders(deps: RemindersDeps): Promise<void> {
   }
   for (const st of nft.auctionsEnding(now, AUCTION_REMINDER_LEAD_S, WINDOW_S)) {
     const a = st.auction!
-    const rate = deps.prices?.usd(NATIVE) ?? null
+    const rate = deps.prices.usd(NATIVE)
     await queueDm(
       deps.sql,
       a.contract,

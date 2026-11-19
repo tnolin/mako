@@ -13,6 +13,7 @@ import { resetDb } from "./helpers/db"
 import { addr, nftCollection, nftDrop, nftMint } from "./helpers/events"
 import { loadNftx } from "./helpers/fixtures"
 
+const noPrices: Prices = { usd: () => null, symbol: () => "ETH" }
 const C = addr(0xc0)
 const START = Date.UTC(2026, 8, 6, 13) / 1000
 const stage = (label: string, o: Partial<NftDropStage> = {}): NftDropStage => ({
@@ -61,7 +62,7 @@ describe("MINT REMINDER scheduler", () => {
         maxSupply: "2222",
       }),
     })
-    await queueReminders({ sql, nft: () => state, now: () => ago15 })
+    await queueReminders({ sql, nft: () => state, now: () => ago15, prices: noPrices })
     const rows = await cards()
     expect(rows.map((r) => r.chat_id).sort()).toEqual(["101", "102"])
     const r = rows[0]!
@@ -94,38 +95,38 @@ describe("MINT REMINDER scheduler", () => {
     const a = await addUser(sql, 101)
     await remind(sql, a, C)
     state.apply({ id: "3", p: nftMint({ kind: "sold_out", minted: "2222", maxSupply: "2222" }) })
-    await queueReminders({ sql, nft: () => state, now: () => ago15 })
+    await queueReminders({ sql, nft: () => state, now: () => ago15, prices: noPrices })
     expect(await cards()).toEqual([])
   })
 
   it("leaves minted out before the mint has started, and limit out when there is none", async () => {
     state.apply({ id: "3", p: nftDrop({ stages: [stage("FCFS", { maxPerWallet: null })] }) })
     await remind(sql, await addUser(sql, 101), C)
-    await queueReminders({ sql, nft: () => state, now: () => ago15 })
+    await queueReminders({ sql, nft: () => state, now: () => ago15, prices: noPrices })
     const p = (await cards())[0]!.card as unknown as { card: { rows: string[][] } }
     expect(p.card.rows.map((r) => r[0])).toEqual(["starts", "price"])
   })
 
   it("sends nothing for a Team stage", async () => {
     await remind(sql, await addUser(sql, 101), C)
-    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 })
+    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60, prices: noPrices })
     expect((await cards()).map((r) => r.dedupe_key)).toEqual([`reminder:${C}:${START}`])
     state.apply({ id: "3", p: nftDrop({ stages: [stage("Team", { allowlistCount: 3 })] }) })
     await sql`delete from bot.deliveries`
-    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 })
+    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60, prices: noPrices })
     expect(await cards()).toEqual([])
   })
 
   it("only fires from 14 to 16 minutes ahead", async () => {
     await remind(sql, await addUser(sql, 101), C)
     for (const min of [17, 13, 5]) {
-      await queueReminders({ sql, nft: () => state, now: () => START - min * 60 })
+      await queueReminders({ sql, nft: () => state, now: () => START - min * 60, prices: noPrices })
       expect(await cards(), `${min}m`).toEqual([])
     }
-    await queueReminders({ sql, nft: () => state, now: () => START - 16 * 60 })
+    await queueReminders({ sql, nft: () => state, now: () => START - 16 * 60, prices: noPrices })
     expect(await cards()).toHaveLength(1)
     await sql`delete from bot.deliveries`
-    await queueReminders({ sql, nft: () => state, now: () => START - 14 * 60 })
+    await queueReminders({ sql, nft: () => state, now: () => START - 14 * 60, prices: noPrices })
     expect(await cards()).toHaveLength(1)
   })
 
@@ -138,7 +139,7 @@ describe("MINT REMINDER scheduler", () => {
     await sql`update bot.users set blocked_at = now() where id = ${blocked}`
     await addChat(sql, -1001, "supergroup")
     await watch(sql, { chatId: "-1001" }, C)
-    await queueReminders({ sql, nft: () => state, now: () => ago15 })
+    await queueReminders({ sql, nft: () => state, now: () => ago15, prices: noPrices })
     expect(await cards()).toEqual([])
   })
 
@@ -150,12 +151,12 @@ describe("MINT REMINDER scheduler", () => {
     const c = await addUser(sql, 103)
     for (const u of [a, b, c]) await watch(sql, { userId: u }, C)
     await unremind(sql, c, C) // Reminder set removed on a watched collection: the watch stays, reminders stop.
-    await queueReminders({ sql, nft: () => state, now: () => ago15 })
+    await queueReminders({ sql, nft: () => state, now: () => ago15, prices: noPrices })
     expect((await cards()).map((r) => r.chat_id)).toEqual(["102"])
     // An explicit Remind me works with REMINDERS off and with reminders stopped on the watch.
     await remind(sql, a, C)
     await remind(sql, c, C)
-    await queueReminders({ sql, nft: () => state, now: () => ago15 })
+    await queueReminders({ sql, nft: () => state, now: () => ago15, prices: noPrices })
     expect((await cards()).map((r) => r.chat_id).sort()).toEqual(["101", "102", "103"])
     await sql`select 1 from bot.nft_watches where user_id = ${c} and not reminders_off`.then((r) =>
       expect(r).toHaveLength(1),
@@ -164,7 +165,7 @@ describe("MINT REMINDER scheduler", () => {
 
   it("does not double-send when the drop's stage list changes order in the same window", async () => {
     await remind(sql, await addUser(sql, 101), C)
-    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 })
+    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60, prices: noPrices })
     state.apply({
       id: "3",
       p: nftDrop({
@@ -175,26 +176,42 @@ describe("MINT REMINDER scheduler", () => {
         ],
       }),
     })
-    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 + 30 })
+    await queueReminders({
+      sql,
+      nft: () => state,
+      now: () => START - 15 * 60 + 30,
+      prices: noPrices,
+    })
     expect(await cards()).toHaveLength(1)
   })
 
   it("does not double-send when a restart lands in the same window", async () => {
     await remind(sql, await addUser(sql, 101), C)
-    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 })
-    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60 + 30 })
-    await queueReminders({ sql, nft: () => state, now: () => START - 14 * 60 - 30 })
+    await queueReminders({ sql, nft: () => state, now: () => START - 15 * 60, prices: noPrices })
+    await queueReminders({
+      sql,
+      nft: () => state,
+      now: () => START - 15 * 60 + 30,
+      prices: noPrices,
+    })
+    await queueReminders({
+      sql,
+      nft: () => state,
+      now: () => START - 14 * 60 - 30,
+      prices: noPrices,
+    })
     expect(await cards()).toHaveLength(1)
   })
 
   it("does nothing while the NFT state is not loaded, and the scheduler starts and stops", async () => {
     await remind(sql, await addUser(sql, 101), C)
-    await queueReminders({ sql, nft: () => undefined, now: () => ago15 })
+    await queueReminders({ sql, nft: () => undefined, now: () => ago15, prices: noPrices })
     expect(await cards()).toEqual([])
     const stop = startReminders({
       sql,
       nft: () => state,
       now: () => ago15,
+      prices: noPrices,
       log: () => {},
       everyMs: 20,
     })
@@ -219,8 +236,8 @@ describe("AUCTION ENDING SOON scheduler", () => {
     st.apply({ id: "1", p: fx.lilDudes.collection })
     st.apply({ id: "2", p: A.live })
   })
-  const queue = (now: number, p: Prices | null = prices) =>
-    queueReminders({ sql, nft: () => st, now: () => now, prices: p ?? undefined })
+  const queue = (now: number, p: Prices = prices) =>
+    queueReminders({ sql, nft: () => st, now: () => now, prices: p })
 
   it("queues AUCTION ENDING SOON an hour before the end for a Remind me user and a watcher", async () => {
     const a = await addUser(sql, 101)
@@ -257,11 +274,11 @@ describe("AUCTION ENDING SOON scheduler", () => {
 
   it("shows ETH only without a fresh price", async () => {
     await remind(sql, await addUser(sql, 101), LD)
-    await queue(hourBefore, { usd: () => null, symbol: () => "ETH" })
+    await queue(hourBefore, noPrices)
     const p = (await ending())[0]!.card as unknown as { card: NftAlertCard }
     expect(p.card.rows[1]).toEqual(["min bid", "0.0001 ETH"])
     await sql`delete from bot.deliveries`
-    await queue(hourBefore, null)
+    await queue(hourBefore, noPrices)
     expect((await ending())[0]!.card).toMatchObject({
       card: {
         rows: [

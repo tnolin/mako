@@ -857,6 +857,20 @@ describe("auction cards", () => {
   const header = (title: string) => [`<b>${title}</b>`, "Lil Dudes · NFTX", ""]
   const xLine = '<a href="https://x.com/dudes">X</a>'
 
+  it("a collection known only by a hostile NFTX token name is cleaned, cut at 64 and escaped", () => {
+    const hostile = `<b>x</b>\u202e&\u2066${"n".repeat(200)}`
+    const only = createNftState()
+    only.apply({ id: "1", p: { ...fx.lilDudes.collection, name: null, slug: null } })
+    only.apply({ id: "2", p: { ...fx.lilDudes.launch, tokenName: hostile } })
+    only.apply({ id: "3", p: A.created })
+    const card = upcomingAuctionCard(only.get(fx.lilDudes.collection.contract)!, A.created, 0, null)
+    expect([...card.name]).toHaveLength(64)
+    expect(card.name).not.toMatch(/[\u202e\u2066]/)
+    const html = renderNftAlert(card)
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;&amp;")
+    expect(html).not.toContain("<b>x</b>")
+  })
+
   it("the five auction cards render as the facts file shows, with no CA line", () => {
     const raised = {
       ...A.price,

@@ -72,11 +72,11 @@ const ALL_BODY = [
   "When turned off: Only receive alerts on NFTs you watch.",
   "",
   "<b>Alert Types</b>",
-  "UPCOMING MINT - When a new mint is scheduled.",
-  "MINT STARTING - When a mint's public stage opens.",
-  "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints).",
-  "SOLD OUT - When a collection completely mints out.",
-  "NEW COLLECTION - A new Chimera collection is detected.",
+  "UPCOMING MINT - When a new mint or NFTX auction is scheduled.",
+  "MINT STARTING - When a mint's public stage opens, or an NFTX auction starts.",
+  "MINTED - When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints), or a watched auction's minimum bid rises 25%+.",
+  "SOLD OUT - When a collection completely mints out, or an NFTX auction ends.",
+  "NEW COLLECTION - A collection opening on NFTX.",
 ]
 const WATCHED_BODY = [
   "UNDER FLOOR - an item lists 20%+ under floor.",
@@ -85,7 +85,7 @@ const WATCHED_BODY = [
   "SWEEP - one wallet buys 5+ items in 10 min.",
   "BIG SALE - an item sells for 0.1 ETH or more.",
   "SOLD - an item sells for 0.05 ETH or more.",
-  "REMINDERS - a message 15 min before each mint stage.",
+  "REMINDERS - a message 15 min before each mint stage, and 1 hour before an auction you follow ends.",
 ]
 
 describe("My alerts", () => {

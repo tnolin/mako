@@ -11,6 +11,7 @@ import type { Prices } from "../src/prices"
 import { addUser } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
 import { addr, nftCollection, nftDrop, nftMint, nftSale, nftStats, T0 } from "./helpers/events"
+import { loadNftx } from "./helpers/fixtures"
 import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -190,7 +191,7 @@ describe("collection card", () => {
     expect(kbOf(e)[0]!.map((b) => b.style)).toEqual(["success", undefined, undefined, undefined])
   })
 
-  it("reads WIRED ✓ · Chimera on a Chimera collection and has the same buttons", async () => {
+  it("reads WIRED ✓ · OpenSea on a Chimera-launched collection and has the same buttons", async () => {
     await boot([
       nftCollection({ name: "WIRED", slug: "wired", safelist: "verified", launchpad: "chimera" }),
       nftStats({ owners: 212 }),
@@ -198,9 +199,43 @@ describe("collection card", () => {
     mkBot()
     await h.text("/nft wired")
     const m = h.last("sendPhoto")!
-    expect((m.caption as string).split("\n")[0]).toBe("<b>WIRED ✓ · Chimera</b>")
+    expect((m.caption as string).split("\n")[0]).toBe("<b>WIRED ✓ · OpenSea</b>")
     expect(texts(m)[1]).toEqual(["Watch", "Recent sales", "View"])
     expect(JSON.stringify(m.reply_markup)).not.toMatch(/Chimera|chimeras/i)
+  })
+
+  it("the Lil Dudes card shows nftx 0.000309 ETH · 60 in pool after floor and reads · OpenSea", async () => {
+    const fx = loadNftx()
+    await boot([fx.lilDudes.collection, fx.lilDudes.stats])
+    mkBot()
+    await h.text(`/nft ${fx.lilDudes.collection.contract}`)
+    const lines = (h.last("sendMessage")!.text as string).split("\n")
+    expect(lines[0]).toBe("<b>Lil Dudes · OpenSea</b>")
+    const i = lines.findIndex((l) => l.startsWith("<code>floor"))
+    expect(lines[i + 1]).toBe("<code>nftx     0.000309 ETH · 60 in pool</code>")
+  })
+
+  it("leaves the pool count out when it is unknown, and has no nftx row off NFTX", async () => {
+    const fx = loadNftx()
+    await boot([fx.lilDudes.collection, { ...fx.lilDudes.stats, poolCount: null }])
+    mkBot()
+    await h.text(`/nft ${fx.lilDudes.collection.contract}`)
+    expect(h.last("sendMessage")!.text).toContain("<code>nftx     0.000309 ETH</code>")
+    await boot(hornet())
+    mkBot()
+    await h.text("/nft ink-hornet")
+    expect(h.last("sendPhoto")!.caption).not.toContain("nftx")
+  })
+
+  it("names a collection with no OpenSea page by its NFTX token", async () => {
+    const fx = loadNftx()
+    const bare = { ...fx.lilDudes.collection, name: null, slug: null }
+    await boot([bare, fx.lilDudes.launch, fx.lilDudes.stats])
+    mkBot()
+    await h.text(`/nft ${bare.contract}`)
+    expect((h.last("sendMessage")!.text as string).split("\n")[0]).toBe(
+      `<b>${fx.lilDudes.launch.tokenName} · OpenSea</b>`,
+    )
   })
 
   it("shows Watching, green, for a collection the viewer already watches", async () => {
@@ -281,6 +316,25 @@ describe("finding a collection", () => {
     mkBot()
     await h.text(addr(0x77))
     expect(h.last("sendMessage")!.text).toBe(NOT_FOUND)
+  })
+
+  it("the collection card and the picker leave out holders when owners is null", async () => {
+    await boot([
+      nftCollection({ contract: addr(0xc1), name: "WIRED", slug: "wired-a" }),
+      nftStats({ contract: addr(0xc1), owners: null, floorWei: eth(0.001) }),
+      nftCollection({ contract: addr(0xc2), name: "WIRED", slug: "wired-b" }),
+      nftStats({ contract: addr(0xc2), owners: 5 }),
+    ])
+    mkBot()
+    await h.text("/nft wired")
+    expect(texts(h.last("sendMessage"))).toEqual([
+      ["WIRED · 0x0000…00c2 · 5 holders"],
+      ["WIRED · 0x0000…00c1"],
+    ])
+    await h.text(`/nft ${addr(0xc1)}`)
+    const cap = h.last("sendPhoto")!.caption as string
+    expect(cap).toContain("<code>floor    0.001 ETH")
+    expect(cap).not.toContain("holders")
   })
 
   it("asks for 3 characters, and says it found nothing for a name nothing matches", async () => {
@@ -431,7 +485,11 @@ describe("lists", () => {
     await watch(sql, { userId: user }, C)
     await h.tap(`nc:${C}:u`)
     const p = h.last("sendPhoto")!
-    const alert = mintRules({ id: "x", p: drop } as never, null, { nft: state, now: () => NOW })[0]!
+    const alert = mintRules({ id: "x", p: drop } as never, null, {
+      nft: state,
+      now: () => NOW,
+      prices: { usd: () => null, symbol: () => "ETH" },
+    })[0]!
     expect(p.caption).toBe(renderNftAlert(alert.card as NftAlertCard))
     expect(p.caption).not.toContain("volume")
     const kb = kbOf(p)

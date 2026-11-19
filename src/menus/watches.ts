@@ -4,9 +4,9 @@ import { logAction } from "../actions"
 import { quoteUnits } from "../cards/money"
 import { clean, escapeHtml } from "../format"
 import { lastMarketOf, latestSwapPerPool, launchOf } from "../history"
-import { makeNftAlertCard } from "../nft/card"
+import { stateName } from "../nft/card"
 import { matchCollection } from "../nft/match"
-import type { NftState } from "../nft/state"
+import { type NftState, remindsAuction } from "../nft/state"
 import {
   muteCollection,
   mutesOf,
@@ -66,8 +66,7 @@ export const cutName = (name: string): string => {
 
 /** The collection's cleaned name, or its short address when MAKO has no snapshot. */
 export function collectionName(deps: Pick<BotDeps, "nft">, contract: string): string {
-  const col = deps.nft?.()?.get(contract)?.col ?? null
-  return makeNftAlertCard("minted", "", col, [], { contract }).name
+  return stateName(deps.nft?.()?.get(contract), contract)
 }
 
 type St = { watching: boolean; muted: boolean; reminded: boolean }
@@ -467,7 +466,15 @@ export function registerWatches(bot: Bot, deps: BotDeps): void {
     tap(deps, async (u, contract) => {
       await remind(deps.sql, u.id, contract)
       await log(deps, "remind", contract)
-      return { text: popup.remind(), edit: true }
+      const st = deps.nft?.()?.get(contract)
+      const now = deps.now?.() ?? Math.floor(Date.now() / 1000)
+      return {
+        text:
+          st && remindsAuction(st) && now < st.auction!.endsAt
+            ? popup.remindAuction()
+            : popup.remind(),
+        edit: true,
+      }
     }),
   )
   pm.callbackQuery(

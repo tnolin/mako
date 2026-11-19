@@ -110,7 +110,8 @@ export function nftAccepts(s: Settings, c: Candidate): boolean {
   const a = s.alerts
   switch (c.alert) {
     case "minted":
-      return c.markBps !== undefined && a.minted.marks.includes(c.markBps)
+      // A minimum bid rise has no mint percentage, so the chat's marks do not apply to it.
+      return c.bidRaise === true || (c.markBps !== undefined && a.minted.marks.includes(c.markBps))
     case "under":
       return (c.discountBps ?? 0) >= a.under.pctBps
     case "rare":
@@ -149,6 +150,12 @@ function nftWants(s: Settings, c: Candidate, watching: boolean, dm: boolean): bo
 /** One alert per event per chat: the lowest priority number, then the highest BONDING mark. */
 function best(cs: Candidate[]): Candidate | undefined {
   return [...cs].sort((a, b) => a.priority - b.priority || (b.mark ?? 0) - (a.mark ?? 0))[0]
+}
+
+/** The best ordinary candidate, plus every separate one: those do not compete for the chat's one alert. */
+const picks = (cs: Candidate[]): Candidate[] => {
+  const one = best(cs.filter((c) => !c.separate))
+  return [...(one ? [one] : []), ...cs.filter((c) => c.separate)]
 }
 
 /**
@@ -264,29 +271,31 @@ export function route(
       for (const u of aud.users) {
         if (muted?.users.has(u.userId)) continue
         const w = watched?.users.has(u.userId) ?? false
-        const c = best(cs.filter((c) => nftWants(u.settings, c, w, true) && !capped(u.chatId, c)))
-        if (!c) continue
-        remember(u.chatId, c)
-        push(c, u.chatId, "private", null, u.settings)
+        for (const c of picks(
+          cs.filter((c) => nftWants(u.settings, c, w, true) && !capped(u.chatId, c)),
+        )) {
+          remember(u.chatId, c)
+          push(c, u.chatId, "private", null, u.settings)
+        }
       }
       for (const ch of aud.chats) {
         if (muted?.chats.has(ch.chatId)) continue
         const w = watched?.chats.has(ch.chatId) ?? false
-        const c = best(
+        for (const c of picks(
           cs.filter(
             (c) =>
               nftWants(ch.settings, c, w, false) &&
               !ch.settings.pausedRoutes?.includes(c.alert) &&
               !capped(ch.chatId, c),
           ),
-        )
-        if (!c) continue
-        remember(ch.chatId, c)
-        const thread =
-          ch.chatType === "channel"
-            ? null
-            : (ch.settings.routes?.[c.alert] ?? ch.settings.thread ?? null)
-        push(c, ch.chatId, ch.chatType, thread, ch.settings)
+        )) {
+          remember(ch.chatId, c)
+          const thread =
+            ch.chatType === "channel"
+              ? null
+              : (ch.settings.routes?.[c.alert] ?? ch.settings.thread ?? null)
+          push(c, ch.chatId, ch.chatType, thread, ch.settings)
+        }
       }
       continue
     }

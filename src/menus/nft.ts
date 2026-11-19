@@ -1,7 +1,15 @@
 import type { Bot, Context } from "grammy"
 import type { InlineKeyboardButton } from "grammy/types"
 import { age, clean, count, escapeHtml, inText, rankText, utcDate, utcTime } from "../format"
-import { collectionLinks, creatorRow, ethText, makeNftAlertCard, shortAddr } from "../nft/card"
+import {
+  collectionLinks,
+  creatorRow,
+  ethNumber,
+  ethText,
+  makeNftAlertCard,
+  shortAddr,
+  stateName,
+} from "../nft/card"
 import { floorAt, lastSaleOf, recentSales, salesSince } from "../nft/history"
 import {
   type Match,
@@ -105,6 +113,11 @@ export async function collectionCard(
     }
     rows.push(["floor", `${ethText(cur, rate)}${change}`])
   }
+  // The NFTX pool's price: no dollars, and the pool count only when it is known.
+  if (stats?.nftxFloorWei != null) {
+    const pool = stats.poolCount != null ? ` · ${count(stats.poolCount)} in pool` : ""
+    rows.push(["nftx", `${ethNumber(BigInt(stats.nftxFloorWei))} ETH${pool}`])
+  }
   const sales = await salesSince(deps.sql, contract, now - WINDOW_S[win])
   rows.push(
     ["volume", `${ethText(sales.sumWei, rate)} (${win})`],
@@ -120,7 +133,7 @@ export async function collectionCard(
   if (running && minted)
     rows.push(["supply", `${count(Number(minted.minted))} / ${count(Number(minted.maxSupply))}`])
   else if (knownMax(total)) rows.push(["supply", count(Number(total))])
-  if (stats) rows.push(["holders", count(stats.owners)])
+  if (stats?.owners != null) rows.push(["holders", count(stats.owners)])
   if (stats?.listedCount) {
     const share = knownMax(total)
       ? ` (${Number(((stats.listedCount / Number(total)) * 100).toFixed(1))}%)`
@@ -134,9 +147,8 @@ export async function collectionCard(
   if (creator) rows.push(creator)
   const mint = mintRow(st, now)
   if (mint) rows.push(["mint", mint])
-  const market = st.col?.launchpad === "chimera" ? "Chimera" : "OpenSea"
   const lines = [
-    `<b>${escapeHtml(base.name)}${base.verified ? " ✓" : ""} · ${market}</b>`,
+    `<b>${escapeHtml(stateName(st, contract))}${base.verified ? " ✓" : ""} · OpenSea</b>`,
     "",
     ...renderRows(rows),
     "",
@@ -353,7 +365,7 @@ async function salesPage(
 ): Promise<void> {
   const st = deps.nft?.()?.get(contract)
   if (!st) return void (await ctx.answerCallbackQuery({ text: COPY.none }).catch(() => {}))
-  const name = makeNftAlertCard("minted", "", st.col, [], { contract }).name
+  const name = stateName(st, contract)
   const slug = st.col?.slug ?? null
   const { rows, total } = await recentSales(deps.sql, contract, (page - 1) * PAGE, PAGE)
   const pages = Math.max(1, Math.ceil(total / PAGE))
@@ -419,7 +431,7 @@ export async function itemCard(
   // Labels pad to two past the longest.
   const w = Math.max(9, ...rows.map(([l]) => l.length + 2))
   const lines = [
-    `<b>${escapeHtml(base.name)}${base.verified ? " ✓" : ""} #${escapeHtml(tokenId)} · OpenSea</b>`,
+    `<b>${escapeHtml(stateName(st, contract))}${base.verified ? " ✓" : ""} #${escapeHtml(tokenId)} · OpenSea</b>`,
     "",
     ...(noRank ? [NO_RANK] : []),
     ...rows.map(([l, v]) => `<code>${escapeHtml(l.padEnd(w))}${escapeHtml(v)}</code>`),
@@ -523,9 +535,10 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
   const watched = await watchedBy(deps, ctx)
   const now = nowS(deps)
   const nameOf = (s: CollectionState) =>
-    makeNftAlertCard("minted", "", s.col, [], {
-      contract: (s.col?.contract ?? s.launch?.contract)!,
-    })
+    stateName(
+      s,
+      (s.col?.contract ?? s.launch?.contract ?? s.nftxLaunch?.contract ?? s.auction?.contract)!,
+    )
   if (code === "m") {
     return state
       .live()
@@ -547,7 +560,7 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
       .slice(0, 10)
       .map(({ s, pct, stage }) => ({
         contract: s.col!.contract,
-        label: withTail(nameOf(s).name, ` · ${stage}${pct === null ? "" : ` · ${pct}%`}`, 30),
+        label: withTail(nameOf(s), ` · ${stage}${pct === null ? "" : ` · ${pct}%`}`, 30),
       }))
   }
   if (code === "u") {
@@ -566,7 +579,7 @@ async function listRows(deps: BotDeps, ctx: Context, code: string): Promise<List
         const first = s.drop!.stages.find((st) => !isTeamStage(st) && st.startTime > now)!
         return {
           contract: s.col!.contract,
-          label: withTail(nameOf(s).name, ` · ${utcTime(first.startTime, true)}`, 30),
+          label: withTail(nameOf(s), ` · ${utcTime(first.startTime, true)}`, 30),
         }
       })
   }
@@ -652,10 +665,11 @@ export async function openMatch(
   if (m.kind === "one") return sendCard(ctx, deps, m.contract, win)
   const kb: Kb = m.contracts.map((c) => {
     const s = state.get(c)!
-    const name = makeNftAlertCard("minted", "", s.col, [], { contract: c }).name
-    const holders = s.stats
-      ? ` · ${count(s.stats.owners)} holder${s.stats.owners === 1 ? "" : "s"}`
-      : ""
+    const name = stateName(s, c)
+    const holders =
+      s.stats?.owners != null
+        ? ` · ${count(s.stats.owners)} holder${s.stats.owners === 1 ? "" : "s"}`
+        : ""
     return [btn(withTail(name, ` · ${shortAddr(c)}${holders}`, 34), `nc:${c}`)]
   })
   await show(

@@ -18,7 +18,7 @@ MAKO currently works with:
 - **Tsunami:** memecoin launches, bonding progress, and trading in each token's Calamari pool after it graduates.
 - **Hookit:** tokens launched on Hookit.fun, the Uniswap v4 launchpad with programmable hook combinations.
 - **OpenSea:** NFT collection details, floors, listings, rarity ranks and mint schedules. View and Buy buttons open OpenSea.
-- **Chimera:** new Chimera-404 collections.
+- **NFTX:** collections with an NFTX market on Ink: pool price, sales, listings and auctions. View and Buy buttons open NFTX for these.
 
 ## Alerts
 
@@ -42,11 +42,11 @@ When turned on: Every collection that passes MAKO's quality checks. When turned 
 
 | Alert | When it fires |
 | --- | --- |
-| UPCOMING MINT | When a new mint is scheduled. |
-| MINT STARTING | When a mint's public stage opens. |
-| MINTED | When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints). |
-| SOLD OUT | When a collection completely mints out. |
-| NEW COLLECTION | A new Chimera collection is detected. |
+| UPCOMING MINT | When a new mint or NFTX auction is scheduled. |
+| MINT STARTING | When a mint's public stage opens, or an NFTX auction starts. |
+| MINTED | When a watched collection's total mints has passed your designated threshold (eg. 50% = 50/100 mints), or a watched auction's minimum bid rises 25%+. |
+| SOLD OUT | When a collection completely mints out, or an NFTX auction ends. |
+| NEW COLLECTION | A collection opening on NFTX. |
 
 #### Watched only
 
@@ -60,7 +60,7 @@ These alerts are only for NFTs you added to your watchlist.
 | SWEEP | one wallet buys 5+ items in 10 min. |
 | BIG SALE | an item sells for 0.1 ETH or more. |
 | SOLD | an item sells for 0.05 ETH or more. |
-| REMINDERS | a message 15 min before each mint stage. |
+| REMINDERS | a message 15 min before each mint stage, and 1 hour before an auction you follow ends. |
 
 Each alert can be turned off, and its image hidden, in My alerts. MCAP TARGET has no switch or image setting: it goes only to whoever set the target.
 
@@ -74,7 +74,7 @@ Stop watching: It can still appear in your feeds.
 
 Muted: I won't send you any alerts on tokens or NFTs that you mute. If it is on your watchlist, it is removed automatically.
 
-Remind me: These alerts are only for an NFT's upcoming mint stages. Select 'Remind me' if you want to get notifications 15 min before each mint stage without adding the collection to your Watchlist.
+Remind me: These alerts are only for an NFT's upcoming mint stages and NFTX auctions. Select 'Remind me' if you want to get notifications 15 min before each mint stage, or 1 hour before an auction ends, without adding the collection to your Watchlist.
 
 ## Menus and settings
 

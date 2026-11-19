@@ -44,7 +44,11 @@ export function matchCollection(state: NftState, q: string): Match {
   const top = ms.filter((m) => m.tier === ms[0]!.tier)
   const reals = top.filter((m) => m.state.col?.verdict === "real")
   const only = ms[0]!.tier === 1 ? top[0] : reals.length === 1 ? reals[0] : undefined
-  const contract = (m: (typeof ms)[number]) => (m.state.col?.contract ?? m.state.launch?.contract)!
+  const contract = (m: (typeof ms)[number]) =>
+    (m.state.col?.contract ??
+      m.state.launch?.contract ??
+      m.state.nftxLaunch?.contract ??
+      m.state.auction?.contract)!
   if (only) return { kind: "one", contract: contract(only) }
   return { kind: "pick", contracts: ms.slice(0, 8).map(contract) }
 }

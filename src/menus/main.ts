@@ -95,7 +95,7 @@ const nftsText = (linksBase: string): string =>
   [
     "<b>NFTs</b>",
     "Alerts and lists for NFT collections on Ink.",
-    `Supported: <a href="${linksBase}/p/opensea">OpenSea</a>, <a href="${linksBase}/p/chimera">Chimera</a>`,
+    `Supported: <a href="${linksBase}/p/opensea">OpenSea</a>, <a href="${linksBase}/p/nftx">NFTX</a>`,
     "",
     "/nft &lt;collection&gt; [1h|24h|7d|30d]",
     "/nft &lt;collection&gt; &lt;id&gt; look up one NFT",
@@ -129,7 +129,7 @@ export const HELP = {
     "",
     `${b("Muted")}: I won't send you any alerts on tokens or NFTs that you mute. If it is on your watchlist, it is removed automatically.`,
     "",
-    `${b("Remind me")}: These alerts are only for an NFT's upcoming mint stages. Select 'Remind me' if you want to get notifications 15 min before each mint stage without adding the collection to your Watchlist.`,
+    `${b("Remind me")}: These alerts are only for an NFT's upcoming mint stages and NFTX auctions. Select 'Remind me' if you want to get notifications 15 min before each mint stage, or 1 hour before an auction ends, without adding the collection to your Watchlist.`,
   ].join("\n"),
   group: [
     b("Group setup"),

@@ -2,7 +2,12 @@ import { readFileSync } from "node:fs"
 import type {
   BondEvent,
   LaunchEvent,
+  NftAuctionEvent,
+  NftCollectionEvent,
   NftEvent,
+  NftLaunchEvent,
+  NftSaleEvent,
+  NftStatsEvent,
   StoredEvent,
   SwapEvent,
   TradeEvent,
@@ -37,4 +42,30 @@ export function loadTsunami(): TsunamiFixtures {
   return JSON.parse(
     readFileSync(new URL("../fixtures/tsunami-events.json", import.meta.url), "utf8"),
   )
+}
+
+/**
+ * NFTX collections and an auction as the indexer records them, from transactions on Ink mainnet. Each entry
+ * carries its source `txHash` and `blockNumber`. `inktrons` is the one auction on Ink, with Lil Dudes as the
+ * collection standing in for a floor token's.
+ */
+export type NftxFixtures = {
+  lilDudes: {
+    collection: NftCollectionEvent
+    launch: NftLaunchEvent
+    stats: NftStatsEvent
+    arbitrageSale: NftSaleEvent
+  }
+  bubbleCats: { launch: NftLaunchEvent; arbitrageSales: NftSaleEvent[] }
+  humanInk: { launch: NftLaunchEvent }
+  inktrons: {
+    created: NftAuctionEvent
+    live: NftAuctionEvent
+    price: NftAuctionEvent
+    ended: NftAuctionEvent
+  }
+}
+
+export function loadNftx(): NftxFixtures {
+  return JSON.parse(readFileSync(new URL("../fixtures/nftx-events.json", import.meta.url), "utf8"))
 }

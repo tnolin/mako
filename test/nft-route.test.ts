@@ -84,6 +84,18 @@ describe("NFT routing", () => {
     expect(route([cand("minted", { markBps: 5000 })], aud)).toHaveLength(1)
   })
 
+  it("MINIMUM BID RAISED reaches a watcher whose MINTED marks are 75% only, and no feed", () => {
+    const only75 = dm("1", (s) => {
+      s.alerts.minted.marks = [7500]
+    })
+    const feed = dm("2")
+    const aud = audience({ users: [only75, feed], watches: watching(["1"]) })
+    const raise = cand("minted", { bidRaise: true, feedEligible: false })
+    expect(who(route([raise], aud))).toEqual(["101:minted"])
+    // Without the flag a candidate with no mark does not reach the 75% watcher.
+    expect(route([cand("minted", { feedEligible: false })], aud)).toEqual([])
+  })
+
   it("Watched only alerts never reach a chat that does not watch the collection, even a real one", () => {
     const aud = audience({ users: [dm("1")], chats: [grp("-5")] })
     for (const [kind, extra] of [
@@ -323,6 +335,69 @@ describe("NFT routing", () => {
     // Two moves in one batch: the second is held back.
     const two = [down("a"), { ...down("b"), eventId: "x2", eventTs: T0 + 60 }]
     expect(route(two, audience(base))).toHaveLength(1)
+  })
+})
+
+describe("separate candidates", () => {
+  const open = () => cand("launch", { separate: true })
+
+  it("NOW ON NFTX and a mint catch-up from one snapshot both reach one chat", () => {
+    const aud = audience({ users: [dm("1")], chats: [grp("-5")], watches: watching(["1"], ["-5"]) })
+    const catchUp = cand("mintstart")
+    const o = open()
+    const ds = route([{ ...catchUp, eventId: o.eventId }, o], aud)
+    expect(who(ds)).toEqual(["-5:launch", "-5:mintstart", "101:launch", "101:mintstart"])
+  })
+
+  it("NOW ON NFTX, the auction catch-up and a mint catch-up from one snapshot all reach one chat", () => {
+    const aud = audience({ users: [dm("1")], chats: [grp("-5")], watches: watching(["1"], ["-5"]) })
+    const o = open()
+    const auction = { ...cand("upcoming", { separate: true }), eventId: o.eventId }
+    const mint = { ...cand("mintstart"), eventId: o.eventId }
+    expect(who(route([mint, o, auction], aud))).toEqual([
+      "-5:launch",
+      "-5:mintstart",
+      "-5:upcoming",
+      "101:launch",
+      "101:mintstart",
+      "101:upcoming",
+    ])
+  })
+
+  it("two ordinary candidates from one event still give the chat one alert", () => {
+    const aud = audience({ users: [dm("1")], watches: watching(["1"]) })
+    const a = cand("mintstart")
+    const b = { ...cand("minted", { markBps: 5000 }), eventId: a.eventId }
+    expect(who(route([a, b], aud))).toEqual(["101:mintstart"])
+  })
+
+  it("two separate candidates of one event are both delivered", () => {
+    const aud = audience({ users: [dm("1")], watches: watching(["1"]) })
+    const a = open()
+    const b = { ...cand("soldout", { separate: true }), eventId: a.eventId }
+    expect(who(route([a, b], aud))).toEqual(["101:launch", "101:soldout"])
+  })
+
+  it("a separate candidate still respects the chat's mute, pause and cap", () => {
+    const muted = new Map([[C, { users: new Set(["1"]), chats: new Set<string>() }]])
+    const aud = audience({
+      users: [dm("1"), dm("2")],
+      chats: [
+        grp("-5", (s) => {
+          s.pausedRoutes = ["launch"]
+        }),
+      ],
+      watches: watching(["1", "2"], ["-5"]),
+      nftMutes: muted,
+    })
+    expect(who(route([open()], aud))).toEqual(["102:launch"])
+    const floor = cand("floor", { separate: true, floorDir: "up", floorBps: 2500 })
+    const cooling = audience({
+      users: [dm("1")],
+      watches: watching(["1"]),
+      lastFloor: new Map([[`101:${C}:up`, [{ ts: T0 - 60, key: "earlier" }]]]),
+    })
+    expect(route([floor], cooling)).toEqual([])
   })
 })
 

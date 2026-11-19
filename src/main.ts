@@ -106,7 +106,7 @@ const stopPoller = startPoller({
   nftState,
   launchpads,
 })
-const stopReminders = startReminders({ sql, nft: () => nftState.current, log })
+const stopReminders = startReminders({ sql, nft: () => nftState.current, prices, log })
 const notify = createNotify({ sql, api: bot.api, botUsername, log })
 const stopSender = startSender({
   sql,

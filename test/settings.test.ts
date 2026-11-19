@@ -281,8 +281,12 @@ it("ALERT_DESC follows the chosen thresholds", () => {
   s.alerts.sweep.items = 10
   expect(ALERT_DESC("sweep", s)).toBe("SWEEP - one wallet buys 10+ items in 10 min.")
   expect(ALERT_DESC("sale", s)).toBe("SOLD - an item sells for 0.05 ETH or more.")
-  expect(ALERT_DESC("reminder", s)).toBe("REMINDERS - a message 15 min before each mint stage.")
-  expect(ALERT_DESC("mintstart", s)).toBe("MINT STARTING - When a mint's public stage opens.")
+  expect(ALERT_DESC("reminder", s)).toBe(
+    "REMINDERS - a message 15 min before each mint stage, and 1 hour before an auction you follow ends.",
+  )
+  expect(ALERT_DESC("mintstart", s)).toBe(
+    "MINT STARTING - When a mint's public stage opens, or an NFTX auction starts.",
+  )
 })
 
 it('ALERT_DESC reads "at any price" when the SOLD minimum is any', () => {

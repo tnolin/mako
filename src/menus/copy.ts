@@ -8,6 +8,7 @@ export const popup = {
   watch: (name: string) => `Watching ${name}. I'll send you every alert for it.`,
   stop: (name: string) => `Stopped watching ${name}. It can still appear in your feeds.`,
   remind: () => "Reminder set. I'll message you 15 mins before each mint stage.",
+  remindAuction: () => "Reminder set. I'll message you 1 hour before the auction ends.",
   unremind: (name: string) => `Reminder removed for ${name}.`,
   mute: (name: string) => `Muted ${name}. I won't send you alerts about it.`,
   muteUnwatched: (name: string) => `Muted and unwatched ${name}.`,

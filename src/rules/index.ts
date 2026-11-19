@@ -18,6 +18,7 @@ import {
   swapsOf,
   tradesOf,
 } from "../history"
+import { auctionRules } from "../nft/rules/auction"
 import { marketRules } from "../nft/rules/market"
 import { mintRules } from "../nft/rules/mint"
 import { deepestPool } from "../pool"
@@ -79,6 +80,8 @@ export async function rulesFor(
     case "nft.mint":
     case "nft.launch":
       return mintRules(ev as never, prev, ctx)
+    case "nft.auction":
+      return auctionRules(ev as never, ctx)
     case "nft.listing":
     case "nft.sale":
     case "nft.stats":

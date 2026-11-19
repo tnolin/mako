@@ -172,6 +172,40 @@ describe("redirect server", () => {
     expect(res.headers.get("location")).toBe(`https://explorer.inkonchain.com/token/${CA}`)
   })
 
+  it("302s /n/x/lil-dudes to https://nftx.io/ink/collections/lil-dudes and logs nftx:lil-dudes", async () => {
+    nftClicks.length = 0
+    const res = await get(`/n/x/lil-dudes?d=${D}`)
+    expect(res.status).toBe(302)
+    expect(res.headers.get("location")).toBe("https://nftx.io/ink/collections/lil-dudes")
+    expect(res.headers.get("cache-control")).toBe("no-store")
+    await vi.waitFor(() => expect(nftClicks).toEqual([["nftx:lil-dudes", D]]))
+  })
+
+  it("302s /n/xi/lil-dudes/195 to the item page", async () => {
+    nftClicks.length = 0
+    const res = await get("/n/xi/lil-dudes/195")
+    expect(res.headers.get("location")).toBe("https://nftx.io/ink/collections/lil-dudes/195")
+    await vi.waitFor(() => expect(nftClicks).toEqual([["nftx:lil-dudes", null]]))
+  })
+
+  it("302s /p/nftx to https://nftx.io/ without logging", async () => {
+    nftClicks.length = 0
+    expect((await get("/p/nftx")).headers.get("location")).toBe("https://nftx.io/")
+    await new Promise((r) => setTimeout(r, 20))
+    expect(nftClicks).toEqual([])
+  })
+
+  it("logs /p/nftx as an nft_click when a card's delivery opens it, but not the NFTs screen's link", async () => {
+    nftClicks.length = 0
+    const res = await get(`/p/nftx?d=${D}`)
+    expect(res.headers.get("location")).toBe("https://nftx.io/")
+    await vi.waitFor(() => expect(nftClicks).toEqual([["nftx:", D]]))
+    nftClicks.length = 0
+    await get("/p/nftx?d=not-a-delivery")
+    await new Promise((r) => setTimeout(r, 20))
+    expect(nftClicks).toEqual([])
+  })
+
   it("302s the platform links without logging them", async () => {
     nftClicks.length = 0
     expect((await get("/p/opensea")).headers.get("location")).toBe("https://opensea.io")
@@ -190,7 +224,17 @@ describe("redirect server", () => {
     `/n/i/${CA}/${"1".repeat(79)}`,
     `/n/i/${CA}`,
     "/n/a/0x123",
-    "/n/x/ink-hornet",
+    "/n/x/",
+    "/n/x/Lil-Dudes",
+    "/n/x/lil%2F..%2Fx",
+    "/n/x/lil-dudes/195",
+    `/n/x/${"a".repeat(101)}`,
+    "/n/xi/lil-dudes",
+    "/n/xi/lil-dudes/0x1f",
+    "/n/xi/lil-dudes/",
+    `/n/xi/lil-dudes/${"1".repeat(79)}`,
+    `/n/xi/${"a".repeat(101)}/1`,
+    "/n/xi/Lil-Dudes/195",
     "/p/other",
   ])("404s %s", async (path) => {
     expect((await get(path)).status).toBe(404)

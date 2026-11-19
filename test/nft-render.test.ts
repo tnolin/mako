@@ -8,8 +8,17 @@ import {
   shortAddr,
   usdText,
 } from "../src/nft/card"
-import { nftAlertKeyboard, renderNftAlert } from "../src/platforms/telegram/render"
+import {
+  bidRaisedCard,
+  endedCard,
+  endingSoonCard,
+  liveAuctionCard,
+  upcomingAuctionCard,
+} from "../src/nft/rules/auction"
+import { createNftState } from "../src/nft/state"
+import { nftAlertKeyboard, nftViewPath, renderNftAlert } from "../src/platforms/telegram/render"
 import { NFT_ALL_ALERTS, NFT_WATCHED_ALERTS } from "../src/settings"
+import { loadNftx } from "./helpers/fixtures"
 
 const HORNET = "0x4d243f15743f6df7c832fcd5ee9a3e8453d47a4b"
 const PRTSCN = "0x3ea71c6abde8a1b3cf6e5683761a7378b4e9e448"
@@ -26,6 +35,8 @@ const base = (o: Partial<NftAlertCard>): NftAlertCard => ({
   name: "Ink Hornet",
   verified: false,
   marketplace: "OpenSea",
+  link: "opensea",
+  nftxSlug: null,
   rows: [],
   contract: HORNET,
   extra: [],
@@ -420,6 +431,188 @@ describe("renderNftAlert matches the expected text", () => {
   })
 })
 
+describe("NFTX cards", () => {
+  const LIL_DUDES = "0x2538d3202844e6b3852570d9ef63a916f900c373"
+  const nftx = (o: Partial<NftAlertCard>) =>
+    base({
+      alert: "floor",
+      title: "FLOOR UP 40%",
+      name: "Lil Dudes",
+      marketplace: "NFTX",
+      link: "nftx",
+      nftxSlug: "lil-dudes",
+      slug: "lildudes3333",
+      contract: LIL_DUDES,
+      imageKey: `nft:${LIL_DUDES}`,
+      rows: [["floor", "0.000309 ETH"]],
+      ...o,
+    })
+
+  it('an NFTX card reads "Lil Dudes · NFTX" and has no CA or token line', () => {
+    const card = nftx({
+      extra: [["token", "0x370e49749b9ff90004f3186aa7135487acc2a8fc"]],
+      links: links("X", "Website"),
+    })
+    expect(renderNftAlert(card)).toBe(
+      [
+        "<b>FLOOR UP 40%</b>",
+        "Lil Dudes · NFTX",
+        "",
+        ...code("floor    0.000309 ETH"),
+        "",
+        linkLine("X", "Website"),
+      ].join("\n"),
+    )
+  })
+
+  it("NOW ON NFTX lists floor, pool, supply, holders and creator, then the links, and View opens /n/x/<slug>", () => {
+    const card = nftx({
+      alert: "launch",
+      title: "NOW ON NFTX",
+      rows: [
+        ["floor", "0.0009 ETH ($2.16)"],
+        ["pool", "35 NFTs"],
+        ["supply", "3,333"],
+        ["holders", "212"],
+        ["creator", "0x9860…3b40"],
+      ],
+      links: links("X", "Website"),
+    })
+    expect(renderNftAlert(card)).toBe(
+      [
+        "<b>NOW ON NFTX</b>",
+        "Lil Dudes · NFTX",
+        "",
+        ...code(
+          "floor    0.0009 ETH ($2.16)",
+          "pool     35 NFTs",
+          "supply   3,333",
+          "holders  212",
+          "creator  0x9860…3b40",
+        ),
+        "",
+        linkLine("X", "Website"),
+      ].join("\n"),
+    )
+    expect(nftViewPath(card)).toBe("/n/x/lil-dudes")
+  })
+
+  it("an NFTX card without links ends at its last row", () => {
+    expect(renderNftAlert(nftx({}))).toBe(
+      ["<b>FLOOR UP 40%</b>", "Lil Dudes · NFTX", "", ...code("floor    0.000309 ETH")].join("\n"),
+    )
+  })
+
+  // A delivery queued by the release before this one carries neither field.
+  it("a card stored without link or nftxSlug renders and links as OpenSea", () => {
+    const stored = {
+      alert: "minted",
+      title: "MINTED 50%",
+      name: "Ink Hornet",
+      verified: false,
+      marketplace: "OpenSea",
+      rows: [["minted", "1,111 / 2,222"]],
+      contract: HORNET,
+      extra: [],
+      tokenId: null,
+      slug: "ink-hornet",
+      imageUrl: null,
+      imageKey: `nft:${HORNET}`,
+      links: [],
+    } as unknown as NftAlertCard
+    expect(renderNftAlert(stored)).toBe(
+      [
+        "<b>MINTED 50%</b>",
+        "Ink Hornet · OpenSea",
+        "",
+        ...code("minted   1,111 / 2,222"),
+        "",
+        `CA   <code>${HORNET}</code>`,
+      ].join("\n"),
+    )
+    expect(nftViewPath(stored)).toBe("/n/c/ink-hornet")
+    const dm = { ...ctx, chatType: "private" as const, deliveryId: "d1" }
+    expect((nftAlertKeyboard(stored, dm).inline_keyboard[0]![0] as { url: string }).url).toBe(
+      "https://go.makobot.xyz/n/c/ink-hornet?d=d1",
+    )
+    expect(nftViewPath({ ...stored, alert: "sale", tokenId: "7" })).toBe(`/n/i/${HORNET}/7`)
+    expect(nftViewPath({ ...stored, slug: null })).toBe(`/n/a/${HORNET}`)
+  })
+
+  it("nftViewPath follows the link table", () => {
+    const path = (o: Partial<NftAlertCard>) => nftViewPath(nftx(o))
+    // Item alerts with a token id: the item page.
+    for (const alert of ["sale", "bigsale", "rare", "under"] as const)
+      expect(path({ alert, tokenId: "195" })).toBe("/n/xi/lil-dudes/195")
+    // Collection alerts, and an item alert with no token id: the collection page.
+    for (const alert of [
+      "launch",
+      "floor",
+      "sweep",
+      "minted",
+      "soldout",
+      "upcoming",
+      "mintstart",
+    ] as const)
+      expect(path({ alert })).toBe("/n/x/lil-dudes")
+    expect(path({ alert: "sale", tokenId: null })).toBe("/n/x/lil-dudes")
+    // No slug: NFTX's home, for an item and for a collection.
+    expect(path({ alert: "sale", tokenId: "195", nftxSlug: null })).toBe("/p/nftx")
+    expect(path({ alert: "floor", nftxSlug: null })).toBe("/p/nftx")
+    // OpenSea cards keep their paths.
+    expect(nftViewPath(base({ alert: "sale", tokenId: "7" }))).toBe(`/n/i/${HORNET}/7`)
+    expect(nftViewPath(base({ alert: "floor" }))).toBe("/n/c/ink-hornet")
+    expect(nftViewPath(base({ alert: "launch", slug: null }))).toBe(`/n/a/${HORNET}`)
+  })
+
+  it("an NFTX card with no slug or an invalid slug opens /p/nftx", () => {
+    const dm = { ...ctx, chatType: "private" as const, deliveryId: "d1" }
+    const view = (card: NftAlertCard) =>
+      (nftAlertKeyboard(card, dm).inline_keyboard[0]![0] as { url: string }).url
+    for (const bad of [null, "Lil/../x", "lil dudes", "Lil-Dudes", "", "a".repeat(101)]) {
+      // Built through the card builder the slug is dropped; stored on a card it is still not used.
+      const built = makeNftAlertCard("floor", "FLOOR UP 40%", null, [], {
+        contract: LIL_DUDES,
+        market: "nftx",
+        nftxSlug: bad,
+      })
+      expect(built.nftxSlug).toBeNull()
+      expect(view(built)).toBe("https://go.makobot.xyz/p/nftx?d=d1")
+      expect(view(nftx({ nftxSlug: bad }))).toBe("https://go.makobot.xyz/p/nftx?d=d1")
+      expect(view(nftx({ alert: "sale", tokenId: "195", nftxSlug: bad }))).toBe(
+        "https://go.makobot.xyz/p/nftx?d=d1",
+      )
+    }
+  })
+
+  it("an NFTX card's buttons are the same as an OpenSea card's", () => {
+    const dm = { ...ctx, chatType: "private" as const, deliveryId: "d1" }
+    const grp = { ...ctx, chatType: "supergroup" as const, deliveryId: "d1" }
+    const texts = (kb: ReturnType<typeof nftAlertKeyboard>) =>
+      kb.inline_keyboard.map((r) => r.map((b) => b.text))
+    expect(texts(nftAlertKeyboard(nftx({}), dm))).toEqual([["View", "Watch", "Mute"]])
+    expect(texts(nftAlertKeyboard(nftx({ alert: "rare", tokenId: "1" }), grp))).toEqual([
+      ["Buy", "Watch"],
+    ])
+  })
+
+  it("AUCTION LIVE's remind flag adds Remind me in a DM and in a group", () => {
+    const dm = { ...ctx, chatType: "private" as const, deliveryId: "d1" }
+    const grp = { ...ctx, chatType: "supergroup" as const, deliveryId: "d1" }
+    const texts = (kb: ReturnType<typeof nftAlertKeyboard>) =>
+      kb.inline_keyboard.map((r) => r.map((b) => b.text))
+    const live = nftx({ alert: "mintstart", title: "AUCTION LIVE", remind: true })
+    expect(texts(nftAlertKeyboard(live, dm))).toEqual([["View", "Watch", "Mute"], ["Remind me"]])
+    expect(texts(nftAlertKeyboard(live, grp))).toEqual([["View", "Watch"], ["Remind me"]])
+    expect(nftAlertKeyboard(live, dm).inline_keyboard[1]![0]).toEqual({
+      text: "Remind me",
+      callback_data: `nrm:${LIL_DUDES}`,
+    })
+    const plain = nftx({ alert: "mintstart", title: "MINT STARTING" })
+    expect(texts(nftAlertKeyboard(plain, dm))).toEqual([["View", "Watch", "Mute"]])
+  })
+})
+
 describe("makeNftAlertCard", () => {
   const col = (o: Record<string, unknown> = {}) =>
     ({
@@ -466,6 +659,27 @@ describe("makeNftAlertCard", () => {
     const c = col({ launchpad: "chimera" })
     expect(makeNftAlertCard("launch", "NEW COLLECTION", c, [], {}).marketplace).toBe("Chimera")
     expect(makeNftAlertCard("sale", "SOLD", c, [], {}).marketplace).toBe("OpenSea")
+  })
+
+  it("market nftx labels the card NFTX, points it at NFTX and keeps only a valid slug", () => {
+    const c = col({ launchpad: "chimera" })
+    const nftx = makeNftAlertCard("launch", "NOW ON NFTX", c, [], {
+      market: "nftx",
+      nftxSlug: "lil-dudes",
+    })
+    // The NFTX label wins over the Chimera one.
+    expect(nftx).toMatchObject({ marketplace: "NFTX", link: "nftx", nftxSlug: "lil-dudes" })
+    expect(nftx.slug).toBe("ink-hornet")
+    expect(
+      makeNftAlertCard("sale", "SOLD", c, [], { market: "nftx", nftxSlug: "Lil Dudes" }).nftxSlug,
+    ).toBeNull()
+    expect(makeNftAlertCard("sale", "SOLD", c, [], { remind: true }).remind).toBe(true)
+    expect("remind" in makeNftAlertCard("sale", "SOLD", c, [], {})).toBe(false)
+    // Without a market the card is an OpenSea card, whatever slug it was handed.
+    expect(makeNftAlertCard("sale", "SOLD", c, [], { nftxSlug: "lil-dudes" })).toMatchObject({
+      link: "opensea",
+      nftxSlug: null,
+    })
   })
 
   it("names a collection without a snapshot by its short address", () => {
@@ -626,5 +840,126 @@ describe("nftAlertKeyboard", () => {
       for (const b of kb.inline_keyboard.flat())
         if ("callback_data" in b) expect(Buffer.byteLength(b.callback_data!)).toBeLessThan(64)
     }
+  })
+})
+
+describe("auction cards", () => {
+  const fx = loadNftx()
+  const { inktrons: A } = fx
+  const st = createNftState()
+  st.apply({
+    id: "1",
+    p: { ...fx.lilDudes.collection, links: { twitter: "@dudes", website: null, discord: null } },
+  })
+  st.apply({ id: "2", p: A.ended })
+  const col = st.get(fx.lilDudes.collection.contract)!
+  const rate = 2400
+  const header = (title: string) => [`<b>${title}</b>`, "Lil Dudes · NFTX", ""]
+  const xLine = '<a href="https://x.com/dudes">X</a>'
+
+  it("a collection known only by a hostile NFTX token name is cleaned, cut at 64 and escaped", () => {
+    const hostile = `<b>x</b>\u202e&\u2066${"n".repeat(200)}`
+    const only = createNftState()
+    only.apply({ id: "1", p: { ...fx.lilDudes.collection, name: null, slug: null } })
+    only.apply({ id: "2", p: { ...fx.lilDudes.launch, tokenName: hostile } })
+    only.apply({ id: "3", p: A.created })
+    const card = upcomingAuctionCard(only.get(fx.lilDudes.collection.contract)!, A.created, 0, null)
+    expect([...card.name]).toHaveLength(64)
+    expect(card.name).not.toMatch(/[\u202e\u2066]/)
+    const html = renderNftAlert(card)
+    expect(html).toContain("&lt;b&gt;x&lt;/b&gt;&amp;")
+    expect(html).not.toContain("<b>x</b>")
+  })
+
+  it("the five auction cards render their rows with no CA line", () => {
+    const raised = {
+      ...A.price,
+      clearingPriceWei: "160000000000000",
+      bidders: 4,
+      raisedWei: "200000000000000000",
+    }
+    const cards = [
+      upcomingAuctionCard(col, A.created, A.created.blockTimestamp, rate),
+      liveAuctionCard(col, A.live, A.live.blockTimestamp, rate),
+      bidRaisedCard(col, raised, raised.endsAt - 9 * 3600, rate),
+      endingSoonCard(col, A.ended, A.ended.endsAt - 3600, rate),
+      endedCard(col, A.ended, A.ended.endsAt + 60, rate),
+    ]
+    expect(cards.map((c) => renderNftAlert(c))).toEqual([
+      [
+        ...header("UPCOMING AUCTION"),
+        ...code(
+          "starts   Nov 5 13:00 UTC (in 13h 9m)",
+          "ends     Nov 6 13:00 UTC",
+          "supply   1,100 NFTs",
+          "min bid  0.0001 ETH ($0.24)",
+        ),
+        "",
+        xLine,
+      ].join("\n"),
+      [
+        ...header("AUCTION LIVE"),
+        ...code(
+          "min bid  0.0001 ETH ($0.24)",
+          "ends     Nov 6 13:00 UTC (in 1d)",
+          "supply   1,100 NFTs",
+        ),
+        "",
+        xLine,
+      ].join("\n"),
+      [
+        ...header("MINIMUM BID RAISED"),
+        ...code(
+          "min bid  0.00016 ETH ($0.38) (+60%)",
+          "bidders  4",
+          "raised   0.2 ETH ($480)",
+          "ends     in 9h",
+        ),
+      ].join("\n"),
+      [
+        ...header("AUCTION ENDING SOON"),
+        ...code(
+          "ends     13:00 UTC (in 1h)",
+          "min bid  0.0001 ETH ($0.24)",
+          "bidders  11",
+          "raised   0.0102 ETH ($24)",
+        ),
+      ].join("\n"),
+      [
+        ...header("AUCTION ENDED"),
+        ...code(
+          "price    0.0001 ETH ($0.24) per NFT",
+          "sold     101 / 1,100 (9%)",
+          "raised   0.0102 ETH ($24)",
+          "bidders  11",
+          "claims   from 13:05 UTC",
+        ),
+      ].join("\n"),
+    ])
+    for (const c of cards) {
+      expect(renderNftAlert(c)).not.toContain("CA ")
+      expect(nftViewPath(c)).toBe("/n/x/lil-dudes")
+    }
+  })
+
+  it("the refunded AUCTION ENDED renders result, raised and bidders", () => {
+    const failed = {
+      ...A.ended,
+      graduated: false,
+      cleared: "0",
+      raisedWei: "4100000000000000000",
+      requiredRaiseWei: "10000000000000000000",
+      bidders: 52,
+    }
+    expect(renderNftAlert(endedCard(col, failed, failed.endsAt, rate))).toBe(
+      [
+        ...header("AUCTION ENDED"),
+        ...code(
+          "result   minimum not raised, bids refunded",
+          "raised   4.1 / 10 ETH",
+          "bidders  52",
+        ),
+      ].join("\n"),
+    )
   })
 })

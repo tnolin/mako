@@ -2,12 +2,17 @@ import type { NftDropStage, NftEvent } from "@ink-indexer/events"
 import { beforeEach, describe, expect, it } from "vitest"
 import type { Row } from "../src/history"
 import type { NftAlertCard } from "../src/nft/card"
-import { CATCH_UP_MAX_S } from "../src/nft/policy"
-import { mintRules } from "../src/nft/rules/mint"
+import { CATCH_UP_MAX_S, LAUNCH_HOLD_S } from "../src/nft/policy"
+import { mintMarket, mintRules, newCollectionCard, nftxOpenCard } from "../src/nft/rules/mint"
 import { createNftState, type NftState } from "../src/nft/state"
+import { nftViewPath } from "../src/platforms/telegram/render"
+import type { Prices } from "../src/prices"
+import { NATIVE } from "../src/prices"
 import type { Candidate } from "../src/rules/index"
 import { addr, nftCollection, nftDrop, nftLaunch, nftMint, nftStats } from "./helpers/events"
+import { loadNftx } from "./helpers/fixtures"
 
+const fx = loadNftx()
 const H = 3600
 const SEP6 = Date.UTC(2026, 8, 6) / 1000
 const C = addr(0xc0)
@@ -48,7 +53,8 @@ beforeEach(() => {
   n = 0
   since = 0
 })
-const ctx = () => ({ nft: state, now: () => now, nftSince: since })
+const prices: Prices = { usd: (q) => (q === NATIVE ? 2400 : null), symbol: () => "ETH" }
+const ctx = () => ({ nft: state, now: () => now, nftSince: since, prices })
 /** The poller's order: apply the event to the state, then run the rules with the previous snapshot. */
 function process(p: NftEvent): Candidate[] {
   const ev: Row<NftEvent> = { id: String(++n), p }
@@ -482,7 +488,37 @@ describe("SOLD OUT", () => {
     process(nftCollection({ seadrop: false }))
     now = SEP6 + 2 * H
     const c = only(process(out({ stageCounts: undefined, stageLabel: "Mint", stagePriceWei: "0" })))
-    expect(rows(c).map((r) => r.split("|")[0])).toEqual(["minted", "mint", "minters"])
+    expect(rows(c).map((r) => r.split("|")[0])).toEqual(["minted", "minters"])
+  })
+
+  it("SOLD OUT for a collection without stages has minted, floor without a multiple, listed and minters", () => {
+    process(nftCollection({ seadrop: false }))
+    process({ ...nftStatsLike(4n * 10n ** 15n, 5) })
+    now = SEP6 + 2 * H
+    const c = only(process(out({ stageCounts: undefined, stageLabel: "Mint", stagePriceWei: "0" })))
+    expect(rows(c)).toEqual([
+      "minted|1,000 in 2h 0m",
+      "floor|0.004 ETH",
+      "listed|5 (0.5%)",
+      "minters|901 wallets",
+    ])
+  })
+
+  it("a SeaDrop SOLD OUT keeps its mint row and multiple", () => {
+    process(nftCollection({ seadrop: true }))
+    process(nftDrop({ stages: [stage("Core", 0, 5n * 10n ** 14n)], maxSupply: "1000" }))
+    process({ ...nftStatsLike(4n * 10n ** 15n, 5) })
+    now = SEP6 + 2 * H
+    const c = only(
+      process(
+        out({ stageCounts: [{ stageIndex: 0, label: "Core", minted: "1000" }], stageIndex: 0 }),
+      ),
+    )
+    expect(rows(c).slice(0, 3)).toEqual([
+      "minted|1,000 in 2h 0m",
+      "mint|0.0005 ETH",
+      "floor|0.004 ETH (8x mint)",
+    ])
   })
 })
 
@@ -784,7 +820,7 @@ describe("catch-up when a collection turns real", () => {
   })
 })
 
-describe("NEW COLLECTION", () => {
+describe("Chimera launches", () => {
   const TOKEN = addr(0xd2)
   const launch = (o = {}) =>
     nftLaunch({
@@ -796,136 +832,320 @@ describe("NEW COLLECTION", () => {
       tokenName: "Bloop",
       ...o,
     })
+  const page = { name: "Bloop", imageUrl: "https://i.example/b.png" }
 
-  it("comes from nft.launch once the page has a name and an image, with no social link", () => {
+  it("a Chimera launch sends no NEW COLLECTION, held or not", () => {
     now = SEP6 + 30
-    process(
-      nftCollection({
-        launchpad: "chimera",
-        launchToken: TOKEN,
+    // With a page, the launch is not held.
+    process(nftCollection({ launchpad: "chimera", launchToken: TOKEN, ...page }))
+    expect(process(launch())).toEqual([])
+    // Without one it is held, and the page appearing later still sends nothing.
+    state = createNftState()
+    process(nftCollection({ launchpad: "chimera", name: null, imageUrl: null, verdict: "pending" }))
+    expect(process(launch())).toEqual([])
+    now = SEP6 + 3 * 24 * H
+    expect(process(nftCollection({ launchpad: "chimera", ...page, blockTimestamp: now }))).toEqual(
+      [],
+    )
+    expect(
+      process(nftCollection({ launchpad: "chimera", ...page, blockTimestamp: now + 5 })),
+    ).toEqual([])
+  })
+
+  describe("newCollectionCard", () => {
+    const build = (col: Parameters<typeof nftCollection>[0], l = {}) => {
+      process(nftCollection({ launchpad: "chimera", launchToken: TOKEN, ...col }))
+      process(launch(l))
+      return newCollectionCard(state.get(C)!, state.get(C)!.launch!)
+    }
+
+    it("reads the name and ticker from the launch, lists the token address and has no social link", () => {
+      const c = build({
+        ...page,
         name: "BLOOP",
         links: { twitter: null, website: null, discord: null },
-        verdict: "pending",
-        gates: {
-          page: "pending",
-          structure: "n/a",
-          traits: "pending",
-          farm: "n/a",
-          farmShareBps: null,
-        },
-      }),
-    )
-    const c = only(process(launch()))
+      })
+      expect(c).toMatchObject({
+        title: "NEW COLLECTION",
+        name: "Bloop",
+        marketplace: "Chimera",
+        links: [],
+      })
+      expect(c.extra).toEqual([["token", TOKEN]])
+      expect(c.rows.map(([l, v]) => `${l}|${v}`)).toEqual([
+        "type|Chimera-404",
+        "token|$BLOOP",
+        "creator|0x0000…00c1",
+      ])
+    })
+
+    it("shows the creator's OpenSea username when one exists", () => {
+      const c = build({
+        ...page,
+        creator: { address: addr(0xc1), username: "bloopdev", verified: true },
+      })
+      expect(c.rows.at(-1)).toEqual(["creator", "bloopdev ✓"])
+    })
+  })
+})
+
+describe("NOW ON NFTX", () => {
+  const LD = fx.lilDudes.collection.contract
+  const BC = fx.bubbleCats.launch.contract
+  const HI = fx.humanInk.launch.contract
+  const open = fx.lilDudes.launch
+  const col = (o: Partial<ReturnType<typeof nftCollection>> = {}) => ({
+    ...fx.lilDudes.collection,
+    ...o,
+  })
+  const stats = (o = {}) => nftStats({ contract: LD, totalSupply: "3333", owners: 212, ...o })
+  beforeEach(() => {
+    now = open.blockTimestamp + 60
+  })
+
+  it("Lil Dudes' open sends NOW ON NFTX · NFTX with floor 0.0009 ETH ($2.16), pool 35 NFTs, supply, holders and creator 0x9860…3b40, dedupe nftx:<contract>", () => {
+    process(col())
+    // Supply and holders are synthetic: the recorded open has no OpenSea stats.
+    process(stats())
+    const c = only(process(open))
     expect(c).toMatchObject({
       alert: "launch",
-      dedupeKey: `launch:${C}`,
+      target: LD,
+      dedupeKey: `nftx:${LD}`,
       priority: 3,
-      eventTs: SEP6,
+      eventTs: open.blockTimestamp,
       feedEligible: true,
     })
+    expect(c.separate).toBeUndefined()
     expect(card(c)).toMatchObject({
-      title: "NEW COLLECTION",
-      name: "Bloop",
-      marketplace: "Chimera",
-      links: [],
+      title: "NOW ON NFTX",
+      name: "Lil Dudes",
+      marketplace: "NFTX",
+      link: "nftx",
+      nftxSlug: "lil-dudes",
+      extra: [],
     })
-    expect(card(c).extra).toEqual([["token", TOKEN]])
-    expect(rows(c)).toEqual(["type|Chimera-404", "token|$BLOOP", "creator|0x0000…00c1"])
+    expect(rows(c)).toEqual([
+      "floor|0.0009 ETH ($2.16)",
+      "pool|35 NFTs",
+      "supply|3,333",
+      "holders|212",
+      "creator|0x9860…3b40",
+    ])
   })
 
-  it("is held until the page has a name and an image, then sent at receipt time", () => {
-    now = SEP6 + 30
-    expect(process(launch())).toEqual([])
-    process(nftCollection({ launchpad: "chimera", name: null, imageUrl: null, verdict: "pending" }))
-    now = SEP6 + 3 * 24 * H
-    expect(
-      process(
-        nftCollection({ launchpad: "chimera", name: "Bloop", imageUrl: null, blockTimestamp: now }),
-      ),
-    ).toEqual([])
-    const c = only(
-      process(
-        nftCollection({
-          launchpad: "chimera",
-          name: "Bloop",
-          imageUrl: "https://i.example/b.png",
-          blockTimestamp: now,
-        }),
-      ),
+  it("leaves supply, holders and the floor dollars out when they are not known", () => {
+    process(col())
+    const noRate = nftxOpenCard(
+      state.get(LD)!,
+      { ...open, nftxFloorWei: null, poolCount: null },
+      null,
     )
-    expect(c).toMatchObject({ alert: "launch", dedupeKey: `launch:${C}`, eventTs: now })
-    // A later snapshot does not send it again.
-    expect(
-      process(
-        nftCollection({
-          launchpad: "chimera",
-          name: "Bloop",
-          imageUrl: "https://i.example/b.png",
-          blockTimestamp: now + 5,
-        }),
-      ),
-    ).toEqual([])
+    expect(noRate.rows.map(([l]) => l)).toEqual(["creator"])
+    // An open the indexer wrote without the pool fields reads the same as null ones.
+    const { nftxFloorWei: _f, poolCount: _c, ...bare } = open
+    expect(nftxOpenCard(state.get(LD)!, bare, null).rows.map(([l]) => l)).toEqual(["creator"])
+    const c = only(process(open))
+    expect(rows(c)).toEqual(["floor|0.0009 ETH ($2.16)", "pool|35 NFTs", "creator|0x9860…3b40"])
   })
 
-  it("is not sent from a held launch more than 7 days old", () => {
-    now = SEP6 + 30
-    expect(process(launch())).toEqual([])
-    now = SEP6 + 7 * 24 * H + 60
-    expect(
-      process(
-        nftCollection({
-          launchpad: "chimera",
-          name: "Bloop",
-          imageUrl: "https://i.example/b.png",
-          blockTimestamp: now,
-        }),
-      ),
-    ).toEqual([])
+  it("shows the creator's OpenSea username when the page names the same account", () => {
+    const creator = { address: open.creator, username: "dudemaker", verified: true }
+    process(col({ creator }))
+    expect(rows(only(process(open))).at(-1)).toBe("creator|dudemaker ✓")
+    // Another account named on the page is not the NFTX creator.
+    state = createNftState()
+    process(col({ creator: { address: addr(0xaa), username: "someone", verified: false } }))
+    expect(rows(only(process(open))).at(-1)).toBe("creator|0x9860…3b40")
   })
 
-  it("is not sent from a held launch older than the NFT alerts cutoff", () => {
-    since = SEP6 + 60
-    now = SEP6 + H
-    process(launch())
-    expect(
-      process(
-        nftCollection({
-          launchpad: "chimera",
-          name: "Bloop",
-          imageUrl: "https://i.example/b.png",
-          blockTimestamp: now,
-        }),
-      ),
-    ).toEqual([])
+  it("an open whose collection is pending sends nothing, and sends once when a mark turns it real", () => {
+    const bc = fx.bubbleCats.launch
+    now = bc.blockTimestamp + 60
+    const pending = col({
+      contract: BC,
+      verdict: "pending",
+      manual: false,
+      slug: "ink-bubble-cats-nft",
+    })
+    process(pending)
+    expect(process(bc)).toEqual([])
+    now += 3 * 24 * H
+    const c = only(process({ ...pending, verdict: "real", manual: true, blockTimestamp: now }))
+    expect(c).toMatchObject({
+      alert: "launch",
+      dedupeKey: `nftx:${BC}`,
+      // The held open goes out stamped with the time the mark arrived.
+      eventTs: now,
+      feedEligible: true,
+      separate: true,
+    })
+    expect(card(c)).toMatchObject({
+      title: "NOW ON NFTX",
+      marketplace: "NFTX",
+      nftxSlug: "ink-bubble-cats",
+    })
+    expect(rows(c).slice(0, 2)).toEqual(["floor|0.00025 ETH ($0.60)", "pool|30 NFTs"])
   })
 
-  it("is never sent when no page with a name and an image appears", () => {
-    now = SEP6 + 30
-    expect(process(launch())).toEqual([])
-    now = SEP6 + 7 * 24 * H
-    expect(process(nftCollection({ launchpad: "chimera", name: null, imageUrl: null }))).toEqual([])
-    expect(
-      process(
-        nftCollection({ launchpad: "chimera", name: "", imageUrl: "https://i.example/b.png" }),
-      ),
-    ).toEqual([])
-  })
-
-  it("is dropped when the launch event is older than 30 minutes", () => {
-    process(nftCollection({ launchpad: "chimera" }))
-    now = SEP6 + 31 * 60
-    expect(process(launch())).toEqual([])
-  })
-
-  it("shows the creator's OpenSea username when one exists", () => {
-    now = SEP6 + 30
+  it("a hand-marked collection with no OpenSea page reads its name from the open", () => {
     process(
-      nftCollection({
-        launchpad: "chimera",
-        creator: { address: addr(0xc1), username: "bloopdev", verified: true },
+      col({
+        name: null,
+        imageUrl: null,
+        slug: null,
+        openseaUrl: null,
+        links: { twitter: null, website: null, discord: null },
       }),
     )
-    expect(rows(only(process(launch()))).at(-1)).toBe("creator|bloopdev ✓")
+    const c = only(process(open))
+    expect(card(c)).toMatchObject({
+      name: "Lil Dudes",
+      slug: null,
+      imageUrl: null,
+      nftxSlug: "lil-dudes",
+    })
+  })
+
+  it("a second real snapshot and a real → filtered → real flip repeat the same dedupe key", () => {
+    const hi = fx.humanInk.launch
+    now = hi.blockTimestamp + 60
+    const snap = (verdict: "pending" | "real" | "filtered", t = now) =>
+      col({ contract: HI, verdict, name: "Human ink", blockTimestamp: t })
+    process(snap("pending"))
+    expect(process(hi)).toEqual([])
+    now += 600
+    const first = only(process(snap("real")))
+    // The same snapshot again is not a transition.
+    expect(process(snap("real", now + 1))).toEqual([])
+    expect(process(snap("filtered", now + 2))).toEqual([])
+    const again = only(process(snap("real", now + 3)))
+    expect(first.dedupeKey).toBe(`nftx:${HI}`)
+    expect(again.dedupeKey).toBe(first.dedupeKey)
+    // A week after the open nothing is held any more.
+    now = hi.blockTimestamp + LAUNCH_HOLD_S + 60
+    expect(process(snap("filtered", now))).toEqual([])
+    expect(process(snap("real", now + 1))).toEqual([])
+  })
+
+  it("is not sent from a held open older than the NFT alerts cutoff", () => {
+    since = open.blockTimestamp + 1
+    process(col({ verdict: "pending", manual: false }))
+    process(open)
+    expect(process(col({ verdict: "real" }))).toEqual([])
+  })
+
+  it("none of the three backfilled opens sends NOW ON NFTX, live or when Human ink turns real 21 days later", () => {
+    // The indexer's backfill replays the three opens (2026-10-29) on 2026-11-19.
+    for (const l of [fx.lilDudes.launch, fx.bubbleCats.launch]) {
+      now = l.blockTimestamp + 21 * 24 * H
+      process(col({ contract: l.contract }))
+      expect(process(l)).toEqual([])
+    }
+    const hi = fx.humanInk.launch
+    now = hi.blockTimestamp + 21 * 24 * H
+    process(col({ contract: HI, verdict: "pending", manual: false }))
+    expect(process(hi)).toEqual([])
+    expect(process(col({ contract: HI, verdict: "real", blockTimestamp: now }))).toEqual([])
+  })
+
+  it("a collection launched on Chimera and opened on NFTX keeps both launches and sends NOW ON NFTX once, labelled · NFTX", () => {
+    process(col({ launchpad: "chimera" }))
+    expect(process(nftLaunch({ contract: LD, blockTimestamp: open.blockTimestamp }))).toEqual([])
+    const c = only(process(open))
+    expect(c.dedupeKey).toBe(`nftx:${LD}`)
+    expect(card(c)).toMatchObject({ marketplace: "NFTX", link: "nftx" })
+    expect(state.get(LD)).toMatchObject({
+      launch: { launchpad: "chimera" },
+      nftxLaunch: { launchpad: "nftx" },
+    })
+  })
+
+  it("an open more than 30 minutes old sends nothing", () => {
+    process(col())
+    now = open.blockTimestamp + 31 * 60
+    expect(process(open)).toEqual([])
+  })
+
+  describe("mint alerts of a collection on NFTX", () => {
+    const milestone = (o = {}) =>
+      nftMint({
+        contract: LD,
+        kind: "progress",
+        markBps: 5000,
+        stagePriceWei: "0",
+        minted: "30",
+        maxSupply: "60",
+        mintStartTs: open.blockTimestamp,
+        stageStartTs: open.blockTimestamp,
+        blockTimestamp: now,
+        ...o,
+      })
+
+    it("MINTED for a collection on NFTX without an OpenSea slug reads · NFTX and opens /n/x/<slug>", () => {
+      process(col({ slug: null, name: "Lil Dudes" }))
+      process(open)
+      const c = only(process(milestone()))
+      expect(card(c)).toMatchObject({ title: "MINTED 50%", marketplace: "NFTX", link: "nftx" })
+      expect(nftViewPath(card(c))).toBe("/n/x/lil-dudes")
+    })
+
+    it("with an OpenSea slug it reads · OpenSea", () => {
+      process(col({ slug: "lildudes3333" }))
+      process(open)
+      const c = only(process(milestone()))
+      expect(card(c)).toMatchObject({ marketplace: "OpenSea", link: "opensea" })
+      expect(nftViewPath(card(c))).toBe("/n/c/lildudes3333")
+    })
+
+    it("the other mint alerts follow the same label", () => {
+      process(col({ slug: null }))
+      process(open)
+      const sold = only(process(milestone({ kind: "sold_out", markBps: null, minted: "60" })))
+      expect(card(sold)).toMatchObject({ title: "SOLD OUT", marketplace: "NFTX", link: "nftx" })
+      const start = only(
+        process(milestone({ kind: "stage_start", markBps: null, stageLabel: "", minted: "5" })),
+      )
+      expect(card(start)).toMatchObject({ title: "MINT STARTING", marketplace: "NFTX" })
+      // Scheduled drops and their edits, on a collection that has not sold out.
+      state = createNftState()
+      process(col({ slug: null }))
+      process(open)
+      now = SEP6 - 2 * 24 * H + 6 * H
+      const first = only(
+        process(nftDrop({ contract: LD, stages: HORNET_STAGES, blockTimestamp: now })),
+      )
+      expect(card(first)).toMatchObject({
+        title: "UPCOMING MINT",
+        marketplace: "NFTX",
+        link: "nftx",
+      })
+      const edited = process(
+        nftDrop({
+          contract: LD,
+          stages: HORNET_STAGES.map((s) =>
+            s.label === "Public" ? { ...s, priceWei: eth(6n * 10n ** 14n) } : s,
+          ),
+          blockTimestamp: now,
+        }),
+      )
+      expect(edited.map((c) => card(c).title)).toContain("MINT UPDATED")
+      for (const c of edited.filter((c) => card(c).title === "MINT UPDATED"))
+        expect(card(c)).toMatchObject({ marketplace: "NFTX", link: "nftx" })
+    })
+
+    it("mintMarket is NFTX only for a collection on NFTX with no OpenSea slug", () => {
+      // A collection row from NFTX with no NFTX link name yet still reads NFTX, and links to its home page.
+      process(col({ slug: null }))
+      expect(mintMarket(state.get(LD)!)).toEqual({ market: "nftx", nftxSlug: null })
+      process(open)
+      expect(mintMarket(state.get(LD)!)).toEqual({ market: "nftx", nftxSlug: "lil-dudes" })
+      process(col({ slug: "lildudes3333" }))
+      expect(mintMarket(state.get(LD)!)).toEqual({})
+      state = createNftState()
+      process(nftCollection({ slug: null }))
+      expect(mintMarket(state.get(C)!)).toEqual({})
+    })
   })
 })
 

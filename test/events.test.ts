@@ -1,7 +1,18 @@
 import { describe, expect, it } from "vitest"
 import { current } from "../src/events"
 import { UNISWAP_V4_POOL_MANAGER } from "../src/pool"
-import { bond, bondV1, launch, launchV1, nftSale, swap, trade, tradeV1 } from "./helpers/events"
+import {
+  bond,
+  bondV1,
+  launch,
+  launchV1,
+  nftListing,
+  nftSale,
+  nftStats,
+  swap,
+  trade,
+  tradeV1,
+} from "./helpers/events"
 
 describe("current", () => {
   it("current upgrades a v1 trade", () => {
@@ -37,5 +48,23 @@ describe("current", () => {
 
   it("current leaves v2 launchpad rows and NFT rows unchanged", () => {
     for (const e of [launch(), trade(), bond(), nftSale()]) expect(current(e)).toBe(e)
+  })
+
+  it("an events-v4 nft.sale, nft.listing and nft.stats row decode with the new fields absent", () => {
+    for (const e of [nftSale(), nftListing(), nftStats()]) {
+      const decoded: Record<string, unknown> = current(e)
+      for (const f of [
+        "market",
+        "via",
+        "toPool",
+        "floorMultiple",
+        "listingType",
+        "floorMarket",
+        "nftxFloorWei",
+        "poolCount",
+        "nftxSlug",
+      ])
+        expect(decoded[f], `${e.type}.${f}`).toBeUndefined()
+    }
   })
 })

@@ -3,6 +3,7 @@ import { afterAll, beforeEach, describe, expect, inject, it } from "vitest"
 import type { Sql } from "../src/db"
 import type { Row } from "../src/history"
 import type { NftAlertCard } from "../src/nft/card"
+import { NFTX_LOCKER } from "../src/nft/nftx"
 import { marketRules } from "../src/nft/rules/market"
 import { createNftState, type NftState } from "../src/nft/state"
 import type { Prices } from "../src/prices"
@@ -18,7 +19,9 @@ import {
   nftStats,
   T0,
 } from "./helpers/events"
+import { loadNftx } from "./helpers/fixtures"
 
+const fx = loadNftx()
 const milli = (n: number) => String(BigInt(Math.round(n * 1e9)) * 10n ** 9n)
 const C = addr(0xc0)
 const prices: Prices = { usd: (q) => (q === NATIVE ? 2400 : null), symbol: () => "ETH" }
@@ -100,11 +103,14 @@ describe("UNDER FLOOR", () => {
     expect(by(await run(under({ floorAt: T0 + 60 - 16 * 60 })), "under")).toBeUndefined()
   })
 
-  it("is skipped with no floor, a discount under 10%, or a short life", async () => {
+  it("is skipped with no floor or a discount under 10%", async () => {
     expect(by(await run(under({ floorWei: null, floorAt: null })), "under")).toBeUndefined()
     expect(by(await run(under({ priceWei: milli(0.039) })), "under")).toBeUndefined()
-    expect(by(await run(under({ expiresAt: T0 + 60 + 3599 })), "under")).toBeUndefined()
-    expect(by(await run(under({ expiresAt: T0 + 60 + 3600 })), "under")).toBeDefined()
+  })
+
+  it("fires however soon the listing expires", async () => {
+    expect(by(await run(under({ expiresAt: T0 + 60 + 60 })), "under")).toBeDefined()
+    expect(by(await run(under({ expiresAt: T0 + 60 + 3599 })), "under")).toBeDefined()
   })
 
   it("names the item from the collection when the listing has no name, and omits rank when unknown", async () => {
@@ -194,6 +200,12 @@ describe("FLOOR UP / DOWN", () => {
       ...o,
     })
 
+  it("renders with volume, sales and holders absent from the row, not just null", async () => {
+    const { volume24hWei: _v, sales24h: _s, owners: _o, ...bare } = stats()
+    const c = by(await run(bare as never), "floor")
+    expect(rows(c)).toEqual(["floor|0.427 ETH ($1.0K)", "24h ago|0.562 ETH"])
+  })
+
   it("fires on a 24% drop with the expected rows", async () => {
     const [c] = await run(stats())
     expect(c).toMatchObject({
@@ -211,6 +223,24 @@ describe("FLOOR UP / DOWN", () => {
       "sales|4 (24h)",
       "holders|212",
     ])
+  })
+
+  it("FLOOR DOWN from a stats row with null owners, volume and sales has no holders, volume or sales row", async () => {
+    const [c] = await run(stats({ owners: null, volume24hWei: null, sales24h: null }))
+    expect(card(c).title).toBe("FLOOR DOWN 24%")
+    expect(rows(c)).toEqual(["floor|0.427 ETH ($1.0K)", "24h ago|0.562 ETH"])
+    expect(rows(by(await run(stats({ owners: null })), "floor"))).toEqual([
+      "floor|0.427 ETH ($1.0K)",
+      "24h ago|0.562 ETH",
+      "volume|2.86 ETH ($6.9K) (24h)",
+      "sales|4 (24h)",
+    ])
+    expect(rows(by(await run(stats({ volume24hWei: null })), "floor"))).not.toContainEqual(
+      expect.stringMatching(/^volume\|/),
+    )
+    expect(rows(by(await run(stats({ sales24h: null })), "floor"))).not.toContainEqual(
+      expect.stringMatching(/^sales\|/),
+    )
   })
 
   it("fires up, and not at 9%, with no 24h-ago floor, or after 30 minutes", async () => {
@@ -356,5 +386,328 @@ describe("SOLD and BIG SALE", () => {
 
   it("is dropped after 30 minutes", async () => {
     expect(await run(sold(), T0 + 60 + 1801)).toEqual([])
+  })
+})
+
+describe("NFTX", () => {
+  const LD = fx.lilDudes.collection.contract
+  const ARBITRAGE = fx.lilDudes.arbitrageSale.buyer
+  const buyer = addr(0xb1)
+  beforeEach(() => {
+    state.apply({ id: String(++n), p: fx.lilDudes.collection })
+  })
+  const atFixture = (p: NftEvent) => run(p, p.blockTimestamp + 60)
+  const nftxSale = (o = {}) =>
+    nftSale({
+      contract: LD,
+      market: "nftx",
+      nftxSlug: "lil-dudes",
+      itemName: "Lil Dudes #195",
+      buyer: addr(0x12ab34cd),
+      seller: addr(0x9f3e07aa),
+      ...o,
+    })
+
+  describe("sales", () => {
+    // (synthetic): the Zap, the Listings contract and the RoyaltyGate have no logs on Ink yet.
+    it("an NFTX listing fill reads BIG SALE · NFTX with via NFTX listing after rank (synthetic)", async () => {
+      const cs = await run(
+        nftxSale({
+          via: "listing",
+          priceWei: milli(0.12),
+          floorWei: milli(0.031),
+          rank: 41,
+          maxRank: 3333,
+        }),
+      )
+      const c = by(cs, "bigsale")!
+      expect(card(c)).toMatchObject({
+        title: "BIG SALE",
+        name: "Lil Dudes",
+        marketplace: "NFTX",
+        link: "nftx",
+        nftxSlug: "lil-dudes",
+      })
+      expect(rows(c)).toEqual([
+        "item|Lil Dudes #195",
+        "price|0.12 ETH ($288)",
+        "floor|0.031 ETH (3.9x)",
+        "rank|41 / 3,333 (top 10%)",
+        "via|NFTX listing",
+        "buyer|0x0000…34cd",
+      ])
+      const sold = by(cs, "sale")!
+      expect(card(sold)).toMatchObject({ marketplace: "NFTX", link: "nftx" })
+      expect(rows(sold)).toContain("via|NFTX listing")
+    })
+
+    it("an instant sell shows buyer NFTX pool and via instant sell on SOLD (synthetic)", async () => {
+      const c = by(
+        await run(
+          nftxSale({
+            via: "instant_sell",
+            buyer: NFTX_LOCKER,
+            priceWei: milli(0.0009),
+            floorWei: milli(0.0009),
+          }),
+        ),
+        "sale",
+      )!
+      expect(rows(c)).toEqual([
+        "item|Lil Dudes #195",
+        "price|0.0009 ETH ($2.16)",
+        "floor|0.0009 ETH (+0%)",
+        "via|instant sell",
+        "buyer|NFTX pool",
+        "seller|0x0000…07aa",
+      ])
+    })
+
+    it("an instant buy shows seller NFTX pool (synthetic)", async () => {
+      const c = by(
+        await run(nftxSale({ via: "instant_buy", seller: NFTX_LOCKER, priceWei: milli(0.0009) })),
+        "sale",
+      )!
+      expect(rows(c)).toEqual([
+        "item|Lil Dudes #195",
+        "price|0.0009 ETH ($2.16)",
+        "via|instant buy",
+        "buyer|0x0000…34cd",
+        "seller|NFTX pool",
+      ])
+    })
+
+    it("an OpenSea sale whose buyer is not the Locker has no via row and reads · OpenSea", async () => {
+      const cs = await run(
+        nftSale({ contract: LD, itemName: "Lil Dudes #7", priceWei: milli(0.06) }),
+      )
+      for (const alert of ["sale", "bigsale"]) {
+        expect(card(by(cs, alert))).toMatchObject({ marketplace: "OpenSea", link: "opensea" })
+        expect(rows(by(cs, alert)).map((r) => r.split("|")[0])).not.toContain("via")
+      }
+    })
+
+    it("a Seaport sale with toPool true still yields SOLD", async () => {
+      const sale = fx.lilDudes.arbitrageSale
+      expect(sale.toPool).toBe(true)
+      const cs = await atFixture(sale)
+      const c = by(cs, "sale")!
+      expect(c).toMatchObject({ alert: "sale", salePriceWei: 256810000000000n })
+      expect(card(c)).toMatchObject({ title: "SOLD", marketplace: "OpenSea", link: "opensea" })
+      expect(rows(c)).toEqual([
+        "item|Lil Dudes #195",
+        "price|0.000257 ETH ($0.62)",
+        "buyer|0x7612…9296",
+        "seller|0xb421…6dab",
+      ])
+    })
+  })
+
+  describe("listings", () => {
+    const rare = (o = {}) =>
+      nftListing({
+        contract: LD,
+        market: "nftx",
+        nftxSlug: "lil-dudes",
+        itemName: "Lil Dudes #77",
+        tokenId: "77",
+        priceWei: milli(0.034),
+        floorWei: milli(0.031),
+        floorAt: T0 + 60,
+        floorMultiple: 108,
+        listingType: "liquid",
+        expiresAt: T0 + 120 + 6 * 86400,
+        rank: 12,
+        maxRank: 3333,
+        ...o,
+      })
+
+    it("an NFTX rare listing reads price 0.034 ETH ($82) · 1.08x (synthetic)", async () => {
+      const c = by(await run(rare()), "rare")!
+      expect(card(c)).toMatchObject({
+        title: "RARE LISTING",
+        marketplace: "NFTX",
+        link: "nftx",
+        nftxSlug: "lil-dudes",
+        tokenId: "77",
+      })
+      // The multiple is measured from the NFTX spot and the percent from the combined floor, which
+      // sits lower when OpenSea's floor is below the spot, so 1.08x pairs with +10% here.
+      expect(rows(c)).toEqual([
+        "item|Lil Dudes #77",
+        "rank|12 / 3,333 (top 1%)",
+        "price|0.034 ETH ($82) · 1.08x",
+        "floor|0.031 ETH (+10%)",
+        "expires|in 6d",
+      ])
+    })
+
+    it("an OpenSea listing and an NFTX listing that each expire 20 minutes after they are posted give a listing alert", async () => {
+      const soon = T0 + 60 + 20 * 60
+      const os = await run(
+        nftListing({
+          itemName: "PRTSCN #4405",
+          priceWei: milli(0.032),
+          floorWei: milli(0.042),
+          floorAt: T0,
+          expiresAt: soon,
+          rank: 3232,
+          maxRank: 4440,
+        }),
+      )
+      expect(by(os, "under")).toBeDefined()
+      const nftx = by(await run(rare({ expiresAt: soon })), "rare")!
+      expect(rows(nftx)).toContain("expires|in 19m")
+    })
+
+    it("leaves the multiple out when the listing has none", async () => {
+      const c = by(await run(rare({ floorMultiple: null })), "rare")!
+      expect(rows(c)).toContain("price|0.034 ETH ($82)")
+    })
+
+    it("a Dutch NFTX listing reads expires auction ends in 2h (synthetic)", async () => {
+      const c = by(
+        await run(rare({ listingType: "dutch", expiresAt: T0 + 120 + 2 * 3600 })),
+        "rare",
+      )!
+      expect(rows(c)).toContain("expires|auction ends in 2h")
+      expect(rows(by(await run(rare({ listingType: "liquid" })), "rare")!)).toContain(
+        "expires|in 6d",
+      )
+    })
+
+    it("an NFTX listing above the NFTX floor never yields UNDER FLOOR", async () => {
+      const floor = BigInt(fx.lilDudes.stats.floorWei!)
+      const cs = await run(
+        nftListing({
+          contract: LD,
+          market: "nftx",
+          nftxSlug: "lil-dudes",
+          priceWei: String((floor * 101n) / 100n),
+          floorWei: String(floor),
+          floorAt: T0 + 60,
+          floorMultiple: 101,
+          listingType: "liquid",
+          expiresAt: T0 + 120 + 6 * 86400,
+          rank: 12,
+          maxRank: 3333,
+        }),
+      )
+      expect(by(cs, "under")).toBeUndefined()
+      expect(by(cs, "rare")).toBeDefined()
+    })
+  })
+
+  it("FLOOR DOWN with floorMarket nftx reads · NFTX", async () => {
+    const c = (await atFixture({ ...fx.lilDudes.stats, floor24hAgoWei: "400000000000000" })).find(
+      (x) => x.alert === "floor",
+    )!
+    expect(card(c)).toMatchObject({
+      title: "FLOOR DOWN 23%",
+      marketplace: "NFTX",
+      link: "nftx",
+      nftxSlug: "lil-dudes",
+    })
+    expect(rows(c)).toEqual(["floor|0.000309 ETH ($0.74)", "24h ago|0.0004 ETH"])
+    // A floor from OpenSea keeps the OpenSea label.
+    const os = await run(
+      nftStats({
+        contract: LD,
+        floorWei: milli(0.427),
+        floor24hAgoWei: milli(0.562),
+        floorMarket: "opensea",
+        blockTimestamp: T0 + 60,
+      }),
+    )
+    expect(card(os[0])).toMatchObject({ marketplace: "OpenSea", link: "opensea" })
+  })
+
+  describe("SWEEP", () => {
+    const sale = (i: number, o = {}) =>
+      nftSale({
+        contract: LD,
+        buyer,
+        tokenId: String(100 + i),
+        blockTimestamp: T0 + i * 40,
+        priceWei: milli(0.0016),
+        floorWei: milli(0.0016),
+        txHash: hash(0x700 + i),
+        ...o,
+      })
+    const sweepAfter = async (sales: NftEvent[]) => {
+      let out: Candidate[] = []
+      for (const [i, p] of sales.entries()) out = await run(p, T0 + i * 40)
+      return by(out, "sweep")
+    }
+
+    it("five instant sells to the pool give no SWEEP (synthetic)", async () => {
+      const pool = (i: number) =>
+        sale(i, { buyer: NFTX_LOCKER, market: "nftx", via: "instant_sell", seller: addr(0x50 + i) })
+      expect(await sweepAfter([0, 1, 2, 3, 4].map(pool))).toBeUndefined()
+      // The same five from one ordinary buyer are a sweep.
+      expect(await sweepAfter([0, 1, 2, 3, 4].map((i) => sale(i + 10)))).toBeDefined()
+    })
+
+    it("four real buys and one toPool buy by the same buyer give no SWEEP", async () => {
+      const real = [0, 1, 2, 3].map((i) => sale(i, { buyer: ARBITRAGE }))
+      const arb = { ...fx.lilDudes.arbitrageSale, blockTimestamp: T0 + 4 * 40 }
+      expect(await sweepAfter([...real, arb])).toBeUndefined()
+    })
+
+    it("a toPool buy after five real buys by the same buyer gives no SWEEP of its own", async () => {
+      const real = [0, 1, 2, 3, 4].map((i) => sale(i, { buyer: ARBITRAGE }))
+      const arb = { ...fx.lilDudes.arbitrageSale, blockTimestamp: T0 + 5 * 40 }
+      expect(await sweepAfter([...real, arb])).toBeUndefined()
+    })
+
+    it("a toPool buy before four real buys is not counted toward them", async () => {
+      const arb = { ...fx.lilDudes.arbitrageSale, blockTimestamp: T0 }
+      const real = [1, 2, 3, 4].map((i) => sale(i, { buyer: ARBITRAGE }))
+      expect(await sweepAfter([arb, ...real])).toBeUndefined()
+      // The fifth real buy, not the toPool one, makes the sweep.
+      const fifth = by(await run(sale(5, { buyer: ARBITRAGE }), T0 + 5 * 40), "sweep")
+      expect(fifth).toMatchObject({ sweepItems: 5 })
+    })
+
+    it("five toPool buys by an arbitrage contract give no SWEEP", async () => {
+      const bubbleCats = fx.bubbleCats.launch.contract
+      state.apply({ id: String(++n), p: { ...fx.lilDudes.collection, contract: bubbleCats } })
+      const five = fx.bubbleCats.arbitrageSales.slice(0, 5).map((s, i) => ({
+        ...s,
+        floorWei: milli(0.0016),
+        blockTimestamp: T0 + i * 40,
+      }))
+      expect(await sweepAfter(five)).toBeUndefined()
+      // Without the pool marker the same five sales are a sweep.
+      const unmarked = five.map((s) => ({
+        ...s,
+        toPool: false,
+        txHash: hash(0x900 + Number(s.tokenId)),
+      }))
+      expect(await sweepAfter(unmarked)).toBeDefined()
+    })
+
+    it("seven buys in one Zap transaction give SWEEP · NFTX (synthetic)", async () => {
+      const zap = (i: number) =>
+        sale(i, { market: "nftx", nftxSlug: "lil-dudes", via: "listing", txHash: hash(0x7aa) })
+      const c = await sweepAfter([0, 1, 2, 3, 4, 5, 6].map(zap))
+      expect(c).toMatchObject({ alert: "sweep", sweepItems: 7 })
+      expect(card(c)).toMatchObject({
+        title: "SWEEP",
+        marketplace: "NFTX",
+        link: "nftx",
+        nftxSlug: "lil-dudes",
+      })
+    })
+
+    it("a sweep mixing NFTX and OpenSea sales reads · OpenSea", async () => {
+      const mixed = [0, 1, 2, 3, 4].map((i) =>
+        i % 2 === 0 ? sale(i, { market: "nftx", nftxSlug: "lil-dudes", via: "listing" }) : sale(i),
+      )
+      expect(card(await sweepAfter(mixed))).toMatchObject({
+        marketplace: "OpenSea",
+        link: "opensea",
+      })
+    })
   })
 })

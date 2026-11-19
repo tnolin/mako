@@ -11,12 +11,13 @@ import {
   type NftAlertCard,
   type NftAlertKind,
   shortAddr,
+  walletText,
 } from "../card"
 import { salesByBuyer } from "../history"
+import { NFTX_LOCKER, nftxSlugOf } from "../nftx"
 import {
   FLOOR_MAX_AGE_S,
   MIN_BIGSALE_WEI,
-  MIN_LISTING_LIFE_S,
   RARE_PRICE_DEN,
   RARE_PRICE_NUM,
   SWEEP_WINDOW_S,
@@ -24,6 +25,17 @@ import {
 import type { CollectionState } from "../state"
 
 type Rows = NftAlertCard["rows"]
+
+/** The card options that label a card NFTX and point it at NFTX; none for OpenSea. */
+const nftxOpts = (
+  st: CollectionState | undefined,
+  market: "opensea" | "nftx" | null | undefined,
+  slug: string | null | undefined,
+): { market?: "nftx"; nftxSlug?: string | null } =>
+  market === "nftx" ? { market: "nftx", nftxSlug: nftxSlugOf(st, slug) } : {}
+
+const VIA = { listing: "NFTX listing", instant_sell: "instant sell", instant_buy: "instant buy" }
+const viaRow = (via: NftSaleEvent["via"]): Rows => (via ? [["via", VIA[via]]] : [])
 
 const lateS = (kind: AlertKind) => ((LONG_WINDOW as readonly string[]).includes(kind) ? 1800 : 180)
 const isLate = (kind: AlertKind, ts: number, now: number) => now - ts > lateS(kind)
@@ -69,22 +81,33 @@ const itemName = (
 const rankRow = (rank: number | null, max: number | null) =>
   rank !== null && max !== null ? rankText(rank, max) : null
 
+/** ` · 1.08x`: an NFTX listing's price as a multiple of the pool floor, which its ETH price follows. */
+const multipleText = (p: NftListingEvent): string =>
+  p.market === "nftx" && p.floorMultiple != null ? ` · ${(p.floorMultiple / 100).toFixed(2)}x` : ""
+
 function listing(ev: Row<NftListingEvent>, ctx: RuleCtx, rate: number | null): Candidate[] {
   const p = ev.p
   const st = ctx.nft.get(p.contract)
   if (isLate("under", p.blockTimestamp, ctx.now())) return []
-  // Relist bots: a listing that expires within the hour is ignored.
-  if (p.expiresAt - p.blockTimestamp < MIN_LISTING_LIFE_S) return []
   if (p.floorWei === null || p.floorAt === null || p.blockTimestamp - p.floorAt > FLOOR_MAX_AGE_S)
     return []
   const price = BigInt(p.priceWei)
   const floor = BigInt(p.floorWei)
   if (floor <= 0n) return []
   const key = `list:${p.contract}:${p.tokenId}:${p.priceWei}`
-  const opts = { contract: p.contract, tokenId: p.tokenId, imageUrl: p.imageUrl }
+  const opts = {
+    contract: p.contract,
+    tokenId: p.tokenId,
+    imageUrl: p.imageUrl,
+    ...nftxOpts(st, p.market, p.nftxSlug),
+  }
   const item = itemName(st, p.itemName, p.contract, p.tokenId)
   const rank = rankRow(p.rank, p.maxRank)
-  const expires: [string, string] = ["expires", `in ${inText(p.expiresAt - ctx.now())}`]
+  const left = inText(p.expiresAt - ctx.now())
+  const expires: [string, string] = [
+    "expires",
+    p.listingType === "dutch" ? `auction ends in ${left}` : `in ${left}`,
+  ]
   const out: Candidate[] = []
 
   const discountBps = Number(((floor - price) * 10000n) / floor)
@@ -117,7 +140,7 @@ function listing(ev: Row<NftListingEvent>, ctx: RuleCtx, rate: number | null): C
       const rows: Rows = [
         ["item", item],
         ["rank", rank ?? ""],
-        ["price", ethText(price, rate)],
+        ["price", `${ethText(price, rate)}${multipleText(p)}`],
         ["floor", `${ethText(floor, null)} ${premium(price, floor)}`],
         expires,
       ]
@@ -141,13 +164,15 @@ function floorMove(ev: Row<NftStatsEvent>, ctx: RuleCtx, rate: number | null): C
   if (floorBps < 1000) return []
   const dir = change > 0 ? "up" : "down"
   const st = ctx.nft.get(p.contract)
+  // An NFTX pool move before OpenSea has stats for the collection carries no volume, sales or holders.
   const rows: Rows = [
     ["floor", ethText(floor, rate)],
     ["24h ago", ethText(ago, null)],
-    ["volume", `${ethText(BigInt(p.volume24hWei), rate)} (24h)`],
-    ["sales", `${count(p.sales24h)} (24h)`],
-    ["holders", count(p.owners)],
   ]
+  if (p.volume24hWei != null)
+    rows.push(["volume", `${ethText(BigInt(p.volume24hWei), rate)} (24h)`])
+  if (p.sales24h != null) rows.push(["sales", `${count(p.sales24h)} (24h)`])
+  if (p.owners != null) rows.push(["holders", count(p.owners)])
   const card = makeNftAlertCard(
     "floor",
     `FLOOR ${dir.toUpperCase()} ${pct(floorBps)}%`,
@@ -155,6 +180,7 @@ function floorMove(ev: Row<NftStatsEvent>, ctx: RuleCtx, rate: number | null): C
     rows,
     {
       contract: p.contract,
+      ...nftxOpts(st, p.floorMarket, p.nftxSlug),
     },
   )
   const bucket = Math.floor(p.blockTimestamp / 21600)
@@ -176,7 +202,12 @@ async function sale(
   const col = st?.col ?? null
   const price = BigInt(p.priceWei)
   const out: Candidate[] = []
-  const opts = { contract: p.contract, tokenId: p.tokenId, imageUrl: p.imageUrl }
+  const opts = {
+    contract: p.contract,
+    tokenId: p.tokenId,
+    imageUrl: p.imageUrl,
+    ...nftxOpts(st, p.market, p.nftxSlug),
+  }
   const item = itemName(st, p.itemName, p.contract, p.tokenId)
   const floor = p.floorWei !== null && BigInt(p.floorWei) > 0n ? BigInt(p.floorWei) : null
   const rank = rankRow(p.rank, p.maxRank)
@@ -189,7 +220,7 @@ async function sale(
     ]
     if (floor) rows.push(["floor", `${ethText(floor, null)} ${premium(price, floor)}`])
     if (rank) rows.push(["rank", rank])
-    rows.push(["buyer", shortAddr(p.buyer)], ["seller", shortAddr(p.seller)])
+    rows.push(...viaRow(p.via), ["buyer", walletText(p.buyer)], ["seller", walletText(p.seller)])
     const card = makeNftAlertCard("sale", "SOLD", col, rows, opts)
     out.push(cand(ev, "sale", `sale:${key}`, card, p.blockTimestamp, st, { salePriceWei: price }))
 
@@ -200,7 +231,7 @@ async function sale(
       ]
       if (floor) big.push(["floor", `${ethText(floor, null)} (${multiple(price, floor)})`])
       if (rank) big.push(["rank", rank])
-      big.push(["buyer", shortAddr(p.buyer)])
+      big.push(...viaRow(p.via), ["buyer", walletText(p.buyer)])
       const bigCard = makeNftAlertCard("bigsale", "BIG SALE", col, big, opts)
       out.push(
         cand(ev, "bigsale", `bigsale:${key}`, bigCard, p.blockTimestamp, st, {
@@ -210,8 +241,10 @@ async function sale(
     }
   }
 
-  // SWEEP: this buyer's items in this collection in the 10 minutes ending at this sale.
-  if (!isLate("sweep", p.blockTimestamp, ctx.now())) {
+  // SWEEP: this buyer's items in this collection in the 10 minutes ending at this sale. The pool buying
+  // items, or an arbitrage contract routing them into it, is not a collector sweeping.
+  const toPool = p.toPool === true || p.buyer.toLowerCase() === NFTX_LOCKER
+  if (!toPool && !isLate("sweep", p.blockTimestamp, ctx.now())) {
     const mine = await salesByBuyer(
       ctx.sql,
       p.contract,
@@ -224,12 +257,17 @@ async function sale(
       const total = mine.reduce((s, r) => s + BigInt(r.p.priceWei), 0n)
       const latestFloor = p.floorWei ?? st?.stats?.floorWei ?? null
       const rows: Rows = [
-        ["buyer", shortAddr(p.buyer)],
+        ["buyer", walletText(p.buyer)],
         ["bought", `${mine.length} items in ${age(p.blockTimestamp - first)}`],
         ["spent", `${ethText(total, rate)} · avg ${ethText(total / BigInt(mine.length), null)}`],
       ]
       if (latestFloor) rows.push(["floor", ethText(BigInt(latestFloor), null)])
-      const card = makeNftAlertCard("sweep", "SWEEP", col, rows, { contract: p.contract })
+      // The header and links read NFTX only when every counted sale was on NFTX.
+      const onNftx = mine.every((r) => r.p.market === "nftx")
+      const card = makeNftAlertCard("sweep", "SWEEP", col, rows, {
+        contract: p.contract,
+        ...(onNftx ? nftxOpts(st, "nftx", p.nftxSlug) : {}),
+      })
       out.push(
         cand(
           ev,

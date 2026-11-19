@@ -3,6 +3,7 @@ import { logAction } from "./actions"
 import type { Sql } from "./db"
 import type { ChatType } from "./delivery/recipients"
 import type { Logger } from "./log"
+import { NFTX_HOME, NFTX_INK } from "./nft/nftx"
 
 const PATH = /^\/t\/(0x[0-9a-fA-F]{40})$/
 const JOIN = "/inkypump"
@@ -10,16 +11,20 @@ const NFT_COLLECTION = /^\/n\/c\/([a-z0-9-]{1,100})$/
 const NFT_SALES = /^\/n\/s\/([a-z0-9-]{1,100})$/
 const NFT_ITEM = /^\/n\/i\/(0x[0-9a-fA-F]{40})\/([0-9]{1,78})$/
 const NFT_CONTRACT = /^\/n\/a\/(0x[0-9a-fA-F]{40})$/
+const NFTX_COLLECTION = /^\/n\/x\/([a-z0-9-]{1,100})$/
+const NFTX_ITEM = /^\/n\/xi\/([a-z0-9-]{1,100})\/([0-9]{1,78})$/
 const OPENSEA = "https://opensea.io"
-/** The platform links on the NFTs screen. They are not logged. */
+const NFTX_PLATFORM = "/p/nftx"
+/** The platform links on the NFTs screen. They are not logged, except an NFTX card's own click. */
 const PLATFORMS: Record<string, string> = {
   "/p/opensea": OPENSEA,
   "/p/chimera": "https://www.chimeras.ink/",
+  [NFTX_PLATFORM]: NFTX_HOME,
 }
 
 /**
- * The OpenSea page for /n/* paths, with the identifier to log (a slug or a contract), or null for a path
- * that is not one. OpenSea links carry no referral code. The URL is plain; a code would go here.
+ * The marketplace page for /n/* paths, with the identifier to log (a slug or a contract), or null for a path
+ * that is not one. Marketplace links carry no referral code. The URL is plain; a code would go here.
  */
 function nftTarget(path: string): { to: string; id: string } | null {
   let m = NFT_COLLECTION.exec(path)
@@ -31,6 +36,11 @@ function nftTarget(path: string): { to: string; id: string } | null {
     const ca = m[1]!.toLowerCase()
     return { to: `${OPENSEA}/item/ink/${ca}/${m[2]}`, id: ca }
   }
+  // NFTX paths carry the slug from the event. The id is prefixed so it never mixes with an OpenSea slug.
+  m = NFTX_COLLECTION.exec(path)
+  if (m) return { to: `${NFTX_INK}/collections/${m[1]}`, id: `nftx:${m[1]}` }
+  m = NFTX_ITEM.exec(path)
+  if (m) return { to: `${NFTX_INK}/collections/${m[1]}/${m[2]}`, id: `nftx:${m[1]}` }
   m = NFT_CONTRACT.exec(path)
   if (m) {
     // shortcut: OpenSea's URL for a collection by contract alone could not be confirmed (its pages sit
@@ -59,7 +69,7 @@ export const MAX_CLICK_WRITES = 20
 /**
  * GET /t/<CA>?d=<delivery uuid> → 302 to the launchpad with the referral code. GET /inkypump → 302 to
  * the launchpad's referral join page. GET /n/c/<slug>, /n/s/<slug>, /n/i/<CA>/<id> and /n/a/<CA> → 302 to
- * the OpenSea page; GET /p/opensea and /p/chimera → the platforms. The response never waits on the database; the click is logged
+ * the OpenSea page; GET /n/x/<slug> and /n/xi/<slug>/<id> → the NFTX page; GET /p/opensea, /p/chimera and /p/nftx → the platforms. The response never waits on the database; the click is logged
  * afterwards. IPs and user agents are never stored.
  */
 export function createLinkServer(deps: {
@@ -84,12 +94,19 @@ export function createLinkServer(deps: {
     const ca = m ? m[1]!.toLowerCase() : null
     const to = nft?.to ?? platform ?? (ca ? deps.target(ca) : deps.join())
     res.writeHead(302, { location: to, "cache-control": "no-store" }).end()
-    if (platform || BOT_UA.test(req.headers["user-agent"] ?? "")) return
+    if (BOT_UA.test(req.headers["user-agent"] ?? "")) return
     const d = url.searchParams.get("d")
     const delivery = d && UUID.test(d) ? d : null
+    // A card without an NFTX slug opens /p/nftx with its delivery id; the NFTs screen's link has none. Its click
+    // is logged as `nftx:` with no slug, which no OpenSea slug or NFTX slug can equal.
+    const cardClick = url.pathname === NFTX_PLATFORM && delivery !== null
+    if (platform && !cardClick) return
     // Anyone can request a link, so under a flood the redirect still works and the clicks are dropped.
     if (writes >= MAX_CLICK_WRITES) return
-    const logged = nft ? deps.onNftClick?.(nft.id, delivery) : deps.onClick(ca, delivery)
+    const logged =
+      nft || cardClick
+        ? deps.onNftClick?.(nft?.id ?? "nftx:", delivery)
+        : deps.onClick(ca, delivery)
     if (!logged) return
     writes++
     logged

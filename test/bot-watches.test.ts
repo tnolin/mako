@@ -9,6 +9,7 @@ import type { Prices } from "../src/prices"
 import { addChat, addUser } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
 import { addr, launch, nftCollection } from "./helpers/events"
+import { loadNftx } from "./helpers/fixtures"
 import { testImages } from "./helpers/images"
 import { BOT_INFO, harness, type Payload } from "./helpers/tg"
 
@@ -19,6 +20,7 @@ let sql: Sql
 let h: ReturnType<typeof harness>
 let state: NftState
 let userId: string
+let clock: number | undefined
 
 type B = { text: string; url?: string; callback_data?: string; style?: string }
 const kbOf = (p: Payload | undefined) => (p?.reply_markup?.inline_keyboard ?? []) as B[][]
@@ -49,8 +51,10 @@ beforeEach(async () => {
       linksBase: "https://go.makobot.xyz",
       images: testImages().images,
       nft: () => state,
+      now: () => clock ?? Math.floor(Date.now() / 1000),
     }),
   )
+  clock = undefined
   userId = await addUser(sql, 100)
 })
 afterAll(() => sql.end())
@@ -101,6 +105,72 @@ describe("buttons in a DM", () => {
     expect(h.last("answerCallbackQuery")!.text).toBe(popup.stop(N))
     expect(await rows("nft_watches")).toHaveLength(0)
     expect(kbOf(h.last("editMessageReplyMarkup"))).toEqual(alertKb)
+  })
+
+  it("Remind me on an auction answers with the 1-hour copy, and on a mint still with the 15-minute copy", async () => {
+    const fx = loadNftx()
+    const LD = fx.lilDudes.collection.contract
+    const ids = await insertEvents(sql, [fx.lilDudes.collection, fx.inktrons.created])
+    state = await loadNftState(sql, ids.at(-1)!)
+    const kb: B[][] = [[{ text: "Remind me", callback_data: `nrm:${LD}` }]]
+    clock = fx.inktrons.live.startsAt + 3600
+    await h.tap(`nrm:${LD}`, { keyboard: kb })
+    expect(popupText()).toBe(popup.remindAuction())
+    expect(popup.remindAuction()).toBe(
+      "Reminder set. I'll message you 1 hour before the auction ends.",
+    )
+    await h.tap(`nrm:${C}`, { keyboard: alertKb })
+    expect(h.calls.filter((c) => c.method === "answerCallbackQuery").at(-1)!.payload.text).toBe(
+      popup.remind(),
+    )
+  })
+
+  it("names a collection with no OpenSea page by its NFTX token in the Watch pop-up", async () => {
+    const fx = loadNftx()
+    const LD = fx.lilDudes.collection.contract
+    const bare = { ...fx.lilDudes.collection, name: null, slug: null }
+    const ids = await insertEvents(sql, [bare, fx.lilDudes.launch])
+    state = await loadNftState(sql, ids.at(-1)!)
+    await h.tap(`nwa:${LD}`, { keyboard: [[{ text: "Watch", callback_data: `nwa:${LD}` }]] })
+    expect(popupText()).toBe(popup.watch(fx.lilDudes.launch.tokenName!))
+  })
+
+  it("Remind me answers with the mint copy when no auction reminder will come", async () => {
+    const fx = loadNftx()
+    const LD = fx.lilDudes.collection.contract
+    const kb: B[][] = [[{ text: "Remind me", callback_data: `nrm:${LD}` }]]
+    const A = fx.inktrons
+    const cases: [string, number, Parameters<typeof insertEvents>[1]][] = [
+      ["its end has passed", A.live.endsAt + 60, [fx.lilDudes.collection, A.live]],
+      [
+        "it is not real",
+        A.live.startsAt + 3600,
+        [{ ...fx.lilDudes.collection, verdict: "pending" }, A.live],
+      ],
+      [
+        "it lasts under 2 hours",
+        A.live.startsAt + 600,
+        [fx.lilDudes.collection, { ...A.live, endsAt: A.live.startsAt + 3600 }],
+      ],
+    ]
+    for (const [why, at, events] of cases) {
+      await sql`delete from indexer.events`
+      const ids = await insertEvents(sql, events)
+      state = await loadNftState(sql, ids.at(-1)!)
+      clock = at
+      h.calls.length = 0
+      await h.tap(`nrm:${LD}`, { keyboard: kb })
+      expect(popupText(), why).toBe(popup.remind())
+    }
+  })
+
+  it("Remind me on an ended auction answers with the mint copy", async () => {
+    const fx = loadNftx()
+    const LD = fx.lilDudes.collection.contract
+    const ids = await insertEvents(sql, [fx.lilDudes.collection, fx.inktrons.ended])
+    state = await loadNftState(sql, ids.at(-1)!)
+    await h.tap(`nrm:${LD}`, { keyboard: [[{ text: "Remind me", callback_data: `nrm:${LD}` }]] })
+    expect(popupText()).toBe(popup.remind())
   })
 
   it("Mute and Remind me flip to Muted and Reminder set the same way", async () => {

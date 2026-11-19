@@ -5,6 +5,7 @@ import type {
   Hash,
   LaunchEvent,
   LaunchEventV1,
+  NftAuctionEvent,
   NftCollectionEvent,
   NftDropEvent,
   NftLaunchEvent,
@@ -336,6 +337,34 @@ export function nftLaunch(o: Partial<NftLaunchEvent> = {}): NftLaunchEvent {
     tokenName: "Bloop",
     creator: addr(0xc1),
     poolId: hash(0x1d),
+    ...o,
+  }
+}
+
+/** Defaults: a created ETH auction of 1,100 NFTs on collection 0xc0 at a 0.0001 ETH minimum bid, one day from 13:00 UTC on Nov 5. */
+export function nftAuction(o: Partial<NftAuctionEvent> = {}): NftAuctionEvent {
+  return {
+    ...nftBase(next()),
+    type: "nft.auction",
+    phase: "created",
+    auction: addr(0xa0),
+    token: addr(0xd2),
+    currency: "ETH",
+    startBlock: "60385189",
+    endBlock: "60471589",
+    claimBlock: "60471889",
+    startsAt: 1_793_883_600,
+    endsAt: 1_793_970_000,
+    claimsAt: 1_793_970_300,
+    supply: "1100",
+    minBidWei: "99999999999999",
+    clearingPriceWei: "99999999999999",
+    raisedWei: "0",
+    requiredRaiseWei: "0",
+    bidders: 0,
+    graduated: null,
+    cleared: null,
+    nftxSlug: "lil-dudes",
     ...o,
   }
 }

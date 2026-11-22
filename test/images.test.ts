@@ -424,3 +424,54 @@ it("treats a cache read failure as a miss and logs a warning", async () => {
   expect(a.sendPhoto).toHaveBeenCalledOnce()
   expect(log).toHaveBeenCalledWith("warn", "image cache read failed", expect.anything())
 })
+
+const slowFetch = (ms: number) =>
+  vi.fn(
+    (_url: unknown, _init?: unknown) =>
+      new Promise<Response>((r) => setTimeout(() => r(imageResponse()), ms)),
+  )
+
+it("waits past 3 seconds for a first fetch and sends the photo", async () => {
+  vi.useFakeTimers()
+  try {
+    const a = api()
+    const images = createImages({
+      lookup: publicLookup,
+      fetch: slowFetch(5000),
+      cache: memoryCache().cache,
+      log: () => {},
+    })
+    const sent = images.send(a, msg)
+    await vi.advanceTimersByTimeAsync(5000)
+    await sent
+    expect(a.sendPhoto).toHaveBeenCalledOnce()
+    expect(a.sendMessage).not.toHaveBeenCalled()
+  } finally {
+    vi.useRealTimers()
+  }
+})
+
+it("sends text after 8 seconds and logs once, without the URL", async () => {
+  vi.useFakeTimers()
+  try {
+    const a = api()
+    const log = vi.fn()
+    const images = createImages({
+      lookup: publicLookup,
+      fetch: slowFetch(10_000),
+      cache: memoryCache().cache,
+      log,
+    })
+    const sent = images.send(a, msg)
+    await vi.advanceTimersByTimeAsync(8000)
+    await sent
+    expect(a.sendMessage).toHaveBeenCalledOnce()
+    expect(a.sendPhoto).not.toHaveBeenCalled()
+    const waits = log.mock.calls.filter((c) => c[1] === "image wait ran out")
+    expect(waits).toHaveLength(1)
+    expect(waits[0]).toEqual(["info", "image wait ran out", { token: "0xaa" }])
+    await vi.advanceTimersByTimeAsync(5000)
+  } finally {
+    vi.useRealTimers()
+  }
+})

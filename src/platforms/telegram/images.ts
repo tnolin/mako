@@ -12,7 +12,7 @@ export const CAPTION_MAX = 1024
 /** How long a fetch may run in the background. */
 const FETCH_TIMEOUT_MS = 15_000
 /** How long a send waits for a first fetch before it goes as text; the fetch goes on without it. */
-const WAIT_MS = 3000
+const WAIT_MS = 8000
 /** Images that arrived after their send gave up, kept for the next send. */
 const READY_MAX = 100
 const MAX_BYTES = 5 * 1024 * 1024
@@ -338,6 +338,7 @@ export function createImages(deps: ImagesDeps): Images {
     const fetching = fetchPadded(m.imageKey, m.imageUrl!)
     const bytes = await within(fetching)
     if (bytes === TOO_SLOW) {
+      deps.log("info", "image wait ran out", { token: m.imageKey })
       void fetching.then((late) => {
         if (late) keep(m.imageKey, late)
         done(late)

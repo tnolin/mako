@@ -53,6 +53,10 @@ describe("matchCollection", () => {
     const real = add(2, { slug: "thinkers", name: "Thinkers", verdict: "real" })
     expect(matchCollection(state, "thinkers")).toEqual({ kind: "one", contract: real })
     expect(matchCollection(state, copy)).toEqual({ kind: "one", contract: copy })
+    expect(matchCollection(state, "https://opensea.io/collection/thinkers-copy")).toEqual({
+      kind: "one",
+      contract: copy,
+    })
   })
 
   it("opens the only match directly, whatever its verdict", () => {

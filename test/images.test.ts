@@ -437,12 +437,12 @@ it("waits past 3 seconds for a first fetch and sends the photo", async () => {
     const a = api()
     const images = createImages({
       lookup: publicLookup,
-      fetch: slowFetch(5000),
+      fetch: slowFetch(7500),
       cache: memoryCache().cache,
       log: () => {},
     })
     const sent = images.send(a, msg)
-    await vi.advanceTimersByTimeAsync(5000)
+    await vi.advanceTimersByTimeAsync(7500)
     await sent
     expect(a.sendPhoto).toHaveBeenCalledOnce()
     expect(a.sendMessage).not.toHaveBeenCalled()

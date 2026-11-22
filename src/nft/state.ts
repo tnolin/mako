@@ -107,8 +107,7 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
     const out: { tier: Tier; state: CollectionState }[] = []
     for (const state of byContract.values()) {
       const col = state.col
-      // A filtered collection is a copycat: only its address or an OpenSea item link opens it.
-      if (!col || col.verdict === "filtered") continue
+      if (!col) continue
       const name = normalise(col.name ?? "")
       const s = (col.slug ?? "").toLowerCase()
       const tier: Tier | null =
@@ -121,7 +120,9 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
               : needle !== "" && (name.includes(needle) || normalise(s).includes(needle))
                 ? 4
                 : null
-      if (tier) out.push({ tier, state })
+      // A filtered collection is a copycat: a typed name never finds it. Only its address or its exact
+      // slug (a pasted collection link) opens it.
+      if (tier && (col.verdict !== "filtered" || (link && tier === 1))) out.push({ tier, state })
     }
     return out.sort((a, b) => a.tier - b.tier || compare(a.state, b.state))
   }

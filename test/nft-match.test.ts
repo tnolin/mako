@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it, vi } from "vitest"
 import { matchCollection, parseNftQuery } from "../src/nft/match"
 import { createNftState, type NftState } from "../src/nft/state"
 import { addr, nftCollection, nftStats } from "./helpers/events"
@@ -43,6 +43,31 @@ describe("matchCollection", () => {
     add(3, { slug: "w-c", name: "WIRED", verdict: "pending" }, 9000, 90)
     const m = matchCollection(state, "wired")
     expect(m).toEqual({ kind: "pick", contracts: [b, a, addr(3)] })
+  })
+
+  it("leaves filtered collections out of a name search, but an address still finds them", () => {
+    const copy = add(1, { slug: "thinkers-copy", name: "Thinkers", verdict: "filtered" })
+    expect(matchCollection(state, "thinkers")).toEqual({ kind: "none" })
+    expect(matchCollection(state, "thinkers-copy")).toEqual({ kind: "none" })
+    expect(matchCollection(state, copy)).toEqual({ kind: "one", contract: copy })
+    const real = add(2, { slug: "thinkers", name: "Thinkers", verdict: "real" })
+    expect(matchCollection(state, "thinkers")).toEqual({ kind: "one", contract: real })
+    expect(matchCollection(state, copy)).toEqual({ kind: "one", contract: copy })
+  })
+
+  it("opens the only match directly, whatever its verdict", () => {
+    const a = add(1, { slug: "human-ink", name: "Human ink", verdict: "pending" })
+    expect(matchCollection(state, "human ink")).toEqual({ kind: "one", contract: a })
+  })
+
+  it("opens directly when a contract is matched through more than one state", () => {
+    const a = add(1, { slug: "dup", name: "Dup Club", verdict: "pending" })
+    const s = state.get(a)!
+    vi.spyOn(state, "matches").mockReturnValue([
+      { tier: 2, state: s },
+      { tier: 2, state: { ...s } },
+    ])
+    expect(matchCollection(state, "dup club")).toEqual({ kind: "one", contract: a })
   })
 
   it("orders the list by tier: exact name, prefix, then contains", () => {

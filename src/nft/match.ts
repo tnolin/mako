@@ -34,23 +34,26 @@ export type Match =
 /**
  * The closest-match rule. An address or OpenSea link finds that collection or nothing. A name under 3
  * letters or digits is `short`. Otherwise the best tier decides: an exact slug opens straight away, as does
- * the only `real` collection in the best tier; else a pick list of up to 8, best first.
+ * the only `real` collection in the best tier, or the only collection matched; else a pick list of up to 8, best first.
  */
 export function matchCollection(state: NftState, q: string): Match {
   const exact = /0x[0-9a-fA-F]{40}/.test(q) || parseOpenSeaLink(q) !== null
   if (!exact && normalise(q).length < 3) return { kind: "short" }
   const ms = state.matches(q)
   if (ms.length === 0) return { kind: "none" }
-  const top = ms.filter((m) => m.tier === ms[0]!.tier)
-  const reals = top.filter((m) => m.state.col?.verdict === "real")
-  const only = ms[0]!.tier === 1 ? top[0] : reals.length === 1 ? reals[0] : undefined
   const contract = (m: (typeof ms)[number]) =>
     (m.state.col?.contract ??
       m.state.launch?.contract ??
       m.state.nftxLaunch?.contract ??
       m.state.auction?.contract)!
+  const seen = new Set<string>()
+  const uniq = ms.filter((m) => !seen.has(contract(m)) && seen.add(contract(m)))
+  if (uniq.length === 1) return { kind: "one", contract: contract(uniq[0]!) }
+  const top = uniq.filter((m) => m.tier === uniq[0]!.tier)
+  const reals = top.filter((m) => m.state.col?.verdict === "real")
+  const only = uniq[0]!.tier === 1 ? top[0] : reals.length === 1 ? reals[0] : undefined
   if (only) return { kind: "one", contract: contract(only) }
-  return { kind: "pick", contracts: ms.slice(0, 8).map(contract) }
+  return { kind: "pick", contracts: uniq.slice(0, 8).map(contract) }
 }
 
 /**

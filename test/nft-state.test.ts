@@ -116,8 +116,10 @@ it("finds collections by address, OpenSea link, slug and name, real ones first",
   expect(state.search("ink-hornet").map((s) => s.col?.slug)).toEqual(["ink-hornet"])
   expect(state.search("ink hornet").map((s) => s.col?.slug)).toEqual(["ink-hornet"])
   expect(state.search("hornet").map((s) => s.col?.slug)).toEqual(["ink-hornet"])
-  // Copies with more owners and sales still rank behind the real one.
-  expect(state.search("wired").map((s) => s.col?.contract)).toEqual([addr(0xc4), copy, addr(0xc5)])
+  // A filtered copy is left out of name and slug searches, and an address still finds it.
+  expect(state.search("wired").map((s) => s.col?.contract)).toEqual([addr(0xc4), addr(0xc5)])
+  expect(state.search("wired-2")).toEqual([])
+  expect(state.search(copy).map((s) => s.col?.contract)).toEqual([copy])
   expect(state.search("wired", 2)).toHaveLength(2)
   expect(state.search("zzzz")).toEqual([])
 })

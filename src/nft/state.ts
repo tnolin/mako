@@ -120,7 +120,9 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
               : needle !== "" && (name.includes(needle) || normalise(s).includes(needle))
                 ? 4
                 : null
-      if (tier) out.push({ tier, state })
+      // A filtered collection is a copycat: a typed name never finds it. Only its address or its exact
+      // slug (a pasted collection link) opens it.
+      if (tier && (col.verdict !== "filtered" || (link && tier === 1))) out.push({ tier, state })
     }
     return out.sort((a, b) => a.tier - b.tier || compare(a.state, b.state))
   }

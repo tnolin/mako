@@ -20,6 +20,7 @@ import {
   WINDOWS,
   type Window,
 } from "../nft/match"
+import { nftxSlugOf } from "../nft/nftx"
 import type { ItemData } from "../nft/opensea"
 import { isTeamStage } from "../nft/policy"
 import { mintLive, upcomingCard } from "../nft/rules/mint"
@@ -87,6 +88,8 @@ export type CollectionCard = {
   imageUrl: string | null
   imageKey: string
   slug: string | null
+  /** The NFTX link name, set only when the collection has no OpenSea page. */
+  nftxSlug: string | null
 }
 
 /** The collection card for a window. Null when MAKO has no data on the contract. */
@@ -99,7 +102,15 @@ export async function collectionCard(
   if (!st) return null
   const now = nowS(deps)
   const rate = deps.prices.usd(NATIVE)
-  const base = makeNftAlertCard("minted", "", st.col, [], { contract })
+  // A collection with no OpenSea page but an NFTX listing is labelled and linked as NFTX.
+  const nftxSlug = st.col?.slug == null ? nftxSlugOf(st) : null
+  const base = makeNftAlertCard(
+    "minted",
+    "",
+    st.col,
+    [],
+    nftxSlug ? { contract, market: "nftx", nftxSlug } : { contract },
+  )
   const stats = st.stats
   const rows: [string, string][] = []
   if (stats?.floorWei) {
@@ -148,7 +159,7 @@ export async function collectionCard(
   const mint = mintRow(st, now)
   if (mint) rows.push(["mint", mint])
   const lines = [
-    `<b>${escapeHtml(stateName(st, contract))}${base.verified ? " ✓" : ""} · OpenSea</b>`,
+    `<b>${escapeHtml(stateName(st, contract))}${base.verified ? " ✓" : ""} · ${base.marketplace}</b>`,
     "",
     ...renderRows(rows),
     "",
@@ -162,6 +173,7 @@ export async function collectionCard(
     imageUrl: base.imageUrl,
     imageKey: base.imageKey,
     slug: base.slug,
+    nftxSlug: base.nftxSlug,
   }
 }
 
@@ -184,8 +196,17 @@ async function isWatching(deps: BotDeps, ctx: Context, contract: string): Promis
   )
 }
 
-const viewUrl = (deps: BotDeps, contract: string, slug: string | null) =>
-  slug ? `${deps.linksBase}/n/c/${slug}` : `${deps.linksBase}/n/a/${contract}`
+const viewUrl = (
+  deps: BotDeps,
+  contract: string,
+  slug: string | null,
+  nftxSlug: string | null = null,
+) =>
+  slug
+    ? `${deps.linksBase}/n/c/${slug}`
+    : nftxSlug
+      ? `${deps.linksBase}/n/x/${nftxSlug}`
+      : `${deps.linksBase}/n/a/${contract}`
 
 /** Answers the tap without waiting for Telegram, so the card's reads and image start at once. */
 const answerTap = (ctx: Context) => {
@@ -261,7 +282,7 @@ function cardKb(
     [
       watch,
       btn("Recent sales", `nr:${contract}:1`),
-      link("View", viewUrl(deps, contract, card.slug)),
+      link("View", viewUrl(deps, contract, card.slug, card.nftxSlug)),
     ],
   ]
 }

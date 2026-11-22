@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.7.1] - 2026-11-23
+
+### Fixed
+
+- Searching a collection by name no longer lists filtered copies. A pasted address or OpenSea link still opens them.
+- A name that matches a single collection opens it straight away instead of offering a one-button pick list.
+- The collection card of a collection that trades on NFTX and has no OpenSea page reads `· NFTX`, and View opens NFTX.
+- A card image that takes up to 8 seconds to fetch is sent with the card instead of dropped, and a wait that runs out is logged.
+
 ## [0.7.0] - 2026-11-19
 
 ### Added

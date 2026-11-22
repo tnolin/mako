@@ -227,15 +227,29 @@ describe("collection card", () => {
     expect(h.last("sendPhoto")!.caption).not.toContain("nftx")
   })
 
-  it("names a collection with no OpenSea page by its NFTX token", async () => {
+  it("names a collection with no OpenSea page by its NFTX token and links View to NFTX", async () => {
     const fx = loadNftx()
     const bare = { ...fx.lilDudes.collection, name: null, slug: null }
     await boot([bare, fx.lilDudes.launch, fx.lilDudes.stats])
     mkBot()
     await h.text(`/nft ${bare.contract}`)
-    expect((h.last("sendMessage")!.text as string).split("\n")[0]).toBe(
-      `<b>${fx.lilDudes.launch.tokenName} · OpenSea</b>`,
-    )
+    const m = h.last("sendMessage")!
+    expect((m.text as string).split("\n")[0]).toBe(`<b>${fx.lilDudes.launch.tokenName} · NFTX</b>`)
+    expect(kbOf(m)[1]![2]).toEqual({
+      text: "View",
+      url: `https://go.makobot.xyz/n/x/${fx.lilDudes.launch.nftxSlug}`,
+    })
+  })
+
+  it("keeps OpenSea and its link for a collection that has a page and an NFTX open", async () => {
+    const fx = loadNftx()
+    const both = { ...fx.lilDudes.collection, slug: "lil-dudes" }
+    await boot([both, fx.lilDudes.launch, fx.lilDudes.stats])
+    mkBot()
+    await h.text(`/nft ${both.contract}`)
+    const m = h.last("sendMessage")!
+    expect((m.text as string).split("\n")[0]).toContain("· OpenSea</b>")
+    expect(kbOf(m)[1]![2]).toEqual({ text: "View", url: "https://go.makobot.xyz/n/c/lil-dudes" })
   })
 
   it("shows Watching, green, for a collection the viewer already watches", async () => {

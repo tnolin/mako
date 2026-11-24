@@ -1,6 +1,6 @@
 {
   "name": "mako",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "private": true,
   "description": "Real-time Telegram alerts for Ink memecoins",
   "license": "MIT",

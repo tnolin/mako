@@ -1,5 +1,11 @@
 # Changelog
 
+## [0.7.2] - 2026-11-24
+
+### Fixed
+
+- NFTX auctions bid in wQQQx now send their alerts, with amounts shown in wQQQx.
+
 ## [0.7.1] - 2026-11-23
 
 ### Fixed

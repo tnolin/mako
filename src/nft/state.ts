@@ -11,7 +11,7 @@ import type { Sql } from "../db"
 import type { Row } from "../history"
 import { findAddress } from "../platforms/telegram/ui"
 import { normalise, parseOpenSeaLink } from "./match"
-import { AUCTION_REMINDER_MIN_S, isTeamStage } from "./policy"
+import { AUCTION_CURRENCIES, AUCTION_REMINDER_MIN_S, isTeamStage } from "./policy"
 
 /** What the rules and screens know about one collection: the latest event of each kind. */
 export type CollectionState = {
@@ -27,7 +27,7 @@ export type CollectionState = {
   launch: NftLaunchEvent | null
   /** The latest open on NFTX, kept apart from a Chimera launch of the same collection. */
   nftxLaunch: NftLaunchEvent | null
-  /** The latest phase of the collection's ETH auction. */
+  /** The latest phase of the collection's auction. */
   auction: NftAuctionEvent | null
 }
 
@@ -132,7 +132,7 @@ export function createNftState(initial: Map<string, CollectionState> = new Map()
     apply({ p }) {
       if (p.type === "nft.listing" || p.type === "nft.sale") return null
       // Amounts of another currency cannot be rendered, and nothing downstream may see such an auction.
-      if (p.type === "nft.auction" && p.currency !== "ETH") return null
+      if (p.type === "nft.auction" && !Object.hasOwn(AUCTION_CURRENCIES, p.currency)) return null
       const s = entry(p.contract)
       switch (p.type) {
         case "nft.collection": {
@@ -202,14 +202,17 @@ export async function loadNftState(sql: Sql, uptoId: string): Promise<NftState> 
   const contracts = ents.map((e) => e.entity)
   if (contracts.length === 0) return createNftState(states)
   // One lookup per collection and kind through events_type_entity_id: the newest row with id <= uptoId.
-  const latest = <T extends NftEvent>(type: string, filter?: [field: string, value: string]) =>
+  const latest = <T extends NftEvent>(
+    type: string,
+    filter?: [field: string, ...values: string[]],
+  ) =>
     sql<{ p: T }[]>`
       select l.payload as p
       from unnest(${contracts}::text[]) as c(entity)
       cross join lateral (
         select payload from indexer.events
         where type = ${type} and entity = c.entity and id <= ${uptoId}
-          ${filter === undefined ? sql`` : sql`and payload->>${filter[0]} = ${filter[1]}`}
+          ${filter === undefined ? sql`` : sql`and payload->>${filter[0]} = any(${filter.slice(1)}::text[])`}
         order by id desc limit 1
       ) l`
   const [cols, drops, stages, marks, outs, stats, launches, opens, auctions] = await Promise.all([
@@ -221,7 +224,7 @@ export async function loadNftState(sql: Sql, uptoId: string): Promise<NftState> 
     latest<NftStatsEvent>("nft.stats"),
     latest<NftLaunchEvent>("nft.launch", ["launchpad", "chimera"]),
     latest<NftLaunchEvent>("nft.launch", ["launchpad", "nftx"]),
-    latest<NftAuctionEvent>("nft.auction", ["currency", "ETH"]),
+    latest<NftAuctionEvent>("nft.auction", ["currency", ...Object.keys(AUCTION_CURRENCIES)]),
   ])
   const state = createNftState(states)
   const put = (rows: { p: NftEvent }[]) => {

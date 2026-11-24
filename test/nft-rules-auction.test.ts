@@ -5,11 +5,18 @@ import type { Row } from "../src/history"
 import type { NftAlertCard } from "../src/nft/card"
 import { BID_RAISE_GAP_S } from "../src/nft/policy"
 import { queueReminders } from "../src/nft/reminders"
-import { auctionRules, bidRaiseWalk, endingSoonCard } from "../src/nft/rules/auction"
+import {
+  auctionRules,
+  bidRaisedCard,
+  bidRaiseWalk,
+  endedCard,
+  endingSoonCard,
+} from "../src/nft/rules/auction"
 import { mintRules } from "../src/nft/rules/mint"
 import { createNftState, loadNftState, type NftState } from "../src/nft/state"
 import type { Prices } from "../src/prices"
 import { type Candidate, rulesFor } from "../src/rules/index"
+import wqqqx from "./fixtures/nftx-wqqqx-auction.json"
 import { addUser } from "./helpers/bot"
 import { insertEvents, resetDb } from "./helpers/db"
 import { hash, NATIVE } from "./helpers/events"
@@ -558,5 +565,79 @@ describe("absurd numbers", () => {
     const zero = { ...A.price, txHash: hash(0xb2), minBidWei: "0", clearingPriceWei: "5" }
     const z = only(await run(zero, zero.blockTimestamp))
     for (const [, v] of card(z).rows) expect(v).not.toMatch(/NaN|undefined|Infinity/)
+  })
+})
+
+describe("auctions bid in wQQQx", () => {
+  const W = wqqqx as unknown as NftAuctionEvent
+  const col = { ...real, contract: W.contract }
+  const stateW = () => {
+    const st = createNftState()
+    st.apply({ id: "1", p: col })
+    return st
+  }
+
+  it("shows min bid, raised and the refund target in wQQQx, with no dollar amount", async () => {
+    const live = { ...W, phase: "live" as const, logIndex: 23, blockTimestamp: W.startsAt }
+    const c = only(await run(live, W.startsAt + 5, stateW()))
+    expect(rows(c)).toContain("min bid|0.154 wQQQx")
+    const soon = { ...live, phase: "price" as const, bidders: 3, raisedWei: "2500000000000000000" }
+    const soonRows = endingSoonCard(stateW().get(W.contract)!, soon, W.endsAt - H, 2400).rows
+    expect(soonRows.map(([l, v]) => `${l}|${v}`).slice(1)).toEqual([
+      "min bid|0.154 wQQQx",
+      "bidders|3",
+      "raised|2.5 wQQQx",
+    ])
+    const ended = {
+      ...W,
+      phase: "ended" as const,
+      logIndex: 24,
+      blockTimestamp: W.endsAt,
+      graduated: false,
+    }
+    const e = only(await run(ended, W.endsAt + 5, stateW()))
+    expect(rows(e)).toContain("raised|0 / 157 wQQQx")
+  })
+
+  it("UPCOMING AUCTION from the real created event shows the min bid in wQQQx", async () => {
+    const c = only(await run(W, W.blockTimestamp, stateW()))
+    expect(card(c).title).toBe("UPCOMING AUCTION")
+    expect(rows(c)).toContain("min bid|0.154 wQQQx")
+  })
+
+  it("an auction in an unknown currency still gives nothing", async () => {
+    const other = { ...W, currency: "0x00000000000000000000000000000000000000e0" as never }
+    expect(await run(other, W.blockTimestamp, stateW())).toEqual([])
+  })
+
+  it("loadNftState restores a wQQQx auction after a restart and not an unknown one", async () => {
+    const ids = await insertEvents(sql, [col, W])
+    expect((await loadNftState(sql, ids.at(-1)!)).get(W.contract)?.auction?.currency).toBe(
+      W.currency,
+    )
+    await resetDb(inject("databaseUrl"))
+    const ids2 = await insertEvents(sql, [
+      col,
+      { ...W, currency: "0x00000000000000000000000000000000000000e0" as never },
+    ])
+    expect((await loadNftState(sql, ids2.at(-1)!)).get(W.contract)?.auction).toBeNull()
+  })
+
+  it("BIDS RAISED and a graduated AUCTION ENDED show wQQQx with no dollar amount", () => {
+    const st = stateW().get(W.contract)!
+    const p = {
+      ...W,
+      phase: "price" as const,
+      bidders: 2,
+      clearingPriceWei: "307199999999999998",
+      raisedWei: "5000000000000000000",
+    }
+    const raised = bidRaisedCard(st, p, W.startsAt + 60, 2400).rows.map(([l, v]) => `${l}|${v}`)
+    expect(raised).toContain("min bid|0.307 wQQQx (+100%)")
+    expect(raised).toContain("raised|5 wQQQx")
+    const done = { ...p, phase: "ended" as const, graduated: true, cleared: "2483" }
+    const rows = endedCard(st, done, W.endsAt, 2400).rows.map(([l, v]) => `${l}|${v}`)
+    expect(rows).toContain("price|0.307 wQQQx per NFT")
+    expect(rows).toContain("raised|5 wQQQx")
   })
 })

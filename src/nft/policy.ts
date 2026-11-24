@@ -84,3 +84,12 @@ export function isTeamStage(s: { label: string; allowlistCount: number | null })
     (s.allowlistCount !== null && s.allowlistCount <= TEAM_ALLOWLIST_MAX)
   )
 }
+
+/**
+ * The currencies an NFTX auction can be bid in: the Launchpad's pair-token whitelist holds ETH and wQQQx
+ * (checked on chain: `symbol()` "wQQQx", `decimals()` 18). An auction in any other currency is dropped.
+ */
+export const AUCTION_CURRENCIES: Record<string, { symbol: string; decimals: 18 }> = {
+  ETH: { symbol: "ETH", decimals: 18 },
+  "0x4c1ae29c159838fc1b224636e28e086eb69101f7": { symbol: "wQQQx", decimals: 18 },
+}

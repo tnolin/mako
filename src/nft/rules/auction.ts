@@ -14,7 +14,12 @@ import {
 } from "../card"
 import { auctionPrices } from "../history"
 import { nftxSlugOf } from "../nftx"
-import { AUCTION_UPCOMING_MIN_S, BID_RAISE_BPS, BID_RAISE_GAP_S } from "../policy"
+import {
+  AUCTION_CURRENCIES,
+  AUCTION_UPCOMING_MIN_S,
+  BID_RAISE_BPS,
+  BID_RAISE_GAP_S,
+} from "../policy"
 import type { CollectionState } from "../state"
 
 type Rows = NftAlertCard["rows"]
@@ -51,7 +56,11 @@ function build(
   }
 }
 
-const eth = (wei: string, rate: number | null) => ethText(BigInt(wei), rate)
+/** An amount in the auction's own currency; only ETH gets a dollar value. */
+const amount = (a: NftAuctionEvent, wei: string, rate: number | null) =>
+  a.currency === "ETH"
+    ? ethText(BigInt(wei), rate)
+    : `${ethNumber(BigInt(wei))} ${AUCTION_CURRENCIES[a.currency]!.symbol}`
 
 /** UPCOMING AUCTION: when it starts and ends, how much it sells and the starting minimum bid. */
 export function upcomingAuctionCard(
@@ -69,7 +78,7 @@ export function upcomingAuctionCard(
       ["starts", `${utcTime(a.startsAt, true)} (in ${inText(a.startsAt - at)})`],
       ["ends", utcTime(a.endsAt, !sameDay(a.endsAt, a.startsAt))],
       ["supply", `${count(Number(a.supply))} NFTs`],
-      ["min bid", eth(a.minBidWei, rate)],
+      ["min bid", amount(a, a.minBidWei, rate)],
     ],
     { links: true },
   )
@@ -88,7 +97,7 @@ export function liveAuctionCard(
     st,
     a,
     [
-      ["min bid", eth(a.clearingPriceWei, rate)],
+      ["min bid", amount(a, a.clearingPriceWei, rate)],
       ["ends", `${utcTime(a.endsAt, !sameDay(a.endsAt, at))} (in ${inText(a.endsAt - at)})`],
       ["supply", `${count(Number(a.supply))} NFTs`],
     ],
@@ -106,9 +115,9 @@ export function bidRaisedCard(
   const start = BigInt(a.minBidWei)
   const rise = start > 0n ? ` (+${((BigInt(a.clearingPriceWei) - start) * 100n) / start}%)` : ""
   return build("minted", "MINIMUM BID RAISED", st, a, [
-    ["min bid", `${eth(a.clearingPriceWei, rate)}${rise}`],
+    ["min bid", `${amount(a, a.clearingPriceWei, rate)}${rise}`],
     ["bidders", count(a.bidders)],
-    ["raised", eth(a.raisedWei, rate)],
+    ["raised", amount(a, a.raisedWei, rate)],
     ["ends", `in ${inText(a.endsAt - at)}`],
   ])
 }
@@ -122,9 +131,9 @@ export function endingSoonCard(
 ): NftAlertCard {
   return build("reminder", "AUCTION ENDING SOON", st, a, [
     ["ends", `${utcTime(a.endsAt)} (in ${inText(a.endsAt - at)})`],
-    ["min bid", eth(a.clearingPriceWei, rate)],
+    ["min bid", amount(a, a.clearingPriceWei, rate)],
     ["bidders", count(a.bidders)],
-    ["raised", eth(a.raisedWei, rate)],
+    ["raised", amount(a, a.raisedWei, rate)],
   ])
 }
 
@@ -140,7 +149,7 @@ export function endedCard(
       ["result", "minimum not raised, bids refunded"],
       [
         "raised",
-        `${ethNumber(BigInt(a.raisedWei))} / ${ethNumber(BigInt(a.requiredRaiseWei))} ETH`,
+        `${ethNumber(BigInt(a.raisedWei))} / ${ethNumber(BigInt(a.requiredRaiseWei))} ${AUCTION_CURRENCIES[a.currency]!.symbol}`,
       ],
       ["bidders", count(a.bidders)],
     ])
@@ -149,9 +158,9 @@ export function endedCard(
   const supply = BigInt(a.supply)
   const share = supply > 0n ? ` (${(sold * 100n) / supply}%)` : ""
   return build("soldout", "AUCTION ENDED", st, a, [
-    ["price", `${eth(a.clearingPriceWei, rate)} per NFT`],
+    ["price", `${amount(a, a.clearingPriceWei, rate)} per NFT`],
     ["sold", `${count(Number(sold))} / ${count(Number(supply))}${share}`],
-    ["raised", eth(a.raisedWei, rate)],
+    ["raised", amount(a, a.raisedWei, rate)],
     ["bidders", count(a.bidders)],
     ["claims", `from ${utcTime(a.claimsAt)}`],
   ])
@@ -220,7 +229,7 @@ const sameEvent = (a: NftAuctionEvent, b: NftAuctionEvent) =>
 
 /**
  * Candidates for one `nft.auction` event. The state already holds the event, so an event it dropped (an
- * auction in a currency other than ETH) gives nothing. Every phase needs verdict `real`, watched or not.
+ * auction in a currency outside `AUCTION_CURRENCIES`) gives nothing. Every phase needs verdict `real`, watched or not.
  */
 export async function auctionRules(ev: Row<NftAuctionEvent>, ctx: RuleCtx): Promise<Candidate[]> {
   const p = ev.p

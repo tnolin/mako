@@ -18,7 +18,7 @@ export type RemindersDeps = {
   sql: Sql
   /** The poller's NFT state; undefined until it is loaded. */
   nft: () => NftState | undefined
-  /** The ETH price for the dollar figures; without a fresh one an auction card shows ETH only. */
+  /** The ETH price for the dollar figures; without a fresh one an ETH auction card shows ETH only. */
   prices: Prices
   now?: () => number
 }

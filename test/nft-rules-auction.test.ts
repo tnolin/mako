@@ -5,7 +5,13 @@ import type { Row } from "../src/history"
 import type { NftAlertCard } from "../src/nft/card"
 import { BID_RAISE_GAP_S } from "../src/nft/policy"
 import { queueReminders } from "../src/nft/reminders"
-import { auctionRules, bidRaiseWalk, endingSoonCard } from "../src/nft/rules/auction"
+import {
+  auctionRules,
+  bidRaisedCard,
+  bidRaiseWalk,
+  endedCard,
+  endingSoonCard,
+} from "../src/nft/rules/auction"
 import { mintRules } from "../src/nft/rules/mint"
 import { createNftState, loadNftState, type NftState } from "../src/nft/state"
 import type { Prices } from "../src/prices"
@@ -615,5 +621,23 @@ describe("auctions bid in wQQQx", () => {
       { ...W, currency: "0x00000000000000000000000000000000000000e0" as never },
     ])
     expect((await loadNftState(sql, ids2.at(-1)!)).get(W.contract)?.auction).toBeNull()
+  })
+
+  it("BIDS RAISED and a graduated AUCTION ENDED show wQQQx with no dollar amount", () => {
+    const st = stateW().get(W.contract)!
+    const p = {
+      ...W,
+      phase: "price" as const,
+      bidders: 2,
+      clearingPriceWei: "307199999999999998",
+      raisedWei: "5000000000000000000",
+    }
+    const raised = bidRaisedCard(st, p, W.startsAt + 60, 2400).rows.map(([l, v]) => `${l}|${v}`)
+    expect(raised).toContain("min bid|0.307 wQQQx (+100%)")
+    expect(raised).toContain("raised|5 wQQQx")
+    const done = { ...p, phase: "ended" as const, graduated: true, cleared: "2483" }
+    const rows = endedCard(st, done, W.endsAt, 2400).rows.map(([l, v]) => `${l}|${v}`)
+    expect(rows).toContain("price|0.307 wQQQx per NFT")
+    expect(rows).toContain("raised|5 wQQQx")
   })
 })

@@ -114,6 +114,14 @@ describe("NEW TOKEN", () => {
       expect(c!.card.rows.at(-1)).toEqual(["dev", "9 launches | 0 bonded"])
     })
 
+    it("sends one for a launch that starts in a pool, which never bonds", async () => {
+      const [c] = await run([
+        ...previous(9),
+        { ...think, targetRaise: null, startsInPool: true, poolId: hash(9) },
+      ])
+      expect(c).toMatchObject({ alert: "new" })
+    })
+
     it("sends one for a creator with 10 launches and 1 bonded", async () => {
       const [c] = await run([...previous(9, 1), think])
       expect(c).toMatchObject({ alert: "new" })

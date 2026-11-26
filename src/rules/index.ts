@@ -94,7 +94,7 @@ export async function rulesFor(
       // A token that starts in a pool makes its dev buy as a swap in the launch transaction.
       p.startsInPool ? swapsInTx(ctx.sql, p.token, p.txHash, p.blockNumber) : [],
     ])
-    if (isSerialLauncher(stats)) return []
+    if (isSerialLauncher(p, stats)) return []
     return forLaunch(p, [newToken(ev as Row<LaunchEvent>, trades, swaps, stats, ctx.prices)])
   }
   if (p.type === "launchpad.swap") {

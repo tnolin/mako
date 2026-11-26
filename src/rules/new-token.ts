@@ -12,8 +12,17 @@ import type { Candidate } from "./types"
 /** A creator with at least this many launches and none bonded is a serial launcher: their launches send no NEW TOKEN. */
 export const SERIAL_LAUNCHER_MIN_LAUNCHES = 10
 
-export const isSerialLauncher = (stats: { launches: number; bonded: number }): boolean =>
-  stats.launches >= SERIAL_LAUNCHER_MIN_LAUNCHES && stats.bonded === 0
+/**
+ * A token that starts in a pool never bonds, so its creator's bonded count says nothing about how their launches
+ * did: those launches always send.
+ */
+export const isSerialLauncher = (
+  launch: Pick<LaunchEvent, "startsInPool">,
+  stats: { launches: number; bonded: number },
+): boolean =>
+  launch.startsInPool !== true &&
+  stats.launches >= SERIAL_LAUNCHER_MIN_LAUNCHES &&
+  stats.bonded === 0
 
 export function newToken(
   ev: Row<LaunchEvent>,

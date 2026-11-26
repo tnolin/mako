@@ -189,7 +189,7 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
   const a = s.alerts
   switch (kind) {
     case "new":
-      return "NEW TOKEN - newly detected tokens created."
+      return "NEW TOKEN - newly detected tokens created, except by creators with 10+ launches and none bonded."
     case "bonding":
       return "BONDING - When a token passes your set threshold."
     case "pumping":
@@ -213,7 +213,7 @@ export function ALERT_DESC(kind: AlertKind, s: Settings): string {
     case "launch":
       return "NEW COLLECTION - A collection opening on NFTX."
     case "bigsale":
-      return `BIG SALE - an item sells for ${ethTrim(a.bigsale.minWei)} ETH or more.`
+      return `BIG SALE - an item sells for ${ethTrim(a.bigsale.minWei)} ETH or more, and at least 2x its floor when the floor is known.`
     case "under":
       return `UNDER FLOOR - an item lists ${pct(a.under.pctBps)}%+ under floor.`
     case "rare":

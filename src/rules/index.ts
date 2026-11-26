@@ -27,7 +27,7 @@ import { bonded } from "./bonded"
 import { bonding } from "./bonding"
 import { devSell, devSellSwap } from "./devsell"
 import { mcapTargets } from "./mcap"
-import { newToken } from "./new-token"
+import { isSerialLauncher, newToken } from "./new-token"
 import { pumping, pumpingBonded } from "./pumping"
 import type { Candidate, RuleCtx, SwapCtx } from "./types"
 
@@ -94,6 +94,7 @@ export async function rulesFor(
       // A token that starts in a pool makes its dev buy as a swap in the launch transaction.
       p.startsInPool ? swapsInTx(ctx.sql, p.token, p.txHash, p.blockNumber) : [],
     ])
+    if (isSerialLauncher(stats)) return []
     return forLaunch(p, [newToken(ev as Row<LaunchEvent>, trades, swaps, stats, ctx.prices)])
   }
   if (p.type === "launchpad.swap") {

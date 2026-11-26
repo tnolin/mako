@@ -274,7 +274,7 @@ describe("Tokens and NFTs screens", () => {
 
 const DEFAULTS = {
   token: [
-    "NEW TOKEN - newly detected tokens created.",
+    "NEW TOKEN - newly detected tokens created, except by creators with 10+ launches and none bonded.",
     "BONDING - When a token passes your set threshold.",
     "PUMPING - When a token jumps 15%+ on its curve, or 20%+ in its pool, in 10 min.",
     "BONDED - A token that has bonded/graduated.",
@@ -293,7 +293,7 @@ const DEFAULTS = {
     "RARE LISTING - a top 10% item lists near floor.",
     "FLOOR MOVE - the floor moves 20%+ in 24h.",
     "SWEEP - one wallet buys 5+ items in 10 min.",
-    "BIG SALE - an item sells for 0.1 ETH or more.",
+    "BIG SALE - an item sells for 0.1 ETH or more, and at least 2x its floor when the floor is known.",
     "SOLD - an item sells for 0.05 ETH or more.",
     "REMINDERS - a message 15 min before each mint stage, and 1 hour before an auction you follow ends.",
   ],

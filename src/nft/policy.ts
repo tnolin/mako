@@ -31,6 +31,9 @@ export const DEFAULT_SALE_WEI = SALE_STEPS[2]
 /** The smallest BIG SALE choice: every sale at or above it yields a candidate. */
 export const MIN_BIGSALE_WEI = BIGSALE_STEPS[0]
 
+/** BIG SALE for a sale with a known floor needs a price of at least this multiple of it. */
+export const BIGSALE_MIN_FLOOR_MULTIPLE = 2n
+
 /** A stage whose label matches this, or whose allowlist has this many wallets or fewer, is a Team stage. */
 export const TEAM_STAGE_RE = /team|reserve|treasury|dev/i
 export const TEAM_ALLOWLIST_MAX = 10

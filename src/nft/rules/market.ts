@@ -16,6 +16,7 @@ import {
 import { salesByBuyer } from "../history"
 import { NFTX_LOCKER, nftxSlugOf } from "../nftx"
 import {
+  BIGSALE_MIN_FLOOR_MULTIPLE,
   FLOOR_MAX_AGE_S,
   MIN_BIGSALE_WEI,
   RARE_PRICE_DEN,
@@ -224,7 +225,10 @@ async function sale(
     const card = makeNftAlertCard("sale", "SOLD", col, rows, opts)
     out.push(cand(ev, "sale", `sale:${key}`, card, p.blockTimestamp, st, { salePriceWei: price }))
 
-    if (price >= BigInt(MIN_BIGSALE_WEI)) {
+    if (
+      price >= BigInt(MIN_BIGSALE_WEI) &&
+      (!floor || price >= floor * BIGSALE_MIN_FLOOR_MULTIPLE)
+    ) {
       const big: Rows = [
         ["item", item],
         ["price", ethText(price, rate)],

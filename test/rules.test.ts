@@ -96,6 +96,30 @@ describe("NEW TOKEN", () => {
     expect(c!.card.links).toEqual([{ label: "X", url: "https://x.com/goblo" }])
   })
 
+  describe("serial launchers", () => {
+    const serial = addr(0x5e)
+    const previous = (n: number, bonded = 0) => [
+      ...Array.from({ length: n }, (_, i) => launch({ token: addr(0x500 + i), creator: serial })),
+      ...Array.from({ length: bonded }, (_, i) => bond({ token: addr(0x500 + i) })),
+    ]
+    const think = launch({ token: addr(0x57e1), creator: serial, launchpad: "inkfun" })
+
+    it("sends none when the creator has 10 launches and none bonded", async () => {
+      expect(await run([...previous(9), think])).toEqual([])
+    })
+
+    it("sends one for a creator with 9 launches and none bonded", async () => {
+      const [c] = await run([...previous(8), think])
+      expect(c).toMatchObject({ alert: "new" })
+      expect(c!.card.rows.at(-1)).toEqual(["dev", "9 launches | 0 bonded"])
+    })
+
+    it("sends one for a creator with 10 launches and 1 bonded", async () => {
+      const [c] = await run([...previous(9, 1), think])
+      expect(c).toMatchObject({ alert: "new" })
+    })
+  })
+
   it("leaves out the bond target for a token that starts in a pool", async () => {
     const [c] = await run([launch({ targetRaise: null, startsInPool: true, poolId: hash(9) })])
     expect(c!.card.rows.map(([label]) => label)).toEqual(["pair", "dev"])

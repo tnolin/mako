@@ -352,7 +352,7 @@ describe("SOLD and BIG SALE", () => {
       sold({
         itemName: "PRTSCN #1755",
         priceWei: milli(0.72),
-        floorWei: milli(0.562),
+        floorWei: milli(0.3),
         rank: 796,
         maxRank: 877,
       }),
@@ -368,13 +368,35 @@ describe("SOLD and BIG SALE", () => {
     expect(rows(c)).toEqual([
       "item|PRTSCN #1755",
       "price|0.72 ETH ($1.7K)",
-      "floor|0.562 ETH (1.3x)",
+      "floor|0.3 ETH (2.4x)",
       "rank|796 / 877",
       "buyer|0x0000…34cd",
     ])
     expect(by(cs, "sale")).toBeDefined()
     expect(by(await run(sold({ priceWei: milli(0.05) })), "bigsale")).toBeDefined()
     expect(by(await run(sold({ priceWei: milli(0.049) })), "bigsale")).toBeUndefined()
+  })
+
+  describe("BIG SALE floor", () => {
+    // THINKERS_ #1188: 0.107 ETH against a 0.099 ETH floor.
+    const thinkers = (o = {}) =>
+      sold({ itemName: "THINKERS_ #1188", priceWei: milli(0.107), floorWei: milli(0.099), ...o })
+
+    it("is not sent for a sale under 2x the floor, and SOLD still is", async () => {
+      const cs = await run(thinkers())
+      expect(by(cs, "bigsale")).toBeUndefined()
+      expect(by(cs, "sale")).toBeDefined()
+    })
+
+    it("is sent for a sale at 2x the floor", async () => {
+      expect(by(await run(thinkers({ priceWei: milli(0.198) })), "bigsale")).toBeDefined()
+      expect(by(await run(thinkers({ priceWei: milli(0.197) })), "bigsale")).toBeUndefined()
+    })
+
+    it("is sent for a sale with no floor", async () => {
+      expect(by(await run(thinkers({ floorWei: null })), "bigsale")).toBeDefined()
+      expect(by(await run(thinkers({ floorWei: "0" })), "bigsale")).toBeDefined()
+    })
   })
 
   it("uses the item image and falls back to the collection image", async () => {

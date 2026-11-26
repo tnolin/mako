@@ -55,7 +55,7 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 
 | Alert | Fires when |
 | --- | --- |
-| NEW TOKEN | A token is created |
+| NEW TOKEN | A token is created, unless its creator has 10 or more launches and none bonded |
 | BONDING | A token's curve passes 80% or 90% (50% is optional) |
 | PUMPING | A token's curve rises 15 points within 10 minutes; in a pool (after bonding, or from launch for a Hookit token), its market cap rises a chat's threshold (+15%, +20%, +30% or +50%) over the 10-minute low (ADR 0021, ADR 0024) |
 | BONDED | A token bonds and its liquidity moves to a pool |
@@ -81,7 +81,7 @@ Alert settings are edited in the user's DM, for the user and for each group or c
 | RARE LISTING | A top 1%, 5% or 10% item lists at most 10% over floor |
 | FLOOR MOVE | The floor moves 10%, 20% or 30% or more in 24 hours |
 | SWEEP | One wallet buys 5 or 10 items within 10 minutes |
-| BIG SALE | A sale at or above 0.05, 0.1, 0.25 or 0.5 ETH (0.1 by default) |
+| BIG SALE | A sale at or above 0.05, 0.1, 0.25 or 0.5 ETH (0.1 by default), and at least 2x the floor when the floor is known |
 | SOLD | A sale at or above a minimum (any, 0.01, 0.05, 0.1, 0.5 or 1 ETH) |
 | MINT REMINDER | 15 minutes before each stage that isn't a Team stage, from the REMINDERS switch or a Remind me tap |
 | AUCTION ENDING SOON | 1 hour before an NFTX auction of at least 2 hours ends, from the REMINDERS switch or a Remind me tap (ADR 0027) |

@@ -26,7 +26,7 @@ MAKO currently works with:
 
 | Alert | When it fires |
 | --- | --- |
-| NEW TOKEN | A token launches. When more than 10 launch on one launchpad within 5 minutes, they are grouped into one message per minute until it slows down. |
+| NEW TOKEN | A token launches, unless its creator has 10 or more launches and none bonded. When more than 10 launch on one launchpad within 5 minutes, they are grouped into one message per minute until it slows down. |
 | BONDING | A token's bonding curve passes 80% or 90%. A 50% mark can be turned on in My alerts. |
 | PUMPING | On the curve: the curve rises 15 points or more within 10 minutes, at most once an hour per token in each chat. In a pool (after bonding, or from launch for Hookit tokens): the market cap rises 20% or more over its lowest point in the last 10 minutes (15%, 30% or 50% can be chosen), once until the rise falls back under 5%. Feeds get it from a $50K market cap (adjustable); watched tokens always do. |
 | BONDED | A token fills its curve and its liquidity moves to a Uniswap pool. |
@@ -58,7 +58,7 @@ These alerts are only for NFTs you added to your watchlist.
 | RARE LISTING | a top 10% item lists near floor. |
 | FLOOR MOVE | the floor moves 20%+ in 24h. |
 | SWEEP | one wallet buys 5+ items in 10 min. |
-| BIG SALE | an item sells for 0.1 ETH or more. |
+| BIG SALE | an item sells for 0.1 ETH or more, and at least 2x its floor when the floor is known. |
 | SOLD | an item sells for 0.05 ETH or more. |
 | REMINDERS | a message 15 min before each mint stage, and 1 hour before an auction you follow ends. |
 

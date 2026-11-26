@@ -417,6 +417,7 @@ const flood = (n: number, o: { lp?: string; from?: number; ts0?: number } = {}) 
   Array.from({ length: n }, (_, i) =>
     launch({
       token: addr(0x1000 + (o.from ?? 0) + i),
+      creator: addr(0x6000 + (o.from ?? 0) + i),
       name: `Flood ${i + 1}`,
       ticker: `F${i + 1}`,
       launchpad: (o.lp ?? "inkypump") as never,
@@ -531,6 +532,7 @@ it("sends one notice for a flood longer than 15 minutes polled in many passes", 
   const long = Array.from({ length: 180 }, (_, i) =>
     launch({
       token: addr(0x3000 + i),
+      creator: addr(0x7000 + i),
       ticker: `L${i}`,
       blockTimestamp: MIN0 + i * 10,
       blockNumber: String(5000 + i * 10),
@@ -690,7 +692,7 @@ const prtscn = (o: { blockTimestamp: number }) =>
   nftSale({
     itemName: "PRTSCN #1755",
     priceWei: String(72n * 10n ** 16n),
-    floorWei: String(562n * 10n ** 15n),
+    floorWei: String(300n * 10n ** 15n),
     rank: 796,
     maxRank: 877,
     ...o,
@@ -1072,6 +1074,7 @@ describe("launch and bond rows the indexer wrote long after their block", () => 
       launch({
         launchpad: "inkfun",
         token: addr(0x5000 + i),
+        creator: addr(0x9000 + i),
         blockTimestamp: now - 60 + i,
         blockNumber: String(4900 + i),
         txHash: hash(0x8000 + i),

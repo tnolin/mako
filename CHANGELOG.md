@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3] - 2026-11-26
+
+### Changed
+
+- NEW TOKEN skips launches by a creator with 10 or more launches and none bonded. Tokens that start in a pool always send, and the token's other alerts are unchanged.
+- BIG SALE needs a price of at least 2x the floor when the sale has a known floor. A sale with no floor keeps the chat's ETH minimum alone, and SOLD is unchanged.
+
 ## [0.7.2] - 2026-11-24
 
 ### Fixed
